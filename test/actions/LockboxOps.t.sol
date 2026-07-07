@@ -42,7 +42,13 @@ contract LockboxOpsForkTest is BaseForkTest {
         assertGt(address(lockBox).code.length, 0, "lockbox not deployed");
 
         // README order, step 2: deploy the LockReleaseTokenPool pointed at the lockbox.
-        vm.setEnv("LOCK_BOX", vm.toString(address(lockBox)));
+        // Use the CHAIN-SCOPED `ETHEREUM_SEPOLIA_LOCK_BOX` (this fork is Sepolia), NEVER the bare inline
+        // `LOCK_BOX` alias. `vm.setEnv` is process-wide and never unset: a bare `LOCK_BOX` would leak into
+        // every parallel suite that resolves a lockbox (the RegistryResolution / DepositToLockBox tests
+        // assert on the bare-alias rung), silently poisoning them. The chain-scoped name is namespaced to
+        // Sepolia, so it cannot collide with the throwaway-chain resolution tests. `getDeployedLockBox`
+        // reads `{CHAIN}_LOCK_BOX` after the bare alias, so the pool deploy below still resolves it.
+        vm.setEnv("ETHEREUM_SEPOLIA_LOCK_BOX", vm.toString(address(lockBox)));
         uint256 noncePool = vm.getNonce(owner);
         new DeployLockReleaseTokenPool().run();
         pool = LockReleaseTokenPool(vm.computeCreateAddress(owner, noncePool));

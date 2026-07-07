@@ -5,6 +5,8 @@ import {Script, console} from "forge-std/Script.sol";
 import {HelperConfig} from "../../HelperConfig.s.sol";
 import {HelperUtils} from "../../utils/HelperUtils.s.sol";
 import {DeploymentUtils} from "../../utils/DeploymentUtils.s.sol";
+import {DeploymentRecorder} from "../../utils/DeploymentRecorder.s.sol";
+import {RegistryWriter} from "../../../src/utils/RegistryWriter.sol";
 import {AdvancedPoolHooks} from "@chainlink/contracts-ccip/contracts/pools/AdvancedPoolHooks.sol";
 
 /**
@@ -55,13 +57,11 @@ contract DeployAdvancedPoolHooks is Script {
         console.log("");
 
         // Define the path to the configuration file
-        string memory root = vm.projectRoot();
-        string memory configPath = string.concat(root, "/script/input/advanced-pool-hooks.json");
+        string memory configPath = string.concat(vm.projectRoot(), "/script/input/advanced-pool-hooks.json");
 
         // Parse parameters — env vars take priority, JSON config is the fallback
-        string memory allowlistEnv = vm.envOr("ALLOWLIST", string(""));
-        address[] memory allowlist = bytes(allowlistEnv).length > 0
-            ? HelperUtils.parseAddressArray(vm, allowlistEnv, "")
+        address[] memory allowlist = bytes(vm.envOr("ALLOWLIST", string(""))).length > 0
+            ? HelperUtils.parseAddressArray(vm, vm.envOr("ALLOWLIST", string("")), "")
             : HelperUtils.parseAddressArray(vm, configPath, ".allowlist");
 
         uint256 thresholdAmount =
@@ -69,9 +69,8 @@ contract DeployAdvancedPoolHooks is Script {
         address policyEngine =
             vm.envOr("POLICY_ENGINE", HelperUtils.getAddressFromJson(vm, configPath, ".policyEngine"));
 
-        string memory callersEnv = vm.envOr("AUTHORIZED_CALLERS", string(""));
-        address[] memory authorizedCallers = bytes(callersEnv).length > 0
-            ? HelperUtils.parseAddressArray(vm, callersEnv, "")
+        address[] memory authorizedCallers = bytes(vm.envOr("AUTHORIZED_CALLERS", string(""))).length > 0
+            ? HelperUtils.parseAddressArray(vm, vm.envOr("AUTHORIZED_CALLERS", string("")), "")
             : HelperUtils.parseAddressArray(vm, configPath, ".authorizedCallers");
 
         console.log("Advanced Pool Hooks Parameters:");
@@ -102,6 +101,11 @@ contract DeployAdvancedPoolHooks is Script {
         }
         console.log("");
 
+        // Hooks belong to a token's pool, so the registry key carries the token symbol and pool type
+        // (see _hooksDeploymentName). Refuse to redeploy over a live registry entry (FORCE_REDEPLOY
+        // overrides). The name is composed in a helper to keep this stack-heavy function under the limit.
+        RegistryWriter.guard(chainId, _hooksDeploymentName(chainId));
+
         vm.startBroadcast();
 
         console.log(string.concat("\n[Step 1] Deploying AdvancedPoolHooks on ", chainName));
@@ -113,6 +117,23 @@ contract DeployAdvancedPoolHooks is Script {
 
         vm.stopBroadcast();
 
+        _recordAndReport(
+            chainId, chainNameId, chainName, hooksAddress, allowlist, thresholdAmount, policyEngine, authorizedCallers
+        );
+    }
+
+    /// @dev Post-deploy: the single-writer registry+ledger record and the human-readable summary.
+    /// Split off `run()` so its locals do not add to that stack-heavy function.
+    function _recordAndReport(
+        uint256 chainId,
+        string memory chainNameId,
+        string memory chainName,
+        address hooksAddress,
+        address[] memory allowlist,
+        uint256 thresholdAmount,
+        address policyEngine,
+        address[] memory authorizedCallers
+    ) private {
         console.log("");
         console.log("========================================");
         console.log(string.concat(unicode"✅ Deployment Complete on ", chainName, "!"));
@@ -120,7 +141,11 @@ contract DeployAdvancedPoolHooks is Script {
         console.log(string.concat("AdvancedPoolHooks Address: ", vm.toString(hooksAddress)));
         console.log(helperConfig.getExplorerUrl(chainId, "/address/", hooksAddress));
         console.log("");
-        DeploymentUtils.savePoolHooksDeployment(vm, chainNameId, hooksAddress);
+        // Single writer: one call emits the detailed ledger file AND records the address in the
+        // registry (deployments[{symbol}_{poolType}_PoolHooks] + active.poolHooks).
+        DeploymentRecorder.recordPoolHooks(
+            vm, chainId, chainNameId, hooksAddress, helperConfig.getDeployedToken(chainId), _hooksPoolType()
+        );
         console.log("");
         console.log("Configuration Summary:");
         console.log(string.concat("  Allowlist:                    ", allowlist.length > 0 ? "Enabled" : "Disabled"));
@@ -148,5 +173,19 @@ contract DeployAdvancedPoolHooks is Script {
         );
         console.log("========================================");
         console.log("");
+    }
+
+    /// @dev The `deployments` key for these hooks: `{symbol}_{poolType}_PoolHooks`. The symbol comes
+    /// from the chain's deployed token (env `TOKEN` / `{CHAIN}_TOKEN` / registry, else `TOKEN_SYMBOL`
+    /// / "unknown"); the pool type from env `POOL_TYPE` (default "BurnMint"). Split into its own
+    /// function so its locals do not add to the stack-heavy `run()`.
+    function _hooksDeploymentName(uint256 chainId) private view returns (string memory) {
+        return DeploymentRecorder.hooksName(
+            DeploymentUtils.getSymbol(vm, helperConfig.getDeployedToken(chainId)), _hooksPoolType()
+        );
+    }
+
+    function _hooksPoolType() private view returns (string memory) {
+        return vm.envOr("POOL_TYPE", string("BurnMint"));
     }
 }

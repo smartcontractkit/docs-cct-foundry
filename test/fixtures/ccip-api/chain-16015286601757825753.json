@@ -1,0 +1,176 @@
+{
+  "chain": {
+    "name": "ethereum-testnet-sepolia",
+    "displayName": "Ethereum Sepolia",
+    "chainSelector": "16015286601757825753",
+    "chainId": "11155111",
+    "chainFamily": "EVM",
+    "environment": "testnet",
+    "isPrivate": false
+  },
+  "chainConfig": {
+    "chainFamily": "EVM",
+    "router": [
+      {
+        "address": "0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59",
+        "type": "Router",
+        "version": "1.2.0",
+        "isActive": true
+      },
+      {
+        "address": "0x3F1f176e347235858DD6Db905DDBA09Eaf25478a",
+        "type": "Router",
+        "version": "1.2.0",
+        "isActive": false
+      }
+    ],
+    "feeQuoter": [
+      {
+        "address": "0x8632C3025FAFdD85A299211FD5838b5fBE2df816",
+        "type": "FeeQuoter",
+        "version": "2.0.0",
+        "isActive": true
+      },
+      {
+        "address": "0xb6a1171fCfE2191430478026718872CF8817CE31",
+        "type": "FeeQuoter",
+        "version": "1.6.3",
+        "isActive": false
+      }
+    ],
+    "feeTokens": [
+      {
+        "tokenAddress": "0xc4bF5CbDaBE595361438F8c6a187bDc330539c60",
+        "tokenSymbol": "GHO",
+        "tokenName": "Gho Token",
+        "decimals": 18
+      },
+      {
+        "tokenAddress": "0x779877A7B0D9E8603169DdbD7836e478b4624789",
+        "tokenSymbol": "LINK",
+        "tokenName": "ChainLink Token",
+        "decimals": 18
+      },
+      {
+        "tokenAddress": "0x097D90c9d3E0B50Ca60e1ae45F6A81010f9FB534",
+        "tokenSymbol": "WETH",
+        "tokenName": "Wrapped Ether",
+        "decimals": 18
+      }
+    ],
+    "tokenAdminRegistry": [
+      {
+        "address": "0x95F29FEE11c5C55d26cCcf1DB6772DE953B37B82",
+        "type": "TokenAdminRegistry",
+        "version": "1.5.0",
+        "isActive": true
+      }
+    ],
+    "registryModule": [
+      {
+        "address": "0xa3c796d480638d7476792230da1E2ADa86e031b0",
+        "type": "RegistryModuleOwnerCustom",
+        "version": "1.6.0",
+        "isActive": true
+      }
+    ],
+    "tokenPoolFactory": [
+      {
+        "address": "0x2067C0444F9dc58cFB33B095279A28886562f169",
+        "type": "TokenPoolFactory",
+        "version": "1.5.1",
+        "isActive": true
+      }
+    ],
+    "rmn": [
+      {
+        "address": "0xba3f6251de62dED61Ff98590cB2fDf6871FbB991",
+        "type": "ARMProxy",
+        "version": "1.0.0",
+        "isActive": true
+      }
+    ],
+    "permaBlessedCommitStores": [
+      "0xdF4a1595cF4d14e16344B788485Ea5e9A5B0A48e",
+      "0x80e9E195B9efd49b0021023203Bcb376d4A3ca58",
+      "0x408875a649fc73D406e727108Eb03Ff0aD61Fa97",
+      "0xBAA632015672BBEF9791B2a26F8abF8B27201703",
+      "0x24BA37C2f1C540F73664E0361011DB1e1D3EF957",
+      "0xb147CDBfbFFC98AE12EaF20ceDd21aC5fBcfbFa8",
+      "0x9988db0F607839c8807e97b64bddae97972cdF8f",
+      "0x2f57D7d78C9dec55f819F7531eBa583De952F286",
+      "0xC00020CDbDfb34D0F47507E5e981A1A54489B5A5",
+      "0xaab7fe2aF41Edd71ac49AC82B19e621dbe6c3155",
+      "0x8AeE6dD6c0b42a5377234B16465ec13a9bBe2a21",
+      "0xDDE7726BD766ecCF75553fcCF49FE5A3e79DF3EB",
+      "0x59dbC90da3A50dbCE55410791a7705B3528175e3",
+      "0x23dD008B45144d10A88b122F29Cb25196B132B97",
+      "0x7bde45a9F3F2F09BdffB4825c3E6eEbbA7F9174a",
+      "0x447219F40121412421C4e73Ca080C707b9aadD50",
+      "0xaF3D6ECD45C2c4b94d433f33a77E066FfF3A46F8",
+      "0xAB7545732dE27072531afBbfD54F2cdDf1bc06d3",
+      "0xb742Fd2DFA79877bD2a35c3088ee2E8178D1fA56",
+      "0xB4aA4C76Baeea0E08AEF63f4c7B00F95E797F7c7",
+      "0xC1226b8Fc045Bc599feF3c9d4E47D5A819c73210",
+      "0xeFfFD86643EEfA77Fd6b01aA9B95F543ce3eBcBD",
+      "0xa5707f2e776567DFbCeCF9343550c24075F491B7",
+      "0x64d292F559a45D7B4ED884cd4209675cB0Aa8412",
+      "0xd2bC4c5916ACd6579BF64e9aD3241B9C2d25Bbf6",
+      "0x36802d1545E7D54e4908f9dB2ED52dD553073690",
+      "0x33dE60b3982034f4926b4cfD9785A0197e3A8d4C",
+      "0x78Cdaea82F3603169b9aeBEd30354189e3Af2745",
+      "0x4e7869F865dA6622fA5223b2C5f25A993b93ECe3",
+      "0x949Eb4c738c7770181aC31e82b94425e39f18B7e",
+      "0xb86a8dF01Dede20b52B0ae393B9D33aA4A99770F",
+      "0xaAFa992D13EE34566E1806211e121d2265Fe1174",
+      "0x15084E8772164f90A81cEc344F87fe67b077e5fF",
+      "0x2E4545304B5DF54d919d87A8F8119f7C940D6534",
+      "0x4562315d2858018451477b3F7629A18eEeCDdE06",
+      "0x0eCA6284692eF8F97b27df3Ee1D2E94FEB7a53e0",
+      "0x539602E52B3807C4c75FE270F2d3505daFF939B7",
+      "0xE03830fF0400A6ADc42d2e0B68b200aB7B61c051",
+      "0xf807282AdC9D7e33B923e3A6C9BDF9Ea18DD980d",
+      "0x2D3100F85Ad017205bA0c1dC62a6Fdb5c001017d",
+      "0xD2104488B181cc8CF09FF53a24498C5b60627971",
+      "0xfA331946c4471411259448A44f6d379Fd8DbBfB0",
+      "0x40F72cFDA9B1113d5785F5227f81042E6258a1c1",
+      "0x1e68d91360e4EaA9A0138ddc9435540Ca57c1B06",
+      "0x2DC5E5382508E2bdAA68C394D3d7a85e42D5EB29",
+      "0xAd09bc5d5F03177b910a6b1E9b5314D20ca26330",
+      "0x488F00c32d7d61aF23Ca4C5D62b050677bd2E908",
+      "0x1fE526317352AEa587A9C59876CB954DB19f5144",
+      "0x496fE96E440Fc683478a08Df92A1c5E23E412b1C",
+      "0xB5FbA97Dc61ec68771a92a15360d9C32c9d054E7",
+      "0x673354B772141F358827C5607D3e3418b847D765",
+      "0xd57866D97ca26dfaE34088a3EeE4657BAFaac5f9",
+      "0x240420BC6bCDc067e668c7492D69fe06B3CF80cE",
+      "0x80F2796ae868a2f21c965c449bc9dF23Fd6290b7",
+      "0x2ED74B6c01C9C7c3B5193E88fB81B0b8D09a48B0",
+      "0x32edD59840CD9e474A280cf1707439F2Bd5872d4",
+      "0x1e46bAC486Dd878cD57B62845530A52343e39693",
+      "0xF9aAD3AF371d2769573D7d9328b50f4B414CB411",
+      "0xBBb9baA314eB023E3F9291Aaf4107B6708341B50",
+      "0xE95c2135e3330E953BB49068d32Fcba368Acd456",
+      "0x39026BAeb34F274b79401F9eca0e3bE38290bbA9",
+      "0x6e4601DA99a046e4bde60d051568E3E1F35E3097",
+      "0x307dDE3c696E399b5837456FbCe03b1Ad76D46E3",
+      "0x3A27Fd059A4eF0e96B0643283A44a56A8d6CF34A",
+      "0x139E06b6dBB1a0C41A1686C091795879c943765A",
+      "0xEeB665281c7ab51d25423898f730Ab078c69dd42"
+    ]
+  },
+  "chainMetadata": {
+    "explorer": {
+      "name": "Etherscan",
+      "url": "https://sepolia.etherscan.io",
+      "txPath": "https://sepolia.etherscan.io/tx",
+      "addressPath": "https://sepolia.etherscan.io/address",
+      "tokenPath": "https://sepolia.etherscan.io/token"
+    },
+    "nativeCurrency": {
+      "name": "Ether",
+      "symbol": "ETH",
+      "decimals": 18
+    }
+  }
+}

@@ -20,7 +20,8 @@ contract GetAllowList is Script {
         uint256 chainId = block.chainid;
         string memory chainName = helperConfig.getChainName(chainId);
 
-        address hooksAddress = vm.envOr("POOL_HOOKS", address(0));
+        // POOL_HOOKS alias > {CHAIN}_POOL_HOOKS > registry active.poolHooks (no manual export needed).
+        address hooksAddress = vm.envOr("POOL_HOOKS", helperConfig.getDeployedPoolHooks(chainId));
         require(
             hooksAddress != address(0),
             string.concat(

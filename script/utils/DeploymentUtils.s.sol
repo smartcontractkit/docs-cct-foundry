@@ -56,7 +56,7 @@ library DeploymentUtils {
         address tokenAddress,
         string memory poolType
     ) internal {
-        string memory symbol = _getSymbol(vm, tokenAddress);
+        string memory symbol = getSymbol(vm, tokenAddress);
         string memory deploymentDir =
             string.concat(vm.projectRoot(), "/script/deployments/token-pools/", chainNameIdentifier, "/");
         vm.createDir(deploymentDir, true);
@@ -100,7 +100,7 @@ library DeploymentUtils {
         address lockBox,
         string memory poolType
     ) internal {
-        string memory symbol = _getSymbol(vm, tokenAddress);
+        string memory symbol = getSymbol(vm, tokenAddress);
         string memory deploymentDir =
             string.concat(vm.projectRoot(), "/script/deployments/token-pools/", chainNameIdentifier, "/");
         vm.createDir(deploymentDir, true);
@@ -141,7 +141,7 @@ library DeploymentUtils {
         address lockBoxAddress,
         address tokenAddress
     ) internal {
-        string memory symbol = _getSymbol(vm, tokenAddress);
+        string memory symbol = getSymbol(vm, tokenAddress);
         string memory deploymentDir =
             string.concat(vm.projectRoot(), "/script/deployments/lock-boxes/", chainNameIdentifier, "/");
         vm.createDir(deploymentDir, true);
@@ -194,7 +194,9 @@ library DeploymentUtils {
 
     /// @dev Resolves the token symbol by calling `symbol()` on the token contract, falling back to
     /// the TOKEN_SYMBOL environment variable, or "unknown" if neither is available.
-    function _getSymbol(Vm vm, address tokenAddress) private view returns (string memory symbol) {
+    /// `internal` so the single-writer `DeploymentRecorder` composes the registry key from the same
+    /// symbol the ledger file is named with.
+    function getSymbol(Vm vm, address tokenAddress) internal view returns (string memory symbol) {
         try IERC20Metadata(tokenAddress).symbol() returns (string memory s) {
             symbol = s;
         } catch {

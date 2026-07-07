@@ -1,0 +1,42 @@
+name: CCIP Config Drift
+
+# Scheduled read-only drift check: compares every config/chains/<name>.json ccip{} block
+# field-by-field against the live CCIP API (script/config/sync-check.sh). Exit contract:
+# 0 clean / 1 drift (fail visibly) / 2 API unreachable (warn-and-pass — flake is not drift).
+# Not a pull_request gate: this surfaces upstream CCIP address rotations, not PR regressions.
+
+on:
+  schedule:
+    - cron: "43 5 * * 1" # Mondays 05:43 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FOUNDRY_VERSION: v1.7.1
+
+jobs:
+  sync-check:
+    name: sync-check vs live CCIP API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1.9.0
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      - run: npm ci
+      - name: sync-check all configured chains
+        run: |
+          set +e
+          bash script/config/sync-check.sh
+          code=$?
+          if [ "$code" -eq 2 ]; then
+            echo "::warning::CCIP API unreachable - drift could not be determined (flake, not drift)"
+            exit 0
+          fi
+          exit $code

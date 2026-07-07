@@ -1,0 +1,27 @@
+{
+  "ccip": {
+    "feeQuoter": "0xA6f3eff08557f757F4eDdCDC9EaC904f2B863Cd5",
+    "feeTokens": [
+      "0x3423C922911956b1Ccbc2b5d4f38216a6f4299b4",
+      "0x4200000000000000000000000000000000000006"
+    ],
+    "link": "0x3423C922911956b1Ccbc2b5d4f38216a6f4299b4",
+    "registryModuleOwnerCustom": "0xaB018890bBdDf9B80E21d1c335c5f6acdbE0f5D6",
+    "rmnProxy": "0x84017cfddD12D319E5bBf090e0de6d55B78160Cb",
+    "router": "0x17fCda531D8E43B4e2a2A2492FBcd4507a1685A1",
+    "tokenAdminRegistry": "0x3A849a05a590FeaEf26c2d425241A2BF29307161",
+    "tokenPoolFactory": "0xfB7b57501AeA0789D312c5a062ebfAc016f8eb11"
+  },
+  "ccipBnM": "0x414dbe1d58dd9BA7C84f7Fc0e4f82bc858675d37",
+  "chainFamily": "evm",
+  "chainId": "763373",
+  "chainNameIdentifier": "INK_SEPOLIA",
+  "chainSelector": "9763904284804119144",
+  "confirmations": 2,
+  "displayName": "Ink Sepolia",
+  "environment": "testnet",
+  "explorerUrl": "https://explorer-sepolia.inkonchain.com",
+  "name": "ink-testnet-sepolia",
+  "nativeCurrencySymbol": "ETH",
+  "rpcEnv": "INK_SEPOLIA_RPC_URL"
+}

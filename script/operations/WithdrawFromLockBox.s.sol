@@ -30,8 +30,12 @@ contract WithdrawFromLockBox is EoaExecutor {
         uint256 chainId = block.chainid;
         string memory chainName = helperConfig.getChainName(chainId);
 
-        address lockBoxAddress = vm.envAddress("LOCK_BOX");
-        require(lockBoxAddress != address(0), "LOCK_BOX environment variable not set");
+        // LOCK_BOX alias > {CHAIN}_LOCK_BOX > registry active.lockBox (no manual export needed).
+        address lockBoxAddress = vm.envOr("LOCK_BOX", helperConfig.getDeployedLockBox(chainId));
+        require(
+            lockBoxAddress != address(0),
+            "LockBox not deployed. Set LOCK_BOX or the {CHAIN}_LOCK_BOX environment variable."
+        );
 
         console.log("");
         console.log("========================================");

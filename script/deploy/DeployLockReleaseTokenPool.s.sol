@@ -7,6 +7,8 @@ import {LockReleaseTokenPool} from "@chainlink/contracts-ccip/contracts/pools/Lo
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {DeploymentUtils} from "../utils/DeploymentUtils.s.sol";
+import {DeploymentRecorder} from "../utils/DeploymentRecorder.s.sol";
+import {RegistryWriter} from "../../src/utils/RegistryWriter.sol";
 
 contract DeployLockReleaseTokenPool is Script {
     HelperConfig public helperConfig;
@@ -37,9 +39,10 @@ contract DeployLockReleaseTokenPool is Script {
             )
         );
 
-        // Get LockBox address from environment variable (required)
-        address lockBox = vm.envOr("LOCK_BOX", address(0));
-        require(lockBox != address(0), "LOCK_BOX env var required");
+        // Get LockBox address via the standard ladder: LOCK_BOX alias > {CHAIN}_LOCK_BOX > registry
+        // active.lockBox (written automatically by DeployERC20LockBox).
+        address lockBox = vm.envOr("LOCK_BOX", helperConfig.getDeployedLockBox(chainId));
+        require(lockBox != address(0), "LockBox not deployed. Set LOCK_BOX or run DeployERC20LockBox first.");
 
         // Validate router and RMN proxy addresses
         require(config.router != address(0), "Router not defined for this network");
@@ -53,7 +56,8 @@ contract DeployLockReleaseTokenPool is Script {
             console.log(unicode"⚠️  decimals() not found on token, falling back to DECIMALS env var");
             decimals = uint8(vm.envUint("DECIMALS"));
         }
-        address poolHooks = vm.envOr("POOL_HOOKS", address(0));
+        // POOL_HOOKS alias > {CHAIN}_POOL_HOOKS > registry active.poolHooks. Optional (0x0 = no hooks).
+        address poolHooks = vm.envOr("POOL_HOOKS", helperConfig.getDeployedPoolHooks(chainId));
 
         console.log("Token Pool Parameters:");
         console.log(string.concat("  Token:                        ", vm.toString(tokenAddress)));
@@ -68,6 +72,12 @@ contract DeployLockReleaseTokenPool is Script {
         );
         console.log("");
 
+        // Refuse to redeploy over a live registry entry (FORCE_REDEPLOY=true overrides). Keyed on the
+        // unique per-symbol/per-pool-type/per-version deployment name so a BurnMint and a LockRelease
+        // pool (or an old and a new version) for the same token never collide.
+        string memory symbol = DeploymentUtils.getSymbol(vm, tokenAddress);
+        RegistryWriter.guard(chainId, DeploymentRecorder.poolName(symbol, "LockRelease"));
+
         vm.startBroadcast();
 
         console.log(string.concat("\n[Step 1] Deploying LockReleaseTokenPool on ", chainName));
@@ -81,6 +91,20 @@ contract DeployLockReleaseTokenPool is Script {
 
         vm.stopBroadcast();
 
+        // Assert the on-chain typeAndVersion matches the version composed into the registry key — a
+        // cheap guard against a pinned-dependency mismatch (recording a 2.0.0 key for a stale pool).
+        string memory expectedTypeAndVersion = string.concat("LockReleaseTokenPool ", DeploymentRecorder.POOL_VERSION);
+        require(
+            keccak256(bytes(tokenPool.typeAndVersion())) == keccak256(bytes(expectedTypeAndVersion)),
+            string.concat(
+                "typeAndVersion mismatch: on-chain '",
+                tokenPool.typeAndVersion(),
+                "' != key '",
+                expectedTypeAndVersion,
+                "'"
+            )
+        );
+
         console.log("");
         console.log("========================================");
         console.log(string.concat(unicode"✅ Deployment Complete on ", chainName, "!"));
@@ -88,11 +112,14 @@ contract DeployLockReleaseTokenPool is Script {
         console.log(string.concat("Token Pool Address: ", vm.toString(tokenPoolAddress)));
         console.log(helperConfig.getExplorerUrl(chainId, "/address/", tokenPoolAddress));
         console.log("");
-        DeploymentUtils.saveLockReleaseTokenPoolDeployment(
-            vm, config.chainNameIdentifier, tokenPoolAddress, tokenAddress, lockBox, "LockRelease"
+        // Single writer: one call emits the detailed ledger file (with the lock box) AND records the
+        // address in the registry (deployments[{symbol}_LockReleaseTokenPool_{version}] + active.tokenPool).
+        DeploymentRecorder.recordTokenPool(
+            vm, chainId, config.chainNameIdentifier, tokenPoolAddress, tokenAddress, lockBox, "LockRelease"
         );
         console.log("");
-        console.log("Run this command to set the environment variable:");
+        console.log("The address is registered in the address registry; later scripts resolve it automatically.");
+        console.log("To override it for a session, set the environment variable:");
         console.log(string.concat("export ", config.chainNameIdentifier, "_TOKEN_POOL=", vm.toString(tokenPoolAddress)));
         console.log("========================================");
         console.log("");

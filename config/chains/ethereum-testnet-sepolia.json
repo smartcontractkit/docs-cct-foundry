@@ -1,0 +1,28 @@
+{
+  "ccip": {
+    "feeQuoter": "0x8632C3025FAFdD85A299211FD5838b5fBE2df816",
+    "feeTokens": [
+      "0xc4bF5CbDaBE595361438F8c6a187bDc330539c60",
+      "0x779877A7B0D9E8603169DdbD7836e478b4624789",
+      "0x097D90c9d3E0B50Ca60e1ae45F6A81010f9FB534"
+    ],
+    "link": "0x779877A7B0D9E8603169DdbD7836e478b4624789",
+    "registryModuleOwnerCustom": "0xa3c796d480638d7476792230da1E2ADa86e031b0",
+    "rmnProxy": "0xba3f6251de62dED61Ff98590cB2fDf6871FbB991",
+    "router": "0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59",
+    "tokenAdminRegistry": "0x95F29FEE11c5C55d26cCcf1DB6772DE953B37B82",
+    "tokenPoolFactory": "0x2067C0444F9dc58cFB33B095279A28886562f169"
+  },
+  "ccipBnM": "0x9a97F119cFE1D5Ea77c264441C0A0aBC9B34E119",
+  "chainFamily": "evm",
+  "chainId": "11155111",
+  "chainNameIdentifier": "ETHEREUM_SEPOLIA",
+  "chainSelector": "16015286601757825753",
+  "confirmations": 2,
+  "displayName": "Ethereum Sepolia",
+  "environment": "testnet",
+  "explorerUrl": "https://sepolia.etherscan.io",
+  "name": "ethereum-testnet-sepolia",
+  "nativeCurrencySymbol": "ETH",
+  "rpcEnv": "ETHEREUM_SEPOLIA_RPC_URL"
+}
