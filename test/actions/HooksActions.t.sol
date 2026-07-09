@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {TokenPool} from "@chainlink/contracts-ccip/contracts/pools/TokenPool.sol";
 import {AdvancedPoolHooks} from "@chainlink/contracts-ccip/contracts/pools/AdvancedPoolHooks.sol";
 import {ERC20LockBox} from "@chainlink/contracts-ccip/contracts/pools/ERC20LockBox.sol";
 import {CctActions} from "../../src/actions/CctActions.sol";
