@@ -25,10 +25,19 @@ contract GetAuthorizedCallers is Script {
         uint256 chainId = block.chainid;
         string memory chainName = helperConfig.getChainName(chainId);
 
-        address poolHooks = vm.envOr("POOL_HOOKS", address(0));
-        address lockBox = vm.envOr("LOCK_BOX", address(0));
-        require(poolHooks != address(0) || lockBox != address(0), "POOL_HOOKS or LOCK_BOX env var required");
-        require(poolHooks == address(0) || lockBox == address(0), "Only one of POOL_HOOKS or LOCK_BOX may be set");
+        // Resolve the target via the standard ladder (env alias > {CHAIN}_ env > registry), so a freshly
+        // deployed hooks/lockbox is readable with no manual export. This script reads exactly ONE of the
+        // two, so when both resolve the user must pick via env.
+        address poolHooks = vm.envOr("POOL_HOOKS", helperConfig.getDeployedPoolHooks(chainId));
+        address lockBox = vm.envOr("LOCK_BOX", helperConfig.getDeployedLockBox(chainId));
+        require(
+            poolHooks != address(0) || lockBox != address(0),
+            "No POOL_HOOKS or LOCK_BOX resolved (env or registry). Set one, or deploy hooks/a lockbox first."
+        );
+        require(
+            poolHooks == address(0) || lockBox == address(0),
+            "Both POOL_HOOKS and LOCK_BOX resolved (env or registry). Set exactly one explicitly to disambiguate."
+        );
 
         bool isLockBox = lockBox != address(0);
         address contractAddress = isLockBox ? lockBox : poolHooks;

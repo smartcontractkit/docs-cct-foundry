@@ -6,6 +6,18 @@ Foundry scripts for deploying and managing cross-chain tokens using Chainlink CC
 
 ## Prerequisites
 
+Everything a fresh machine needs, in one place:
+
+| Tool | Needed for | Check |
+|---|---|---|
+| [Foundry](https://book.getfoundry.sh/getting-started/installation) (`forge`, `cast`) | building, testing, and every deploy/config script | `forge --version` |
+| Node.js + npm | installing the Solidity dependencies (`npm install`) | `npm --version` |
+| `make` | the golden-path targets in the `Makefile` (preinstalled on macOS/Linux; on Windows use WSL) | `make --version` |
+| `bash` | the thin wrapper scripts under `script/config/` | `bash --version` |
+| `curl` + `jq` | **only** the chain-config sync tooling (fetching the [CCIP API](https://api.ccip.chain.link/v2)) — deploys don't use them | `curl --version`, `jq --version` |
+
+The chain-config sync tooling (`make discover` / `add-chain` / `sync` / `sync-check` / `doctor`) needs **no RPC URL, no keystore, and no API key** — it only reads the public CCIP API. `make tools` runs this same presence check and prints install hints for anything missing.
+
 1. Install [Foundry](https://book.getfoundry.sh/getting-started/installation)
 
 2. Install dependencies:
@@ -55,7 +67,7 @@ Foundry scripts for deploying and managing cross-chain tokens using Chainlink CC
 
 ### Step 1: Deploy Token (on both chains)
 
-Configure token parameters in `script/input/token.json` (see [Configuration Files](#configuration-files) section), or override any field with environment variables:
+Configure token parameters in `script/input/token.json` (see the [Configuration](#configuration) section), or override any field with environment variables:
 
 | Env var | Default (from `token.json`) |
 |---|---|
@@ -99,7 +111,9 @@ script/deployments/tokens/{CHAIN_NAME_IDENTIFIER}/{timestamp}-{SYMBOL}-Token.jso
 ```
 The file uses the env var name as the key (e.g. `ETHEREUM_SEPOLIA_TOKEN`). If you need to retrieve the deployed address later, open the file — the key is the env var name and the value is the address, so you can copy both directly into an `export` command. The `script/deployments/` directory is ignored by `.gitignore` — files are local to each user.
 
-Set the token address so subsequent scripts can find it — choose one approach:
+A broadcast deploy also records the address in the [address registry](#deployed-address-registry--addresseschainidjson-the-default) (`addresses/<chainId>.json`), so **subsequent scripts resolve the token automatically — no `export` needed**. Re-running the deploy on the same chain is refused while the registry holds a live address (set `FORCE_REDEPLOY=true` to deploy a replacement).
+
+To override the registry address for a session, choose one approach:
 
 ```bash
 # Option A: export for the session (persists across all commands in the current terminal)
@@ -281,7 +295,7 @@ The `LockReleaseTokenPool` requires the `ERC20LockBox` at deploy time, and the l
 
 `LOCK_BOX` is required and must be the address of a deployed `ERC20LockBox` for the token. Optional: Set `POOL_HOOKS=0x...` to attach an already-deployed `AdvancedPoolHooks` contract at deploy time. Set `DECIMALS=<n>` if your token does not implement the optional `decimals()` ERC20 function. When deploying the lockbox, you can optionally set `AUTHORIZED_CALLERS` (CSV or JSON array) to authorize addresses immediately — useful for authorizing the deployer or token issuer to deposit/withdraw liquidity initially.
 
-Set the pool address so subsequent scripts can find it — choose one approach:
+A broadcast deploy records the pool (and lockbox) address in the [address registry](#deployed-address-registry--addresseschainidjson-the-default), so **subsequent scripts resolve it automatically — no `export` needed** (the LockRelease pool deploy also resolves `LOCK_BOX` from the registry). To override the registry address for a session, choose one approach:
 
 ```bash
 # Option A: export for the session (persists across all commands in the current terminal)
@@ -486,6 +500,34 @@ forge script \
   $KEYSTORE_NAME \
   --broadcast
 ```
+
+## Adding a New Chain
+
+Supporting a new chain is a **config edit, not a code change** — three commands generate and verify `config/chains/<name>.json` from the live [CCIP API](https://api.ccip.chain.link/v2) (needs only `curl` + `jq` from the [Prerequisites](#prerequisites) — no RPC URL, no keystore, no API key):
+
+```bash
+make discover FILTER=base            # 1. find the chain in the API catalog, note its NAME + SELECTOR
+make add-chain CHAIN=ethereum-testnet-sepolia-base-1 SELECTOR=10344971235874465080   # 2. generate from the API
+make doctor CHAIN=ethereum-testnet-sepolia-base-1   # 3. layered verification — re-run until green
+```
+
+`CHAIN` is the chain's **canonical CCIP selectorName** as shown by `make discover` (the API/registry name — e.g. `ethereum-testnet-sepolia-base-1`, not a bespoke `base-sepolia`); it becomes the file name `config/chains/<CHAIN>.json` and is validated against the API. `SELECTOR` is the **explicit identity key**, also from `make discover` — every fetch cross-checks both: a valid-but-wrong selector fails loudly as `SELECTOR MISMATCH`, and a non-canonical name as `SELECTOR NAME MISMATCH`, instead of silently writing another chain's contracts. New chains are **discovered automatically** from `config/chains/` — `HelperConfig` scans the directory, so no Solidity edit is needed anywhere. For a newly added chain the `chainNameIdentifier` (and hence the `rpcEnv` and the `<ID>_TOKEN`/`<ID>_TOKEN_POOL` override prefix) is **derived from the selectorName** as UPPER_SNAKE — so it may differ in style from the six bundled chains' curated short forms (e.g. `AVALANCHE_TESTNET_FUJI`, not `AVALANCHE_FUJI`); `add-chain` **prints the exact `chainNameIdentifier` and `rpcEnv` names it generated** so you never have to guess (or open the JSON) which env var to export. `add-chain` prints your next steps: add the chain's RPC env var to `.env`, then deploy your token and pool there ([Step 1](#step-1-deploy-token-on-both-chains) / [Step 2](#step-2-deploy-token-pools-on-both-chains)). Wiring the new chain into your cross-chain lanes ([Step 5](#step-5-apply-chain-updates-configure-cross-chain-routes)) stays a manual flow for now — a scripted lane-wiring golden path lands in a follow-up.
+
+Full details: [Configuration](#configuration) overview, the per-field [`docs/config-schema.md`](docs/config-schema.md), and the command + architecture reference [`docs/config-architecture.md`](docs/config-architecture.md).
+
+### Which command when
+
+| I want to... | Run |
+|---|---|
+| See which chains exist / find a selector | `make discover FILTER=<term>` |
+| Onboard a new chain | `make add-chain CHAIN=<name> SELECTOR=<sel>`, then `make doctor CHAIN=<name>` |
+| Check whether any config drifted from the API (routine; what CI runs weekly) | `make sync-check` (CI/automation: `bash script/config/sync-check.sh` for the 0/1/2 exit codes) |
+| Inspect what the API currently has for one chain before changing anything | `make sync-preview CHAIN=<name>` |
+| Apply the API's current values | `make sync CHAIN=<name>` / `make sync-all` |
+| Deep-verify one chain end to end (human health check) | `make doctor CHAIN=<name>` |
+| Restore canonical formatting after a raw `forge script` run | `make fmt-config` |
+
+`doctor` and `sync-check` layer rather than overlap: `doctor` is the deep single-chain health check for a human (schema, identity, drift, RPC, on-chain code, registry warnings), while `sync-check` is the fleet-wide drift verdict for routine use and CI.
 
 ## Ownership Management (Optional)
 
@@ -928,7 +970,7 @@ DEST_CHAIN=MANTLE_SEPOLIA \
 
 Use this script for enhanced security features like allowlists, CCV management, policy engine integration, and threshold-based validation.
 
-Configure defaults in `script/input/advanced-pool-hooks.json` (see [Configuration Files](#configuration-files) section), or override any field with environment variables:
+Configure defaults in `script/input/advanced-pool-hooks.json` (see the [Configuration](#configuration) section), or override any field with environment variables:
 
 | Env var | Type | Default (from `advanced-pool-hooks.json`) |
 |---|---|---|
@@ -1275,7 +1317,16 @@ DEST_CHAIN=MANTLE_SEPOLIA \
 
 - Solana Devnet (`SOLANA_DEVNET`)
 
-## Configuration Files
+## Configuration
+
+The repo keeps its cross-chain state as **data, not code**, in two git-visible stores:
+
+- **`config/chains/<selectorName>.json`** — one reviewed file per chain: the API-synced `ccip{}` address block + API-synced identity/metadata (`displayName`, `chainFamily`, `environment`, `explorerUrl`, `nativeCurrencySymbol`), and the hand-authored keys (`chainNameIdentifier`, `rpcEnv`, `confirmations`, `ccipBnM`). Files are named by the canonical CCIP **selectorName** (e.g. `ethereum-testnet-sepolia.json`). `HelperConfig` reads them through `src/config/ChainConfig.sol` and discovers the chain list by scanning the directory, so adding a chain — or updating a CCIP address — is a **reviewed config edit with zero Solidity changes**.
+- **`addresses/<chainId>.json`** — the deployed-address registry (schema v2: `active` role pointers + versioned `deployments`), written automatically on a real broadcast via a single `DeploymentRecorder` call per artifact (user-specific, **gitignored**, local to the deploy machine; see `addresses/11155111.example.json`).
+
+**One writer per field:** the CCIP REST API owns **every field it serves** in the **git-tracked** `config/chains/*.json` (via the sync) — the `ccip{}` addresses AND the identity/metadata fields (`displayName`, `chainFamily`, `environment`, `explorerUrl`, `nativeCurrencySymbol`); only the keys the API serves nothing for (`chainNameIdentifier`, `rpcEnv`, `confirmations`, `ccipBnM`) are hand-authored in reviewed PRs, and the join keys are guard-validated — so for that file **a git diff is an unambiguous audit log**. The deployed-address registry `addresses/` is a **separate, gitignored** store (not a git audit trail); its integrity comes from a single writer — the `DeploymentRecorder` that emits the `script/deployments/**` ledger and the registry entry in one call. Environment variables remain available as **overrides** on top of both.
+
+> **Reference docs:** **[`docs/config-schema.md`](docs/config-schema.md)** is the per-field reference (every key in a chain config — identity, the `ccip{}` block, extras, and the non-EVM shape — with its type, writer, and whether it is API-synced, hand-authored, or deploy-written); **[`docs/config-architecture.md`](docs/config-architecture.md)** is the `make`-command reference plus the layered architecture (brand-colored Mermaid diagrams: layering, sync data-flow, the one-writer store model, and the selectorName join). The operational how-to (discover → add-chain → sync → doctor) stays below.
 
 ### Token Deployment Configuration
 
@@ -1304,15 +1355,75 @@ Default hooks parameters are in `script/input/advanced-pool-hooks.json`. All fie
 }
 ```
 
-## Environment Variable Reference
+### Chain config tooling - discover, add, sync, verify
 
-### Session exports — `export VAR=0x...` after each deployment
+Tooling under `script/config/` keeps the config files true to the live [CCIP API](https://api.ccip.chain.link/v2). The golden path is the repo `Makefile`: every target is a thin wrapper that sets `FOUNDRY_PROFILE=sync` for you (it enables `ffi` so Foundry can fetch the API via `curl` + `jq`; no RPC URL or keystore needed). The **full command reference** - each target's required args, the raw `forge script` / `bash` command it runs underneath, the `0`/`1`/`2` drift exit-code contract, and the architecture diagrams - is in **[`docs/config-architecture.md`](docs/config-architecture.md)**.
 
-These are **not** stored in `.env`. After each deployment, run `export` in your terminal — or use the chain-agnostic `TOKEN` / `TOKEN_POOL` inline aliases (see [CLI inline vars](#cli-inline-vars----varvalue-forge-script-)) to pass an address to a single command without exporting. Session exports last for the current terminal — re-export after opening a new one, or recover values from `script/deployments/`.
+```bash
+make discover [FILTER=<term>]                        # list the API catalog vs your local configs
+make add-chain CHAIN=<selectorName> SELECTOR=<sel>   # generate config/chains/<selectorName>.json from the API
+make sync-preview CHAIN=<name>                        # fetch + log a chain's ccip{}, no write
+make sync CHAIN=<name> / make sync-all               # rewrite API-served fields (ccip{} + identity/metadata) from the API
+make sync-check [CHAIN=<name>]                        # read-only drift check (CI: bash script/config/sync-check.sh for 0/1/2)
+make doctor CHAIN=<name>                              # layered [PASS]/[FAIL]/[WARN]/[SKIP] check of one chain
+make fmt-config                                       # restore the canonical config format after a raw forge run
+```
 
-> **Note:** Do not add these to `.env`. If unset, `vm.envOr()` falls back to `address(0)` — scripts will revert when they receive it. If sourced from a stale `.env` value, scripts will silently target the wrong contract after a redeployment.
+`CHAIN=` is the canonical **selectorName** (the file basename). The sync writes **every API-served field** — the `ccip{}` subtree plus the identity/metadata fields (`displayName`, `chainFamily`, `environment`, `explorerUrl`, `nativeCurrencySymbol`) — leaving every hand-authored key (`chainNameIdentifier`, `rpcEnv`, `confirmations`, `ccipBnM`) untouched, and re-canonicalizes as `jq --indent 2 -S`, so a no-drift `make sync` is a **zero-diff** no-op. Every fetch is guarded: the API chainId must equal the config's (`SELECTOR MISMATCH`) and the config `name` must equal the API selectorName (`SELECTOR NAME MISMATCH`); non-EVM chains (e.g. `solana-devnet`) skip the EVM address sync cleanly but still refresh their served identity/metadata. A scheduled workflow (`.github/workflows/config-drift.yml`) runs the drift check weekly: drift fails visibly, an unreachable API only warns.
 
-**Token addresses** — exported after [Step 1: Deploy Token](#step-1-deploy-token-on-both-chains):
+The tooling is tested twice over: `forge test` pins the API->config transform against a committed real API response (`test/fixtures/ccip-api/`), and `bash script/config/test-tooling.sh` is a re-runnable failure-path suite (unknown chain, overwrite refusal, invalid names, `SELECTOR MISMATCH`, `SELECTOR NAME MISMATCH`, `NOT_FOUND`, API-down, non-EVM skip, the sync-check exit contract, an offline end-to-end sync against a local fixture server, the Makefile golden-path guards, and the canonical-format + zero-diff guarantees).
+
+### Deployed-address registry — `addresses/<chainId>.json` (the default)
+
+After a `--broadcast` deploy, every later script resolves the deployed addresses from the registry automatically — no `export` step. This now holds for **all four artifacts**: `token`, `tokenPool`, `lockBox`, **and** `poolHooks` (the last two previously had to be re-exported by hand). Resolution precedence (highest first), per role:
+
+1. Inline alias — `TOKEN=0x...` / `TOKEN_POOL=0x...` / `LOCK_BOX=0x...` / `POOL_HOOKS=0x...` on the command line
+2. Chain-scoped session export — `ETHEREUM_SEPOLIA_TOKEN`, `MANTLE_SEPOLIA_TOKEN_POOL`, `ETHEREUM_SEPOLIA_LOCK_BOX`, ...
+3. **Address registry** — `addresses/<chainId>.json` → `active.<role>` (the default path)
+
+The registry is a **schema-v2** file with two sub-stores: `active` (the single per-role pointer `HelperConfig` resolves) and `deployments` (uniquely-named entries whose key carries the pool's type and version — e.g. `BnM-T_BurnMintTokenPool_2.0.0` — so distinct artifacts never collide in storage). One writer owns it: each deploy script makes a single `DeploymentRecorder` call that emits the `script/deployments/**` ledger **and** updates the registry, so the two never drift. `active.<role>` is single-valued: deploy two pools for the same symbol on one chain and the zero-export getters resolve the last one for both tokens (pass the other explicitly). See [config-schema.md](docs/config-schema.md#the-deployed-address-registry---addresseschainidjson-schema-v2) and [deployed-addresses.md](docs/deployed-addresses.md) for the keying table and the two-store model.
+
+The registry also guards against accidental redeploys: while it holds a live address under a `deployments` name, the corresponding deploy script refuses to run and prints the registered address. Set `FORCE_REDEPLOY=true` to deploy a replacement of the *same* name (the old address stays in the append-only `script/deployments/` ledger; the registry itself is gitignored, so it is not in git history). Note `active.tokenPool` is *what this repo last deployed*, not proof of what CCIP routes through — the on-chain TokenAdminRegistry is the authority, and `make doctor` WARNs when they diverge.
+
+### Sharing addresses with your team
+
+Both deployed-address stores are gitignored in this template. When you **fork it into your own project**, you
+MAY un-gitignore them to share addresses with colleagues and CI. The two stores warrant different advice — see
+[deployed-addresses.md](docs/deployed-addresses.md) for the full two-store model.
+
+- **Registry (`addresses/<chainId>.json`) — recommended for teams.** It holds public addresses only, no
+  secrets. Track it and every colleague plus CI resolves the same addresses on clone, with zero `export`.
+- **History (`script/deployments/`) — optional.** Be honest about what it is: it is **write-only** (nothing in
+  this repo reads it), and it grows one file per deploy forever. Foundry's own `broadcast/` directory already
+  records every deploy with richer detail (and is itself gitignored, `.gitignore:8`). Track `script/deployments/`
+  only if you specifically want an in-repo, human-readable deploy log.
+
+**Guardrails (mandatory if you track the registry):**
+
+1. **Never commit local/anvil chains.** Keep an explicit ignore for `addresses/31337.json` (and any other
+   local chain id).
+2. **The test suite writes real `addresses/<chainId>.json` files for scratch chain ids** (e.g. `16602`, and
+   the `9000000xx` throwaways). Today `.gitignore` hides them. If you un-ignore the registry, add explicit
+   ignores for those scratch ids, or a stray test artifact gets committed. This is real: a leftover scratch
+   registry file once bricked the local test suite while `git status` stayed clean.
+3. **`active` is not authority.** It records what this repo deployed most recently, not what is wired. The
+   on-chain **TokenAdminRegistry** is the source of truth. Run `make doctor CHAIN=<name>` (in CI too) — it
+   reconciles the registry pool against the wired pool and WARNs on divergence.
+4. **Review registry diffs like config changes.** Put `addresses/` under CODEOWNERS, and gate mainnet
+   chain-id files behind stricter approval.
+5. **Do this in a single-deployment project**, not a shared template clone where many developers push
+   disposable fixtures.
+
+Do **not** claim git gives an audit trail for the registry (it is gitignored), and do not tell people to trust
+the file over the on-chain TokenAdminRegistry.
+
+### Session exports — `export VAR=0x...` (overrides)
+
+These are **not** stored in `.env` and are now **optional**: the registry covers the default flow. Use an export (or the chain-agnostic `TOKEN` / `TOKEN_POOL` inline aliases, see [CLI inline vars](#cli-inline-vars----varvalue-forge-script-)) when you want to target a *different* contract than the registered one — e.g. an older deployment or a contract deployed outside this repo. Session exports last for the current terminal — values can always be recovered from `addresses/<chainId>.json` or `script/deployments/`.
+
+> **Note:** Do not add these to `.env`. An env var always **beats** the registry, so a stale `.env` value would silently target the wrong contract after a redeployment.
+
+**Token addresses** — override after [Step 1: Deploy Token](#step-1-deploy-token-on-both-chains):
 
 | Variable | Chain |
 |---|---|
@@ -1325,7 +1436,7 @@ These are **not** stored in `.env`. After each deployment, run `export` in your 
 |---|---|
 | `SOLANA_DEVNET_TOKEN` | Solana Devnet |
 
-**Token pool addresses** — exported after [Step 2: Deploy Token Pools](#step-2-deploy-token-pools-on-both-chains):
+**Token pool addresses** — override after [Step 2: Deploy Token Pools](#step-2-deploy-token-pools-on-both-chains):
 
 | Variable | Chain |
 |---|---|

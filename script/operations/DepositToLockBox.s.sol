@@ -24,13 +24,24 @@ import {EoaExecutor} from "../../src/base/EoaExecutor.s.sol";
 contract DepositToLockBox is EoaExecutor {
     HelperConfig public helperConfig;
 
+    /// @dev LockBox resolution seam: `LOCK_BOX` alias > `{CHAIN}_LOCK_BOX` > registry `active.lockBox`
+    /// (no manual export needed). `virtual` so a test can inject an unresolved (`address(0)`) result and
+    /// assert the named revert DETERMINISTICALLY, independent of the process-wide env other parallel
+    /// suites set — the ladder itself is proven in `test/config/RegistryResolution.t.sol`.
+    function _resolveLockBox(uint256 chainId) internal virtual returns (address) {
+        return vm.envOr("LOCK_BOX", helperConfig.getDeployedLockBox(chainId));
+    }
+
     function run() external {
         helperConfig = new HelperConfig();
         uint256 chainId = block.chainid;
         string memory chainName = helperConfig.getChainName(chainId);
 
-        address lockBoxAddress = vm.envAddress("LOCK_BOX");
-        require(lockBoxAddress != address(0), "LOCK_BOX environment variable not set");
+        address lockBoxAddress = _resolveLockBox(chainId);
+        require(
+            lockBoxAddress != address(0),
+            "LockBox not deployed. Set LOCK_BOX or the {CHAIN}_LOCK_BOX environment variable."
+        );
 
         console.log("");
         console.log("========================================");

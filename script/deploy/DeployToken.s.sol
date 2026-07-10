@@ -4,7 +4,8 @@ pragma solidity 0.8.24;
 import {Script, console} from "forge-std/Script.sol";
 import {HelperUtils} from "../utils/HelperUtils.s.sol"; // Utility functions for JSON parsing and chain info
 import {HelperConfig} from "../HelperConfig.s.sol"; // Network configuration helper
-import {DeploymentUtils} from "../utils/DeploymentUtils.s.sol";
+import {DeploymentRecorder} from "../utils/DeploymentRecorder.s.sol";
+import {RegistryWriter} from "../../src/utils/RegistryWriter.sol";
 import {BaseERC20} from "@chainlink/contracts-ccip/contracts/tokens/BaseERC20.sol";
 import {CrossChainToken} from "@chainlink/contracts-ccip/contracts/tokens/CrossChainToken.sol";
 
@@ -41,6 +42,10 @@ contract DeployToken is Script {
         string memory tokenConfigPath = string.concat(root, "/script/input/token.json");
 
         TokenConfig memory tokenConfig = _loadTokenConfig(tokenConfigPath);
+
+        // Refuse to redeploy over a live registry entry (FORCE_REDEPLOY=true overrides). Keyed on the
+        // unique deployment name so distinct symbols on one chain never collide.
+        RegistryWriter.guard(chainId, DeploymentRecorder.tokenName(tokenConfig.symbol));
 
         vm.startBroadcast();
 
@@ -95,9 +100,12 @@ contract DeployToken is Script {
         console.log(string.concat("Token Address: ", vm.toString(tokenAddress)));
         console.log(helperConfig.getExplorerUrl(chainId, "/address/", tokenAddress));
         console.log("");
-        DeploymentUtils.saveTokenDeployment(vm, chainNameIdentifier, tokenConfig.symbol, tokenAddress);
+        // Single writer: one call emits the detailed ledger file AND records the address in the
+        // registry (deployments[{symbol}_Token] + active.token).
+        DeploymentRecorder.recordToken(vm, chainId, chainNameIdentifier, tokenConfig.symbol, tokenAddress);
         console.log("");
-        console.log("Run this command to set the environment variable:");
+        console.log("The address is registered in the address registry; later scripts resolve it automatically.");
+        console.log("To override it for a session, set the environment variable:");
         console.log(string.concat("export ", chainNameIdentifier, "_TOKEN=", vm.toString(tokenAddress)));
         console.log("========================================");
         console.log("");

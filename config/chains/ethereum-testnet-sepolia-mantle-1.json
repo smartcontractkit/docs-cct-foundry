@@ -1,0 +1,27 @@
+{
+  "ccip": {
+    "feeQuoter": "0x8c5Bd1D4E19af3fc2779EA4cA4a09115236CDe9f",
+    "feeTokens": [
+      "0x22bdEdEa0beBdD7CfFC95bA53826E55afFE9DE04",
+      "0x19f5557E23e9914A18239990f6C70D68FDF0deD5"
+    ],
+    "link": "0x22bdEdEa0beBdD7CfFC95bA53826E55afFE9DE04",
+    "registryModuleOwnerCustom": "0xf76cE612250eeEb8889F49FBCB11f1c2705305F6",
+    "rmnProxy": "0xcCB84Ec3F6AFdD2052134f74aaAc95Ae41A7B333",
+    "router": "0xFd33fd627017fEf041445FC19a2B6521C9778f86",
+    "tokenAdminRegistry": "0x0F1eE88A582f31d92510E300fc1330AA5a525D51",
+    "tokenPoolFactory": "0x9fCd83bC7F67ADa1fB51a4caBEa333c72B641bd1"
+  },
+  "ccipBnM": "0xBB370F829bdB6fC44f3D34e2A2107578bB2c3F0B",
+  "chainFamily": "evm",
+  "chainId": "5003",
+  "chainNameIdentifier": "MANTLE_SEPOLIA",
+  "chainSelector": "8236463271206331221",
+  "confirmations": 2,
+  "displayName": "Mantle Sepolia",
+  "environment": "testnet",
+  "explorerUrl": "https://explorer.sepolia.mantle.xyz",
+  "name": "ethereum-testnet-sepolia-mantle-1",
+  "nativeCurrencySymbol": "MNT",
+  "rpcEnv": "MANTLE_SEPOLIA_RPC_URL"
+}

@@ -1,0 +1,24 @@
+{
+  "ccip": {
+    "feeQuoter": "0x0000000000000000000000000000000000000000",
+    "feeTokens": [],
+    "link": "0x0000000000000000000000000000000000000000",
+    "registryModuleOwnerCustom": "0x0000000000000000000000000000000000000000",
+    "rmnProxy": "0x0000000000000000000000000000000000000000",
+    "router": "0x0000000000000000000000000000000000000000",
+    "tokenAdminRegistry": "0x0000000000000000000000000000000000000000",
+    "tokenPoolFactory": "0x0000000000000000000000000000000000000000"
+  },
+  "ccipBnM": "0x0000000000000000000000000000000000000000",
+  "chainFamily": "svm",
+  "chainId": "0",
+  "chainNameIdentifier": "SOLANA_DEVNET",
+  "chainSelector": "16423721717087811551",
+  "confirmations": 0,
+  "displayName": "Solana Devnet",
+  "environment": "testnet",
+  "explorerUrl": "https://explorer.solana.com?cluster=devnet",
+  "name": "solana-devnet",
+  "nativeCurrencySymbol": "SOL",
+  "rpcEnv": "SOLANA_DEVNET_RPC_URL"
+}

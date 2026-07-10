@@ -20,7 +20,12 @@ contract IsAllowListed is Script {
         uint256 chainId = block.chainid;
         string memory chainName = helperConfig.getChainName(chainId);
 
-        address hooksAddress = vm.envAddress("POOL_HOOKS");
+        // POOL_HOOKS alias > {CHAIN}_POOL_HOOKS > registry active.poolHooks (no manual export needed).
+        address hooksAddress = vm.envOr("POOL_HOOKS", helperConfig.getDeployedPoolHooks(chainId));
+        require(
+            hooksAddress != address(0),
+            "Pool hooks not deployed. Set POOL_HOOKS or the {CHAIN}_POOL_HOOKS environment variable."
+        );
         address checkAddress = vm.envAddress("CHECK_ADDRESS");
 
         console.log("");

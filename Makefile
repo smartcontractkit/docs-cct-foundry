@@ -1,0 +1,87 @@
+# Makefile — golden path over the chain-config tooling (script/config/*).
+#
+# Every target is a thin wrapper: the raw `forge script` / `bash` commands it runs are documented
+# in README.md ("Chain config tooling") and remain the escape hatch. `FOUNDRY_PROFILE=sync` is set
+# inside each recipe (the sync profile enables `ffi` for the curl+jq API fetch), never exported.
+#
+# NOTE on exit codes: the canonical drift-check exit contract (0 clean / 1 drift / 2 API
+# unreachable) belongs to `bash script/config/sync-check.sh` — GNU make remaps ANY failing recipe
+# to its own exit code 2, so `make sync-check` is pass/fail only. CI calls the script directly.
+
+CONFIG_DIR := config/chains
+KNOWN_CHAINS := $(basename $(notdir $(wildcard $(CONFIG_DIR)/*.json)))
+SYNC_SCRIPT := script/config/SyncCcipConfig.s.sol
+
+.DEFAULT_GOAL := help
+.PHONY: help tools discover add-chain sync sync-preview sync-all sync-check doctor fmt-config
+
+# Recipe-time guard: the CHAIN's config file must exist (helpful list + add-chain hint on a miss).
+define require-chain-config
+	@test -f "$(CONFIG_DIR)/$(CHAIN).json" || { \
+		echo "unknown chain '$(CHAIN)' - known chains: $(KNOWN_CHAINS)"; \
+		echo "New chain? make add-chain CHAIN=<local-short-name> SELECTOR=<from 'make discover'>"; \
+		exit 1; }
+endef
+
+# Canonical JSON format for config/chains/*.json: `jq --indent 2 -S .` (2-space indent, sorted keys,
+# trailing newline — jq always emits one). The committed files use this exact style, and every target
+# that writes a config re-canonicalizes it as its last step, so a no-drift `make sync` produces ZERO
+# git diff (Foundry's `vm.writeJson` has its own style; raw `forge script` runs bypass the reformat —
+# `make fmt-config` restores canon).
+define canon-chain-config
+@tmp="$$(mktemp)" && jq --indent 2 -S . "$(CONFIG_DIR)/$(CHAIN).json" > "$$tmp" && mv "$$tmp" "$(CONFIG_DIR)/$(CHAIN).json"
+endef
+
+help: ## List the available targets
+	@echo "Chain-config tooling golden path (raw commands: README.md > Chain config tooling):"
+	@awk 'BEGIN {FS = ":.*## "} /^[a-z][a-z-]*:.*## / {printf "  %-14s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+tools: ## Check the required tools are installed (forge, curl, jq)
+	@command -v forge > /dev/null || { echo "missing: forge - install Foundry: https://book.getfoundry.sh/getting-started/installation"; exit 2; }
+	@command -v curl > /dev/null || { echo "missing: curl - install it (usually preinstalled; else brew install curl / apt install curl)"; exit 2; }
+	@command -v jq > /dev/null || { echo "missing: jq - install it (e.g. brew install jq / apt install jq)"; exit 2; }
+	@echo "tools: forge, curl and jq are all present"
+
+discover: tools ## List the CCIP API testnet catalog vs local configs (FILTER=<term> narrows)
+	@FILTER="$(FILTER)" bash script/config/sync-discover.sh
+
+add-chain: tools ## Generate config/chains/<CHAIN>.json from the live API (CHAIN= and SELECTOR= required)
+	$(if $(CHAIN),,$(error CHAIN is required: make add-chain CHAIN=<local-short-name> SELECTOR=<selector>))
+	$(if $(SELECTOR),,$(error SELECTOR is required - find it with: make discover FILTER=<term>))
+	FOUNDRY_PROFILE=sync forge script $(SYNC_SCRIPT) --sig "init(string,uint256)" "$(CHAIN)" "$(SELECTOR)"
+	$(canon-chain-config)
+
+sync: tools ## Refresh <CHAIN>'s ccip{} block from the live API (CHAIN= required)
+	$(if $(CHAIN),,$(error CHAIN is required: make sync CHAIN=<name>))
+	$(require-chain-config)
+	FOUNDRY_PROFILE=sync forge script $(SYNC_SCRIPT) --sig "run(string)" "$(CHAIN)"
+	$(canon-chain-config)
+
+sync-preview: tools ## Fetch + log <CHAIN>'s ccip{} from the API without writing (CHAIN= required)
+	$(if $(CHAIN),,$(error CHAIN is required: make sync-preview CHAIN=<name>))
+	$(require-chain-config)
+	FOUNDRY_PROFILE=sync forge script $(SYNC_SCRIPT) --sig "preview(string)" "$(CHAIN)"
+
+sync-all: tools ## Refresh every configured chain (non-EVM chains SKIP; failures are collected)
+	@failed=""; for f in $(CONFIG_DIR)/*.json; do \
+		name="$$(basename "$$f" .json)"; \
+		echo ">> sync $$name"; \
+		FOUNDRY_PROFILE=sync forge script $(SYNC_SCRIPT) --sig "run(string)" "$$name" || failed="$$failed $$name"; \
+		tmp="$$(mktemp)" && jq --indent 2 -S . "$$f" > "$$tmp" && mv "$$tmp" "$$f"; \
+	done; \
+	if [ -n "$$failed" ]; then echo "sync-all: FAILED for:$$failed"; exit 1; fi; \
+	echo "sync-all: OK - every configured chain synced (or SKIPped)"
+
+fmt-config: tools ## Rewrite config/chains/*.json in the canonical style (jq --indent 2 -S, trailing newline)
+	@for f in $(CONFIG_DIR)/*.json; do \
+		tmp="$$(mktemp)" && jq --indent 2 -S . "$$f" > "$$tmp" && mv "$$tmp" "$$f"; \
+	done; \
+	echo "fmt-config: canonicalized $(CONFIG_DIR)/*.json"
+
+sync-check: tools ## Read-only drift check (CHAIN= optional; pass/fail only - CI uses the script for 0/1/2)
+	@bash script/config/sync-check.sh $(CHAIN)
+
+doctor: tools ## Layered verification of one chain's config (CHAIN= required)
+	$(if $(CHAIN),,$(error CHAIN is required: make doctor CHAIN=<name>))
+	$(require-chain-config)
+	FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$(CHAIN)"

@@ -25,7 +25,9 @@ contract UpdateAllowList is EoaExecutor {
         string memory chainName = helperConfig.getChainName(chainId);
 
         address tokenPoolAddress = vm.envOr("TOKEN_POOL", helperConfig.getDeployedTokenPool(chainId));
-        address hooksAddress = vm.envOr("POOL_HOOKS", address(0));
+        // POOL_HOOKS alias > {CHAIN}_POOL_HOOKS > registry active.poolHooks. Optional: unset (0x0) targets
+        // the pool itself (v1 allowlist); a resolved hooks address targets the v2 AdvancedPoolHooks.
+        address hooksAddress = vm.envOr("POOL_HOOKS", helperConfig.getDeployedPoolHooks(chainId));
 
         require(
             tokenPoolAddress != address(0),

@@ -1,0 +1,27 @@
+{
+  "ccip": {
+    "feeQuoter": "0x300B743B188c101b09EaAB4e13644e2B4f907d93",
+    "feeTokens": [
+      "0x1Cd0690fF9a693f5EF2dD976660a8dAFc81A109c",
+      "0xe5e3a4fF1773d043a387b16Ceb3c91cC49bAFD54"
+    ],
+    "link": "0xe5e3a4fF1773d043a387b16Ceb3c91cC49bAFD54",
+    "registryModuleOwnerCustom": "0x0820f975ce90EE5c508657F0C58b71D1fcc85cE0",
+    "rmnProxy": "0x995ab3eC29E1660A93cFddAA19C710A1b5afCCc9",
+    "router": "0xD610B8f58689de7755947C05342A2DFaC30ebD57",
+    "tokenAdminRegistry": "0x23a5084Fa78104F3DF11C63Ae59fcac4f6AD9DeE",
+    "tokenPoolFactory": "0xd3e461C55676B10634a5F81b747c324B85686Dd1"
+  },
+  "ccipBnM": "0xDbB255D37BC7c9e2b08e5a1C9f9506c9E85F1644",
+  "chainFamily": "evm",
+  "chainId": "16602",
+  "chainNameIdentifier": "0G_GALILEO_TESTNET",
+  "chainSelector": "6892437333620424805",
+  "confirmations": 2,
+  "displayName": "0g Galileo 1",
+  "environment": "testnet",
+  "explorerUrl": "https://chainscan-galileo.0g.ai",
+  "name": "0g-testnet-galileo-1",
+  "nativeCurrencySymbol": "0G",
+  "rpcEnv": "ZERO_G_TESTNET_RPC_URL"
+}
