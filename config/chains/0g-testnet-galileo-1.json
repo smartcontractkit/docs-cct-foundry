@@ -21,6 +21,7 @@
   "displayName": "0g Galileo 1",
   "environment": "testnet",
   "explorerUrl": "https://chainscan-galileo.0g.ai",
+  "lanes": {},
   "name": "0g-testnet-galileo-1",
   "nativeCurrencySymbol": "0G",
   "rpcEnv": "ZERO_G_TESTNET_RPC_URL"

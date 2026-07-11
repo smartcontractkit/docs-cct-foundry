@@ -7,6 +7,7 @@ import {console} from "forge-std/console.sol";
 
 import {IConfigSource} from "../../src/config/IConfigSource.sol";
 import {CcipApiSource} from "../../src/config/CcipApiSource.sol";
+import {RegistryWriter} from "../../src/utils/RegistryWriter.sol";
 
 /// @title SyncCcipConfig
 /// @notice The config-sync entrypoints: everything that generates, refreshes, or drift-checks a
@@ -22,6 +23,10 @@ import {CcipApiSource} from "../../src/config/CcipApiSource.sol";
 ///   - drift check (read-only): ... --sig "check(string)" <local-name>
 ///     (or `bash script/config/sync-check.sh`, which owns the 0 clean / 1 drift / 2 api-down
 ///      exit-code contract across all configured chains)
+///   - add a lane:    ... --sig "addLane(string,string,uint256,uint256)" <local> <remote> <cap> <rate>
+///     (`make add-lane` — writes ONLY the `lanes{}` policy subtree; no API fetch); with an inbound
+///     policy block: --sig "addLane(string,string,uint256,uint256,uint256,uint256)" ... <inCap> <inRate>
+///     (`make add-lane ... INBOUND_CAPACITY=<wei> INBOUND_RATE=<wei>`)
 ///
 /// @dev What the sync OWNS (overwrites): every API-served field. That is the `ccip{}` object — the
 /// API-syncable, directory-canonical addresses (`router`, `rmnProxy`, `tokenAdminRegistry`,
@@ -29,7 +34,8 @@ import {CcipApiSource} from "../../src/config/CcipApiSource.sol";
 /// API-served identity + metadata fields (`displayName`, `chainFamily`, `environment`, `explorerUrl`,
 /// `nativeCurrencySymbol`), all of which `GET /v2/chains/{selector}` serves, so none is hand-typed.
 /// What it PRESERVES (never touches): the genuinely hand-authored keys the API serves nothing for
-/// (`chainNameIdentifier`, `rpcEnv`, `confirmations`, `ccipBnM`), and the immutable join keys
+/// (`chainNameIdentifier`, `rpcEnv`, `confirmations`, `ccipBnM`), the `lanes{}` policy subtree
+/// (owner-written via `addLane`, never by the sync), and the immutable join keys
 /// (`name`/`chainSelector`/`chainId`) which are GUARD-validated, not rewritten. One writer per field.
 ///
 /// Guards (each verified by `script/config/test-tooling.sh`):
@@ -45,7 +51,8 @@ contract SyncCcipConfig is Script {
     string private constant META_HELPER = "script/config/ccip-chain-meta.sh";
 
     /// @notice The active config source. Swap this to target a different API version/source.
-    function _source() internal returns (IConfigSource) {
+    /// Virtual so a test can substitute an offline source behind the same seam.
+    function _source() internal virtual returns (IConfigSource) {
         return new CcipApiSource();
     }
 
@@ -195,9 +202,9 @@ contract SyncCcipConfig is Script {
     /// hand-authored key. The API-sync writer now owns the `ccip{}` address block AND the API-served
     /// identity + metadata fields (`displayName`, `chainFamily`, `environment`, `explorerUrl`,
     /// `nativeCurrencySymbol`) — all of which the CCIP REST API serves, so none of them should be
-    /// hand-typed. Hand-authored keys (`chainNameIdentifier`, `rpcEnv`, `confirmations`, `ccipBnM`)
-    /// and the immutable join keys (`name`/`chainSelector`/`chainId`, guarded, not rewritten) are
-    /// preserved untouched. Non-EVM chains have no EVM-shaped `chainConfig`, so their `ccip{}` block
+    /// hand-typed. Hand-authored keys (`chainNameIdentifier`, `rpcEnv`, `confirmations`, `ccipBnM`),
+    /// the `lanes{}` policy subtree (owner-written via `addLane`), and the immutable join keys
+    /// (`name`/`chainSelector`/`chainId`, guarded, not rewritten) are preserved untouched. Non-EVM chains have no EVM-shaped `chainConfig`, so their `ccip{}` block
     /// stays zeroed (SKIP), but their chain-level identity + metadata ARE served and get refreshed.
     function run(string memory name) public {
         _requireSyncProfile();
@@ -345,7 +352,10 @@ contract SyncCcipConfig is Script {
         vm.serializeString(root, "explorerUrl", "");
         vm.serializeString(root, "nativeCurrencySymbol", "");
         vm.serializeAddress(root, "ccipBnM", address(0));
-        // `vm.writeJson` cannot CREATE keys, so the stub must ship an (empty) ccip object.
+        // `vm.writeJson` cannot CREATE keys, so the stub must ship an (empty) ccip object — and, for
+        // EVM chains, an (empty) lanes object so `addLane` can write into it. Non-EVM chains are
+        // destination-only (no outbound lane policy), so they carry no lanes{}.
+        if (isEvm) vm.serializeString(root, "lanes", "{}");
         string memory stub = vm.serializeString(root, "ccip", "{}");
         vm.writeFile(path, stub);
         console.log(
@@ -436,7 +446,14 @@ contract SyncCcipConfig is Script {
             );
             console.log(
                 string.concat(
-                    "  4. verify: FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig \"run(string)\" ",
+                    "  4. wire a lane: make add-lane LOCAL=",
+                    localName,
+                    " REMOTE=<remote> CAPACITY=<wei> RATE=<wei> [BOTH=1]"
+                )
+            );
+            console.log(
+                string.concat(
+                    "  5. verify: FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig \"run(string)\" ",
                     localName,
                     " (re-run until it reports 0 FAIL)"
                 )
@@ -573,5 +590,375 @@ contract SyncCcipConfig is Script {
                 drift++;
             }
         }
+    }
+
+    // ================================================================
+    // addLane — `make add-lane`: append a lanes{} policy entry
+    // ================================================================
+
+    /// @notice Append a `.lanes.<remote>` entry (remote selector + outbound rate-limit policy) to the
+    /// LOCAL chain's config. Writes ONLY the `.lanes` subtree, with the same preserve-and-replace
+    /// pattern `run` uses for `.ccip`: every existing lane entry is re-serialized verbatim, then the
+    /// new entry is added and the subtree is written back in one `vm.writeJson(json, path, ".lanes")`.
+    /// A duplicate lane is a logged no-op that leaves the file byte-identical. No API fetch: `lanes{}`
+    /// is owner POLICY (which remotes this pool connects to, at what rate limits), not an API fact.
+    /// @dev Guards:
+    ///   - SELF-LANE: refused when LOCAL and REMOTE are the same name, or when two config files carry
+    ///     the SAME chainSelector (a pool must never register its own selector as a remote).
+    ///   - PLACEHOLDER POOL: a lane to a remote whose registry has no tokenPool yet logs a WARN naming
+    ///     the missing deploy (the lane can be declared ahead of the deploy, but it is not executable).
+    ///   - a local file without a `.lanes` object (non-EVM chains are destination-only and carry none)
+    ///     is refused with the fix, never a raw cheatcode revert.
+    function addLane(string memory local, string memory remote, uint256 capacity, uint256 rate) public {
+        _addLane(
+            local,
+            remote,
+            LanePolicy({capacity: capacity, rate: rate, withInbound: false, inboundCapacity: 0, inboundRate: 0})
+        );
+    }
+
+    /// @notice `addLane` with an inbound rate-limit policy block
+    /// (`make add-lane ... INBOUND_CAPACITY=<wei> INBOUND_RATE=<wei>`): writes the same entry plus
+    /// `inbound{capacity,rate}`. A declared 0/0 inbound block means declared-DISABLED (the doctor's
+    /// lanes rung asserts the live bucket is off), which differs from omitting the block (undeclared,
+    /// not reconciled) - hence a separate signature instead of defaulted parameters.
+    function addLane(
+        string memory local,
+        string memory remote,
+        uint256 capacity,
+        uint256 rate,
+        uint256 inboundCapacity,
+        uint256 inboundRate
+    ) public {
+        _addLane(
+            local,
+            remote,
+            LanePolicy({
+                capacity: capacity,
+                rate: rate,
+                withInbound: true,
+                inboundCapacity: inboundCapacity,
+                inboundRate: inboundRate
+            })
+        );
+    }
+
+    /// @dev The declared outbound (+ optional inbound) rate-limit policy of one new lane entry.
+    struct LanePolicy {
+        uint256 capacity;
+        uint256 rate;
+        bool withInbound;
+        uint256 inboundCapacity;
+        uint256 inboundRate;
+    }
+
+    function _addLane(string memory local, string memory remote, LanePolicy memory policy) internal {
+        _requireSyncProfile();
+        string memory localPath = _requireConfigExists(local);
+        string memory remotePath = _requireConfigExists(remote);
+        require(
+            keccak256(bytes(local)) != keccak256(bytes(remote)), "[add-lane] LOCAL and REMOTE must be different chains"
+        );
+
+        string memory json = vm.readFile(localPath);
+        string memory remoteJson = vm.readFile(remotePath);
+        _requireNotSelfLane(local, remote, json, remoteJson);
+        require(
+            vm.keyExistsJson(json, ".lanes"),
+            string.concat(
+                "[add-lane] ",
+                localPath,
+                " has no lanes object (non-EVM chains are destination-only) - for an EVM chain, seed \"lanes\": {}"
+            )
+        );
+        if (vm.keyExistsJson(json, string.concat(".lanes.", remote))) {
+            string memory lanePath = string.concat(".lanes.", remote);
+            if (_lanePolicyMatches(json, lanePath, policy)) {
+                // Identical re-run: a byte-identical no-op (the write is skipped entirely).
+                console.log(
+                    string.concat(
+                        "[add-lane] lane ",
+                        local,
+                        " -> ",
+                        remote,
+                        " already exists - no-op (edit config/chains/",
+                        local,
+                        ".json to change policy)"
+                    )
+                );
+            } else {
+                // Changed capacity/rate on an existing entry: never a silent no-op. WARN naming the
+                // existing vs requested values, leave the entry unchanged, and name the remediation.
+                _warnChangedLane(json, lanePath, local, remote, policy);
+            }
+            return;
+        }
+        _warnPlaceholderPool(remote, remoteJson);
+        _writeLaneSubtree(local, localPath, json, remote, vm.parseJsonString(remoteJson, ".chainSelector"), policy);
+    }
+
+    /// @dev The changed-args WARN: an existing entry with DIFFERENT capacity/rate, left unchanged.
+    ///      Extracted from `_addLane` to keep its stack within the 16-slot limit.
+    function _warnChangedLane(
+        string memory json,
+        string memory lanePath,
+        string memory local,
+        string memory remote,
+        LanePolicy memory policy
+    ) internal pure {
+        console.log(
+            string.concat(
+                "[add-lane] WARN: lane ",
+                local,
+                " -> ",
+                remote,
+                " already exists with DIFFERENT policy (existing capacity=",
+                vm.parseJsonString(json, string.concat(lanePath, ".capacity")),
+                " rate=",
+                vm.parseJsonString(json, string.concat(lanePath, ".rate")),
+                ", requested capacity=",
+                vm.toString(policy.capacity),
+                " rate=",
+                vm.toString(policy.rate),
+                ") - left UNCHANGED. To change it, run make remove-lane LOCAL=",
+                local,
+                " REMOTE=",
+                remote,
+                " then re-run add-lane, or hand-edit config/chains/",
+                local,
+                ".json"
+            )
+        );
+    }
+
+    /// @dev Whether the existing lane entry at `lanePath` carries the SAME policy the caller passed
+    ///      (capacity/rate, and the inbound{} block's presence + values). Governs the identical-re-run
+    ///      no-op vs the changed-args WARN: a byte-for-byte match is the idempotent no-op; any
+    ///      difference is a footgun the WARN surfaces instead of silently ignoring.
+    function _lanePolicyMatches(string memory json, string memory lanePath, LanePolicy memory policy)
+        internal
+        view
+        returns (bool)
+    {
+        if (
+            keccak256(bytes(vm.parseJsonString(json, string.concat(lanePath, ".capacity"))))
+                != keccak256(bytes(vm.toString(policy.capacity)))
+        ) return false;
+        if (
+            keccak256(bytes(vm.parseJsonString(json, string.concat(lanePath, ".rate"))))
+                != keccak256(bytes(vm.toString(policy.rate)))
+        ) return false;
+        bool hasInbound = vm.keyExistsJson(json, string.concat(lanePath, ".inbound"));
+        if (hasInbound != policy.withInbound) return false;
+        if (policy.withInbound) {
+            if (
+                keccak256(bytes(vm.parseJsonString(json, string.concat(lanePath, ".inbound.capacity"))))
+                    != keccak256(bytes(vm.toString(policy.inboundCapacity)))
+            ) return false;
+            if (
+                keccak256(bytes(vm.parseJsonString(json, string.concat(lanePath, ".inbound.rate"))))
+                    != keccak256(bytes(vm.toString(policy.inboundRate)))
+            ) return false;
+        }
+        return true;
+    }
+
+    /// @dev Same-name is not the only self-lane: two config files can carry the SAME chainSelector. A
+    /// lane whose remote selector equals the local selector would make the pool register ITSELF as a
+    /// remote.
+    function _requireNotSelfLane(
+        string memory local,
+        string memory remote,
+        string memory json,
+        string memory remoteJson
+    ) internal pure {
+        string memory localSelector = vm.parseJsonString(json, ".chainSelector");
+        require(
+            keccak256(bytes(localSelector)) != keccak256(bytes(vm.parseJsonString(remoteJson, ".chainSelector"))),
+            string.concat(
+                "[add-lane] ",
+                local,
+                " and ",
+                remote,
+                " share chainSelector ",
+                localSelector,
+                " - same chain under two names; refusing a self-lane"
+            )
+        );
+    }
+
+    /// @dev Preserve-and-replace the .lanes subtree: re-serialize every existing entry verbatim
+    /// (including nested optional blocks - `inbound{}`, `v2{}` - via the recursive copier), then add
+    /// the new entry and write the subtree back in one targeted `vm.writeJson`.
+    function _writeLaneSubtree(
+        string memory local,
+        string memory localPath,
+        string memory json,
+        string memory remote,
+        string memory remoteSelector,
+        LanePolicy memory policy
+    ) internal {
+        string[] memory laneNames = vm.parseJsonKeys(json, ".lanes");
+        string memory lanesObj = string.concat("lanes-", local);
+        string memory lanesJson = "{}";
+        for (uint256 i = 0; i < laneNames.length; i++) {
+            lanesJson = vm.serializeString(lanesObj, laneNames[i], _copyLaneEntry(json, laneNames[i]));
+        }
+        string memory newEntry = string.concat("lane-new-", remote);
+        vm.serializeString(newEntry, "capacity", vm.toString(policy.capacity));
+        vm.serializeString(newEntry, "rate", vm.toString(policy.rate));
+        if (policy.withInbound) {
+            string memory inboundObj = string.concat("lane-new-inbound-", remote);
+            vm.serializeString(inboundObj, "capacity", vm.toString(policy.inboundCapacity));
+            vm.serializeString(
+                newEntry, "inbound", vm.serializeString(inboundObj, "rate", vm.toString(policy.inboundRate))
+            );
+        }
+        lanesJson = vm.serializeString(lanesObj, remote, vm.serializeString(newEntry, "remoteSelector", remoteSelector));
+
+        vm.writeJson(lanesJson, localPath, ".lanes");
+        console.log(
+            string.concat(
+                "[add-lane] wrote lane ",
+                local,
+                " -> ",
+                remote,
+                " remoteSelector=",
+                remoteSelector,
+                " capacity=",
+                vm.toString(policy.capacity),
+                " rate=",
+                vm.toString(policy.rate),
+                policy.withInbound
+                    ? string.concat(
+                        " inboundCapacity=",
+                        vm.toString(policy.inboundCapacity),
+                        " inboundRate=",
+                        vm.toString(policy.inboundRate)
+                    )
+                    : ""
+            )
+        );
+        // Name the on-chain follow-up (mirrors remove-lane): the declaration is written, the pool is
+        // untouched. Apply the policy on-chain, then verify with the doctor.
+        console.log(
+            string.concat(
+                "[add-lane] declaration written; the pool is untouched - apply it on-chain via ApplyChainUpdates (script/setup/ApplyChainUpdates.s.sol) and verify with make doctor CHAIN=",
+                local
+            )
+        );
+    }
+
+    /// @dev Re-serialize one existing lane entry verbatim, so the preserve-and-replace write cannot
+    /// reshape entries it does not own. Recursive: leaf values are quoted-decimal strings per the
+    /// schema, and nested objects (the optional `inbound{}` / `v2{}` policy blocks) are copied
+    /// subtree-by-subtree.
+    function _copyLaneEntry(string memory json, string memory laneName) internal returns (string memory) {
+        return _copyJsonObject(json, string.concat(".lanes.", laneName));
+    }
+
+    /// @dev Copies the JSON object at `path` (all leaves are strings per the schema) into a fresh
+    /// serialized object, recursing into nested objects. `parseJsonKeys` reverts on a non-object
+    /// value, which is the leaf detector (cheatcode calls are external, so try/catch applies).
+    function _copyJsonObject(string memory json, string memory path) internal returns (string memory) {
+        string[] memory keys = vm.parseJsonKeys(json, path);
+        if (keys.length == 0) return "{}";
+        string memory obj = string.concat("copy-", path);
+        string memory out = "{}";
+        for (uint256 k = 0; k < keys.length; k++) {
+            string memory childPath = string.concat(path, ".", keys[k]);
+            try vm.parseJsonKeys(json, childPath) returns (string[] memory) {
+                out = vm.serializeString(obj, keys[k], _copyJsonObject(json, childPath));
+            } catch {
+                out = vm.serializeString(obj, keys[k], vm.parseJsonString(json, childPath));
+            }
+        }
+        return out;
+    }
+
+    /// @dev WARN (not fail) when the remote chain has no tokenPool in its deployed-address registry
+    /// (`addresses/<chainId>.json`) — the lane can be declared ahead of the deploy, but the transfer
+    /// scripts cannot execute against it until the pool exists. Non-EVM remotes are skipped: the
+    /// registry is keyed by numeric chainId, which non-EVM configs do not have (placeholder "0").
+    function _warnPlaceholderPool(string memory remote, string memory remoteJson) internal view {
+        if (keccak256(bytes(vm.parseJsonString(remoteJson, ".chainFamily"))) != keccak256(bytes("evm"))) return;
+        uint256 chainId = vm.parseJsonUint(remoteJson, ".chainId");
+        if (RegistryWriter.read(chainId, "tokenPool") == address(0)) {
+            console.log(
+                string.concat(
+                    "[add-lane] WARN: no tokenPool in addresses/",
+                    vm.toString(chainId),
+                    ".json for ",
+                    remote,
+                    " - deploy one (script/deploy/DeployBurnMintTokenPool.s.sol or DeployLockReleaseTokenPool.s.sol) before executing transfers over this lane"
+                )
+            );
+        }
+    }
+
+    // ================================================================
+    // removeLane — `make remove-lane`: remove a lanes{} policy entry
+    // ================================================================
+
+    /// @notice Remove the `.lanes.<remote>` entry from the LOCAL chain's config - the undo of
+    /// `addLane`, with the same preserve-and-replace discipline: every OTHER lane entry is
+    /// re-serialized verbatim (including nested `inbound{}`/`v2{}` blocks, via the recursive
+    /// copier) and the subtree is written back in one targeted `vm.writeJson(json, path, ".lanes")`,
+    /// so entries the write does not own survive intact. Removing a lane that is NOT declared is a
+    /// logged no-op that leaves the file byte-identical (the same idempotence a duplicate `addLane`
+    /// has). No API fetch, and no check that the remote's config file still exists: removing a
+    /// dangling lane (the mesh rung's FAIL for a renamed or deleted remote) is exactly this
+    /// command's job.
+    /// @dev Declaration-only by design: the write touches `config/chains/<local>.json` and never
+    /// the pool. A lane that is applied on-chain must be removed there separately - the pool's
+    /// `applyChainUpdates` takes the selector in its `remoteChainSelectorsToRemove` input (see
+    /// `script/setup/ApplyChainUpdates.s.sol`) - and until it is, `make doctor`'s lanes rung WARNs
+    /// that the on-chain lane is not declared in `lanes{}`. Guards mirror `addLane`: a missing
+    /// config file and a missing `.lanes` object are named refusals, never raw cheatcode reverts.
+    function removeLane(string memory local, string memory remote) public {
+        _requireSyncProfile();
+        string memory localPath = _requireConfigExists(local);
+        string memory json = vm.readFile(localPath);
+        require(
+            vm.keyExistsJson(json, ".lanes"),
+            string.concat(
+                "[remove-lane] ",
+                localPath,
+                " has no lanes object (non-EVM chains are destination-only) - nothing to remove"
+            )
+        );
+        if (!vm.keyExistsJson(json, string.concat(".lanes.", remote))) {
+            console.log(
+                string.concat(
+                    "[remove-lane] lane ",
+                    local,
+                    " -> ",
+                    remote,
+                    " is not declared - no-op (config/chains/",
+                    local,
+                    ".json unchanged)"
+                )
+            );
+            return;
+        }
+
+        string[] memory laneNames = vm.parseJsonKeys(json, ".lanes");
+        string memory lanesObj = string.concat("lanes-rm-", local);
+        string memory lanesJson = "{}";
+        for (uint256 i = 0; i < laneNames.length; i++) {
+            if (keccak256(bytes(laneNames[i])) == keccak256(bytes(remote))) continue;
+            lanesJson = vm.serializeString(lanesObj, laneNames[i], _copyLaneEntry(json, laneNames[i]));
+        }
+        vm.writeJson(lanesJson, localPath, ".lanes");
+        console.log(
+            string.concat("[remove-lane] removed lane ", local, " -> ", remote, " from config/chains/", local, ".json")
+        );
+        console.log(
+            string.concat(
+                "[remove-lane] declaration removed; the pool is untouched - if the lane is applied on-chain, make doctor CHAIN=",
+                local,
+                " will WARN 'on-chain lane ... not declared in lanes{}' until it is removed on-chain via ApplyChainUpdates (the pool's applyChainUpdates 'remoteChainSelectorsToRemove' input)"
+            )
+        );
     }
 }

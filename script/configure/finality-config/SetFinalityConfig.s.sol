@@ -7,7 +7,10 @@ import {TokenPool} from "@chainlink/contracts-ccip/contracts/pools/TokenPool.sol
 import {FinalityCodec} from "@chainlink/contracts-ccip/contracts/libraries/FinalityCodec.sol";
 import {RateLimiter} from "@chainlink/contracts-ccip/contracts/libraries/RateLimiter.sol";
 import {RateLimiterUtils, ITokenPoolV1RateLimiter} from "../../utils/RateLimiterUtils.s.sol";
+import {PoolVersion} from "../../utils/PoolVersion.s.sol";
+import {PoolVersions} from "../../../src/PoolVersions.sol";
 import {FinalityConfigUtils} from "../../utils/FinalityConfigUtils.s.sol";
+import {LanePolicySource} from "../../utils/LanePolicySource.s.sol";
 import {CctActions} from "../../../src/actions/CctActions.sol";
 import {EoaExecutor} from "../../../src/base/EoaExecutor.s.sol";
 
@@ -43,6 +46,14 @@ import {EoaExecutor} from "../../../src/base/EoaExecutor.s.sol";
 ///   * DEST_CHAIN + rate limit vars  -> logs current, applies updates, logs updated state
 ///   * Rate limit vars without DEST_CHAIN -> reverts with a helpful error
 ///
+/// @dev The fast-finality rate-limit update here is the ENV-OVERRIDE path only: it fires solely when
+///      the OUTBOUND_*/INBOUND_* env vars are set, and it never sources buckets from `lanes{}`. When
+///      an env-applied bucket CONTRADICTS a declared `lanes.<remote>.v2.fastFinality.<dir>` policy,
+///      the script prints the same one-line divergence notice and closing hand-edit hint
+///      `UpdateRateLimiters` prints (`make doctor` WARNs until reconciled); an absent or agreeing
+///      declaration is silent. To DECLARE the fast-finality policy and apply it from `lanes{}`, use
+///      `UpdateRateLimiters` with `FAST_FINALITY=true` (the declare-from-policy path).
+///
 /// Usage examples:
 ///   # Set block depth and configure the fast finality rate limit bucket:
 ///   BLOCK_DEPTH=5 DEST_CHAIN=MANTLE_SEPOLIA \
@@ -60,11 +71,39 @@ import {EoaExecutor} from "../../../src/base/EoaExecutor.s.sol";
 ///
 ///   # Reset to default finality (disables fast finality transfers):
 ///   forge script script/configure/finality-config/SetFinalityConfig.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account <KEYSTORE_NAME> --broadcast
-contract SetFinalityConfig is EoaExecutor {
+contract SetFinalityConfig is EoaExecutor, LanePolicySource {
     HelperConfig public helperConfig;
 
     // ── Storage: avoids EVM stack pressure inside run() ────────────────────
     bytes4 private s_newFinalityConfig;
+    // The composed closing hand-edit hints for an env-applied fast-finality bucket that diverges
+    // from a declared lanes{}.v2.fastFinality policy; printed after the footer (empty when none).
+    string private s_ffOutboundHint;
+    string private s_ffInboundHint;
+
+    /// @dev The fast-finality rate-limit divergence resolution: whether an env-applied bucket
+    ///      contradicts a declared `lanes.<remote>.v2.fastFinality.<dir>` policy, plus the composed
+    ///      notice/hint strings (pinned byte-exact by the test). Fires only on declared-and-diverges;
+    ///      an absent or agreeing declaration leaves every flag/string empty.
+    struct FastFinalityRlDivergence {
+        bool configFound;
+        string configName;
+        bool laneFound;
+        string laneKey;
+        bool outboundDeclared;
+        uint256 outboundDeclCapacity;
+        uint256 outboundDeclRate;
+        bool inboundDeclared;
+        uint256 inboundDeclCapacity;
+        uint256 inboundDeclRate;
+        bool outboundDiverges;
+        bool inboundDiverges;
+        bool editHint;
+        string outboundNotice;
+        string inboundNotice;
+        string outboundHint;
+        string inboundHint;
+    }
 
     function run() external {
         // ── Build and validate finality config ────────────────────────────
@@ -101,15 +140,21 @@ contract SetFinalityConfig is EoaExecutor {
 
         TokenPool tokenPool = TokenPool(tokenPoolAddress);
 
+        // ── Version fence ──────────────────────────────────────────────────
+        // setAllowedFinalityConfig (below) is a v2-only setter, and it runs on EVERY invocation
+        // (not only when DEST_CHAIN is set). Resolve the pool's on-chain contract version
+        // unconditionally and refuse by name before the write; the rate-limit path reuses this
+        // version. This script broadcasts, so use resolve (refuses uncataloged/-dev pools).
+        (PoolVersions.Version poolVersion,) = PoolVersion.resolve(tokenPoolAddress);
+        PoolVersions.requireSupports(PoolVersions.Op.SET_ALLOWED_FINALITY_CONFIG, poolVersion, tokenPoolAddress);
+
         // ── Resolve remote chain (only when DEST_CHAIN is set) ─────────────
         uint64 remoteChainSelector;
         string memory destChainFullName;
-        bool isV2;
         if (destChainSet) {
             uint256 destChainId = helperConfig.parseChainName(destChainName);
             remoteChainSelector = helperConfig.getNetworkConfig(destChainId).chainSelector;
             destChainFullName = helperConfig.getChainName(destChainId);
-            isV2 = RateLimiterUtils.isV2Pool(tokenPool, remoteChainSelector, true);
         }
 
         // ── Header ─────────────────────────────────────────────────────────
@@ -142,7 +187,7 @@ contract SetFinalityConfig is EoaExecutor {
             console.log(unicode"📊 Current Rate Limits (fast finality where enabled, standard otherwise):");
             console.log("----------------------------------------");
             RateLimiterUtils.logRateLimiterStateWithFallback(
-                tokenPool, ITokenPoolV1RateLimiter(tokenPoolAddress), remoteChainSelector, isV2
+                tokenPool, ITokenPoolV1RateLimiter(tokenPoolAddress), remoteChainSelector, poolVersion
             );
         }
 
@@ -155,7 +200,14 @@ contract SetFinalityConfig is EoaExecutor {
         // ── Step 2: Apply rate limit update (if requested) ─────────────────
         if (hasRateLimitUpdate) {
             _applyRateLimitUpdate(
-                tokenPool, tokenPoolAddress, remoteChainSelector, destChainFullName, chainName, update, isV2
+                tokenPool,
+                tokenPoolAddress,
+                remoteChainSelector,
+                destChainName,
+                destChainFullName,
+                chainName,
+                update,
+                poolVersion
             );
         }
 
@@ -166,7 +218,7 @@ contract SetFinalityConfig is EoaExecutor {
             console.log(unicode"📊 Updated Rate Limits (fast finality where enabled, standard otherwise):");
             console.log("----------------------------------------");
             RateLimiterUtils.logRateLimiterStateWithFallback(
-                tokenPool, ITokenPoolV1RateLimiter(tokenPoolAddress), remoteChainSelector, isV2
+                tokenPool, ITokenPoolV1RateLimiter(tokenPoolAddress), remoteChainSelector, poolVersion
             );
         }
 
@@ -182,6 +234,10 @@ contract SetFinalityConfig is EoaExecutor {
             string.concat("Token Pool:      ", helperConfig.getExplorerUrl(chainId, "/address/", tokenPoolAddress))
         );
         console.log("========================================");
+        // Closing hand-edit hints for an env-applied fast-finality bucket that diverges from a
+        // declared lanes{}.v2.fastFinality policy (empty unless it fired).
+        if (bytes(s_ffOutboundHint).length != 0) console.log(s_ffOutboundHint);
+        if (bytes(s_ffInboundHint).length != 0) console.log(s_ffInboundHint);
         console.log("");
     }
 
@@ -217,10 +273,11 @@ contract SetFinalityConfig is EoaExecutor {
         TokenPool tokenPool,
         address tokenPoolAddress,
         uint64 remoteChainSelector,
+        string memory destChainName,
         string memory destChainFullName,
         string memory chainName,
         RateLimiterUtils.RateLimitUpdate memory u,
-        bool isV2
+        PoolVersions.Version poolVersion
     ) internal {
         console.log("");
         console.log(
@@ -230,7 +287,7 @@ contract SetFinalityConfig is EoaExecutor {
         );
 
         (RateLimiter.Config memory outbound, RateLimiter.Config memory inbound) = RateLimiterUtils.getCurrentConfigs(
-            tokenPool, ITokenPoolV1RateLimiter(tokenPoolAddress), remoteChainSelector, true, isV2
+            tokenPool, ITokenPoolV1RateLimiter(tokenPoolAddress), remoteChainSelector, true, poolVersion
         );
 
         if (u.updateOutbound) {
@@ -250,10 +307,144 @@ contract SetFinalityConfig is EoaExecutor {
 
         RateLimiterUtils.logNewConfig(u.updateOutbound, outbound, u.updateInbound, inbound);
 
-        // Fast-finality bucket update (fastFinality=true) through the version-detected action dispatch.
+        // Fast-finality bucket update (fastFinality=true) through the version-dispatched action layer.
         // setAllowedFinalityConfig above already established this is a v2 pool.
-        executeCalls(CctActions.setRateLimits(address(tokenPool), isV2, remoteChainSelector, true, outbound, inbound));
+        executeCalls(
+            CctActions.setRateLimits(address(tokenPool), poolVersion, remoteChainSelector, true, outbound, inbound)
+        );
 
         console.log(unicode"✅ Rate limits updated successfully!");
+
+        // Reconcile the applied (env-override) fast-finality buckets against the declared
+        // lanes{}.v2.fastFinality policy: print the divergence notice inline, store the closing hint.
+        _reconcileFastFinality(outbound, u.updateOutbound, inbound, u.updateInbound, destChainName, remoteChainSelector);
+    }
+
+    /// @dev Computes the fast-finality divergence, prints the per-direction divergence notice, and
+    ///      stores the closing hand-edit hint (printed after the footer). Env-override path only:
+    ///      fires solely when an applied direction contradicts a declared fast-finality bucket.
+    function _reconcileFastFinality(
+        RateLimiter.Config memory outbound,
+        bool updateOutbound,
+        RateLimiter.Config memory inbound,
+        bool updateInbound,
+        string memory destChainName,
+        uint64 destChainSelector
+    ) internal {
+        FastFinalityRlDivergence memory res = _resolveFastFinalityDivergence(
+            outbound, updateOutbound, inbound, updateInbound, destChainName, destChainSelector
+        );
+        if (res.outboundDiverges) console.log(res.outboundNotice);
+        if (res.inboundDiverges) console.log(res.inboundNotice);
+        s_ffOutboundHint = res.outboundHint;
+        s_ffInboundHint = res.inboundHint;
+    }
+
+    /// @dev The fast-finality divergence resolution (see FastFinalityRlDivergence). An env-applied
+    ///      direction that CONTRADICTS a declared `lanes.<remote>.v2.fastFinality.<dir>` bucket flags
+    ///      a divergence and composes the notice + hint (byte-exact the wording `UpdateRateLimiters`
+    ///      prints); an absent or agreeing declaration is silent. No rung-2 sourcing: this never
+    ///      supplies a bucket from lanes{}, it only reconciles what the env override applied.
+    function _resolveFastFinalityDivergence(
+        RateLimiter.Config memory outbound,
+        bool updateOutbound,
+        RateLimiter.Config memory inbound,
+        bool updateInbound,
+        string memory destChainName,
+        uint64 destChainSelector
+    ) internal view returns (FastFinalityRlDivergence memory res) {
+        string memory json;
+        (res.configFound, res.configName, json) = _findLocalChainConfig();
+        if (res.configFound) (res.laneFound, res.laneKey) = _findLaneKey(json, destChainName, destChainSelector);
+        if (!res.laneFound) {
+            res.laneKey = _remoteConfigName(destChainName);
+            return res;
+        }
+
+        string memory ftfPath = string.concat(".lanes.", res.laneKey, ".v2.fastFinality");
+        if (vm.keyExistsJson(json, string.concat(ftfPath, ".outbound"))) {
+            res.outboundDeclared = true;
+            (res.outboundDeclCapacity, res.outboundDeclRate) =
+                _declaredBucket(json, string.concat(ftfPath, ".outbound"));
+        }
+        if (vm.keyExistsJson(json, string.concat(ftfPath, ".inbound"))) {
+            res.inboundDeclared = true;
+            (res.inboundDeclCapacity, res.inboundDeclRate) = _declaredBucket(json, string.concat(ftfPath, ".inbound"));
+        }
+
+        if (updateOutbound && res.outboundDeclared) {
+            res.outboundDiverges = _bucketDiverges(outbound, res.outboundDeclCapacity, res.outboundDeclRate);
+        }
+        if (updateInbound && res.inboundDeclared) {
+            res.inboundDiverges = _bucketDiverges(inbound, res.inboundDeclCapacity, res.inboundDeclRate);
+        }
+        res.editHint = res.outboundDiverges || res.inboundDiverges;
+
+        if (res.outboundDiverges) {
+            res.outboundNotice = _composeFfDivergence(res, outbound, false);
+            res.outboundHint = _composeFfEditHint(res, outbound, false);
+        }
+        if (res.inboundDiverges) {
+            res.inboundNotice = _composeFfDivergence(res, inbound, true);
+            res.inboundHint = _composeFfEditHint(res, inbound, true);
+        }
+    }
+
+    /// @dev One divergence-notice line (byte-exact the wording UpdateRateLimiters' fast-finality
+    ///      notice prints), returned so the test can pin it.
+    function _composeFfDivergence(FastFinalityRlDivergence memory res, RateLimiter.Config memory applied, bool inbound)
+        internal
+        pure
+        returns (string memory)
+    {
+        (uint256 declCapacity, uint256 declRate) =
+            inbound ? (res.inboundDeclCapacity, res.inboundDeclRate) : (res.outboundDeclCapacity, res.outboundDeclRate);
+        return string.concat(
+            unicode"⚠️  ",
+            inbound ? "INBOUND" : "OUTBOUND",
+            " rate-limit env override (enabled=",
+            vm.toString(applied.isEnabled),
+            " capacity=",
+            vm.toString(uint256(applied.capacity)),
+            " rate=",
+            vm.toString(uint256(applied.rate)),
+            ") diverges from declared lanes.",
+            res.laneKey,
+            ".v2.fastFinality.",
+            inbound ? "inbound" : "outbound",
+            " (capacity=",
+            vm.toString(declCapacity),
+            " rate=",
+            vm.toString(declRate),
+            ") in config/chains/",
+            res.configName,
+            ".json - make doctor will WARN until reconciled"
+        );
+    }
+
+    /// @dev One closing hand-edit hint line (byte-exact the wording UpdateRateLimiters' fast-finality
+    ///      hint prints for a diverging bucket), returned so the test can pin it.
+    function _composeFfEditHint(FastFinalityRlDivergence memory res, RateLimiter.Config memory applied, bool inbound)
+        internal
+        pure
+        returns (string memory)
+    {
+        return string.concat(
+            unicode"⚠️  Applied ",
+            inbound ? "INBOUND" : "OUTBOUND",
+            " values are diverging from lanes.",
+            res.laneKey,
+            ".v2.fastFinality.",
+            inbound ? "inbound" : "outbound",
+            " (config/chains/",
+            res.configName,
+            ".json). Hand-edit the entry to capacity=",
+            vm.toString(uint256(applied.capacity)),
+            " rate=",
+            vm.toString(uint256(applied.rate)),
+            " - make doctor CHAIN=",
+            res.configName,
+            " WARNs until reconciled"
+        );
     }
 }

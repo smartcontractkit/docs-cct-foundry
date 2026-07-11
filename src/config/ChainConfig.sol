@@ -51,13 +51,17 @@ library ChainConfig {
     }
 
     /// @notice `load` + the declared chain ID, tolerating a file that no longer exists (returns
-    /// `ok = false`). One single `readFile` backs the whole record, so directory-scan consumers
-    /// (see `names()`) racing a parallel deletion — e.g. a test cleaning up its scratch config —
-    /// have the smallest possible window between the existence check and the read.
+    /// `ok = false`). One single `readFile` backs the whole record, and the read itself is
+    /// try/catch-able (cheatcode calls are external calls), so directory-scan consumers (see
+    /// `names()`) racing a parallel deletion — e.g. a test cleaning up its scratch config between
+    /// the existence check and the read — get a clean `ok = false`, never an aborted run.
     function tryLoad(string memory name) internal view returns (bool ok, Chain memory c, uint256 declaredChainId) {
         if (!VM.exists(_path(name))) return (false, c, 0);
-        string memory json = VM.readFile(_path(name));
-        return (true, _parse(json), VM.parseJsonUint(json, ".chainId"));
+        try VM.readFile(_path(name)) returns (string memory json) {
+            return (true, _parse(json), VM.parseJsonUint(json, ".chainId"));
+        } catch {
+            return (false, c, 0);
+        }
     }
 
     /// @dev Parses one already-read chain JSON document into a `Chain` record.

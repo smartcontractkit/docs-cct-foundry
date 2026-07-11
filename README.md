@@ -364,6 +364,8 @@ forge script \
 
 ### Step 5: Apply Chain Updates (configure cross-chain routes)
 
+> **Dry run first:** omit `--broadcast` from any command in this step to simulate the apply — the script runs against the fork and prints exactly what it would do, without sending a transaction. Add `--broadcast` back once the output looks right.
+
 ```bash
 # Configure Ethereum Sepolia → Mantle Sepolia
 DEST_CHAIN=MANTLE_SEPOLIA \
@@ -402,7 +404,14 @@ DEST_CHAIN=SOLANA_DEVNET \
 
 This script is idempotent — if the destination chain is already configured on the pool, the existing config is removed and replaced automatically.
 
-Rate limiting is disabled by default. To enable it, pass the capacity and rate — `isEnabled` is automatically set to `true` when either value is provided:
+Rate limits resolve per direction through a two-rung ladder, matching the repo's `inline > env > registry` idiom:
+
+1. **Rate-limit env vars set** — the env values win, exactly as documented in the table below. This is the explicit override path (for example, an incident-response throttle). If the local chain config declares a diverging `lanes{}` policy for the destination, the script prints a one-line notice naming both values, and the closing output prints the exact `make add-lane` command to bring the declaration in line — `make doctor` WARNs until the two agree. An apply never writes `lanes{}` back: the declaration is owner intent, reconciled through a reviewed edit.
+2. **Env vars unset** — the buckets come from the declared `lanes{}` entry in `config/chains/<local>.json` (matched by the remote's config name, falling back to `remoteSelector` equality): `capacity`/`rate` drive the outbound bucket (enabled when either is non-zero), and the optional `inbound{capacity,rate}` block drives the inbound bucket. An absent `inbound{}` block keeps the default: disabled.
+
+With neither env vars nor a `lanes{}` entry, rate limiting stays disabled (the historical default) and the console says so. The golden path is declare once, apply from the declaration: `make add-lane` (see [Chain config tooling](#chain-config-tooling---discover-add-sync-verify)), then run the script with no rate-limit env vars.
+
+To enable rate limits via the env override, pass the capacity and rate — `isEnabled` is automatically set to `true` when either value is provided:
 
 ```bash
 # Ethereum Sepolia → Mantle Sepolia: enable both directions
@@ -473,6 +482,20 @@ DEST_CHAIN=MANTLE_SEPOLIA \
 
 > **Note:** `ApplyChainUpdates` only configures the **standard finality** rate limit bucket. To configure the fast finality bucket, run `UpdateRateLimiters` with `FAST_FINALITY=true` after the lane is set up.
 
+#### Declare vs apply: argument name mapping
+
+`make add-lane` (which declares the policy into `config/chains/<local>.json`) and the apply scripts (`ApplyChainUpdates`, `UpdateRateLimiters`) name the same rate-limit values differently. When translating a declared lane into an env-override apply, map the arguments as follows:
+
+| `make add-lane` argument | Apply-script env var |
+|---|---|
+| `REMOTE` | `DEST_CHAIN` |
+| `CAPACITY` | `OUTBOUND_RATE_LIMIT_CAPACITY` |
+| `RATE` | `OUTBOUND_RATE_LIMIT_RATE` |
+| `INBOUND_CAPACITY` | `INBOUND_RATE_LIMIT_CAPACITY` |
+| `INBOUND_RATE` | `INBOUND_RATE_LIMIT_RATE` |
+
+`LOCAL` names the **source** chain — the chain whose pool is being configured. The apply scripts infer the source chain from the `--rpc-url` you pass (its `block.chainid`), so there is no `LOCAL` env var: point `--rpc-url` at the source chain's RPC.
+
 To read the list of supported chains and their remote pool addresses:
 
 ```bash
@@ -511,7 +534,7 @@ make add-chain CHAIN=ethereum-testnet-sepolia-base-1 SELECTOR=103449712358744650
 make doctor CHAIN=ethereum-testnet-sepolia-base-1   # 3. layered verification — re-run until green
 ```
 
-`CHAIN` is the chain's **canonical CCIP selectorName** as shown by `make discover` (the API/registry name — e.g. `ethereum-testnet-sepolia-base-1`, not a bespoke `base-sepolia`); it becomes the file name `config/chains/<CHAIN>.json` and is validated against the API. `SELECTOR` is the **explicit identity key**, also from `make discover` — every fetch cross-checks both: a valid-but-wrong selector fails loudly as `SELECTOR MISMATCH`, and a non-canonical name as `SELECTOR NAME MISMATCH`, instead of silently writing another chain's contracts. New chains are **discovered automatically** from `config/chains/` — `HelperConfig` scans the directory, so no Solidity edit is needed anywhere. For a newly added chain the `chainNameIdentifier` (and hence the `rpcEnv` and the `<ID>_TOKEN`/`<ID>_TOKEN_POOL` override prefix) is **derived from the selectorName** as UPPER_SNAKE — so it may differ in style from the six bundled chains' curated short forms (e.g. `AVALANCHE_TESTNET_FUJI`, not `AVALANCHE_FUJI`); `add-chain` **prints the exact `chainNameIdentifier` and `rpcEnv` names it generated** so you never have to guess (or open the JSON) which env var to export. `add-chain` prints your next steps: add the chain's RPC env var to `.env`, then deploy your token and pool there ([Step 1](#step-1-deploy-token-on-both-chains) / [Step 2](#step-2-deploy-token-pools-on-both-chains)). Wiring the new chain into your cross-chain lanes ([Step 5](#step-5-apply-chain-updates-configure-cross-chain-routes)) stays a manual flow for now — a scripted lane-wiring golden path lands in a follow-up.
+`CHAIN` is the chain's **canonical CCIP selectorName** as shown by `make discover` (the API/registry name — e.g. `ethereum-testnet-sepolia-base-1`, not a bespoke `base-sepolia`); it becomes the file name `config/chains/<CHAIN>.json` and is validated against the API. `SELECTOR` is the **explicit identity key**, also from `make discover` — every fetch cross-checks both: a valid-but-wrong selector fails loudly as `SELECTOR MISMATCH`, and a non-canonical name as `SELECTOR NAME MISMATCH`, instead of silently writing another chain's contracts. New chains are **discovered automatically** from `config/chains/` — `HelperConfig` scans the directory, so no Solidity edit is needed anywhere. For a newly added chain the `chainNameIdentifier` (and hence the `rpcEnv` and the `<ID>_TOKEN`/`<ID>_TOKEN_POOL` override prefix) is **derived from the selectorName** as UPPER_SNAKE — so it may differ in style from the six bundled chains' curated short forms (e.g. `AVALANCHE_TESTNET_FUJI`, not `AVALANCHE_FUJI`); `add-chain` **prints the exact `chainNameIdentifier` and `rpcEnv` names it generated** so you never have to guess (or open the JSON) which env var to export. `add-chain` prints your next steps: add the chain's RPC env var to `.env`, then deploy your token and pool there ([Step 1](#step-1-deploy-token-on-both-chains) / [Step 2](#step-2-deploy-token-pools-on-both-chains)). Then declare the lane policy with `make add-lane LOCAL=<name> REMOTE=<remote> CAPACITY=<wei> RATE=<wei> BOTH=1`, apply it on-chain via [Step 5](#step-5-apply-chain-updates-configure-cross-chain-routes), and re-run `make doctor` — its lanes rung reconciles the declared policy against the pool. To retire a lane, `make remove-lane LOCAL=<name> REMOTE=<remote> [BOTH=1]` removes the declaration; that is a separate step from the on-chain removal (the pool's `applyChainUpdates` takes the selector in `remoteChainSelectorsToRemove`), and between the two `make doctor` WARNs that the on-chain lane is not declared.
 
 Full details: [Configuration](#configuration) overview, the per-field [`docs/config-schema.md`](docs/config-schema.md), and the command + architecture reference [`docs/config-architecture.md`](docs/config-architecture.md).
 
@@ -524,10 +547,13 @@ Full details: [Configuration](#configuration) overview, the per-field [`docs/con
 | Check whether any config drifted from the API (routine; what CI runs weekly) | `make sync-check` (CI/automation: `bash script/config/sync-check.sh` for the 0/1/2 exit codes) |
 | Inspect what the API currently has for one chain before changing anything | `make sync-preview CHAIN=<name>` |
 | Apply the API's current values | `make sync CHAIN=<name>` / `make sync-all` |
+| Declare a lane policy between two chains | `make add-lane LOCAL=<name> REMOTE=<remote> CAPACITY=<wei> RATE=<wei> [BOTH=1]` |
+| Retire a declared lane policy (undo of `add-lane`) | `make remove-lane LOCAL=<name> REMOTE=<remote> [BOTH=1]` |
+| Bring externally deployed contracts into the registry | `make adopt-token CHAIN=<name> TOKEN=<addr> [TOKEN_POOL=<addr>]` |
 | Deep-verify one chain end to end (human health check) | `make doctor CHAIN=<name>` |
 | Restore canonical formatting after a raw `forge script` run | `make fmt-config` |
 
-`doctor` and `sync-check` layer rather than overlap: `doctor` is the deep single-chain health check for a human (schema, identity, drift, RPC, on-chain code, registry warnings), while `sync-check` is the fleet-wide drift verdict for routine use and CI.
+`doctor` and `sync-check` layer rather than overlap: `doctor` is the deep single-chain health check for a human (schema, identity, drift, RPC, on-chain code, registry warnings, mesh reciprocity, on-chain lane reconciliation), while `sync-check` is the fleet-wide drift verdict for routine use and CI.
 
 ## Ownership Management (Optional)
 
@@ -920,6 +946,76 @@ When `DEST_CHAIN` is provided, the script logs the current rate limits before ap
 | `INBOUND_RATE_LIMIT_RATE` | No | uint128, inbound token bucket refill rate (tokens/second) |
 | `INBOUND_RATE_LIMIT_ENABLED` | No | Override `isEnabled` explicitly (`true`/`false`; defaults to `true` when `CAPACITY` or `RATE` are set) |
 
+### Manage LockRelease Liquidity (v1.x pools)
+
+> **Applies to LockRelease pools on contract versions 1.5.0, 1.5.1, and 1.6.1 only.** These versions hold the locked liquidity on the pool itself and manage it through a **rebalancer**: the pool owner appoints a rebalancer, and only that rebalancer may add or remove liquidity. **On LockRelease pool version 2.0.0 the pool holds no liquidity** — an external lock box does, so use [Deposit to LockBox](#deposit-to-lockbox) and [Withdraw from LockBox](#withdraw-from-lockbox) instead. Burn & Mint pools have no liquidity to manage; they mint and burn.
+
+The rebalancer model has three roles:
+
+- **`setRebalancer`** — the pool **owner** appoints the rebalancer.
+- **`provideLiquidity`** — the **rebalancer** adds liquidity. The pool pulls the tokens with `transferFrom`, so the token is approved to the pool first and then the liquidity is provided, in one step.
+- **`withdrawLiquidity`** — the **rebalancer** removes liquidity, which is transferred back to it. The pool reverts `InsufficientLiquidity` if its balance is below the requested amount.
+
+Each script resolves the pool from the address registry (or the `TOKEN_POOL` / `{CHAIN}_TOKEN_POOL` alias) and the token from the pool's `getToken()`. The write scripts refuse, with a clear message, before broadcasting when the pool is the wrong type (not LockRelease) or the wrong version (2.0.0, which points you at the lock box), or when the broadcaster is not the pool's rebalancer.
+
+#### View the rebalancer
+
+```bash
+forge script script/configure/liquidity/GetRebalancer.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL
+```
+
+This read-only script degrades gracefully: on a 2.0.0 LockRelease pool it prints the lock box pointer instead of a rebalancer, and on a non-LockRelease pool it explains that only LockRelease pools have a rebalancer.
+
+#### Set the rebalancer
+
+Broadcast as the pool **owner**:
+
+```bash
+REBALANCER=0xYourRebalancerAddress \
+  forge script \
+  script/configure/liquidity/SetRebalancer.s.sol \
+  --rpc-url \
+  $ETHEREUM_SEPOLIA_RPC_URL \
+  --account \
+  $KEYSTORE_NAME \
+  --broadcast
+```
+
+#### Provide liquidity
+
+Broadcast as the pool **rebalancer**. `AMOUNT` is in the token's smallest unit (wei):
+
+```bash
+AMOUNT=1000000000000000000 \
+  forge script \
+  script/configure/liquidity/ProvideLiquidity.s.sol \
+  --rpc-url \
+  $ETHEREUM_SEPOLIA_RPC_URL \
+  --account \
+  $KEYSTORE_NAME \
+  --broadcast
+```
+
+#### Withdraw liquidity
+
+Broadcast as the pool **rebalancer**:
+
+```bash
+AMOUNT=1000000000000000000 \
+  forge script \
+  script/configure/liquidity/WithdrawLiquidity.s.sol \
+  --rpc-url \
+  $ETHEREUM_SEPOLIA_RPC_URL \
+  --account \
+  $KEYSTORE_NAME \
+  --broadcast
+```
+
+| Env var | Script | Required | Description |
+|---|---|---|---|
+| `REBALANCER` | `SetRebalancer` | Yes | Address to appoint as the pool's rebalancer. |
+| `AMOUNT` | `ProvideLiquidity`, `WithdrawLiquidity` | Yes | Amount of liquidity to add or remove, in the token's smallest unit (wei). |
+
 ### Manage Remote Pools
 
 Remote pools represent the pool addresses registered on a given chain for each supported remote chain. When a pool is upgraded on a remote chain, the old address should be kept active until all inflight messages have completed, then removed.
@@ -1179,6 +1275,8 @@ Optional: Set `FAST_FINALITY=true` to query the fast finality bucket (v2 pools o
 
 Updates rate limiter configuration for a specific lane. Compatible with both v1 and v2 pools. The direction is inferred automatically from whichever `OUTBOUND_*` / `INBOUND_*` vars are set — no need to pass `ENABLED` separately. `isEnabled` defaults to `true` when `CAPACITY` or `RATE` are provided; pass `ENABLED=false` to explicitly disable.
 
+The golden path for v2 lanes is to declare the policy in the local chain config and apply from the declaration: with no rate-limit env vars, a direction resolves from the `lanes{}` entry in `config/chains/<local>.json` — the standard bucket from `capacity`/`rate` (plus the optional `inbound{}` block), the fast finality bucket (`FAST_FINALITY=true`, 2.0.0 pools) from `v2.fastFinality.outbound` / `v2.fastFinality.inbound`. Env vars remain the explicit override for incident response: they win as-is, and when they disagree with (or are missing from) the declaration, the script prints a divergence notice plus a hand-edit hint with the applied values, and `make doctor` WARNs until the declaration is reconciled. Applies never write `lanes{}` back. See [`docs/config-schema.md`](docs/config-schema.md).
+
 ```bash
 # Enable both directions (ENABLED is optional — defaults to true when CAPACITY/RATE are set)
 DEST_CHAIN=MANTLE_SEPOLIA \
@@ -1232,10 +1330,10 @@ DEST_CHAIN=MANTLE_SEPOLIA \
 | Env var | Required | Description |
 |---|---|---|
 | `DEST_CHAIN` | Yes | Remote chain whose lane is being updated |
-| `OUTBOUND_RATE_LIMIT_CAPACITY` | To update outbound | Token bucket capacity for outbound transfers |
+| `OUTBOUND_RATE_LIMIT_CAPACITY` | To update outbound (unless declared in `lanes{}`) | Token bucket capacity for outbound transfers |
 | `OUTBOUND_RATE_LIMIT_RATE` | To update outbound | Token bucket refill rate (tokens/second) for outbound transfers |
 | `OUTBOUND_RATE_LIMIT_ENABLED` | No | Override `isEnabled` explicitly (`true`/`false`; defaults to `true` when CAPACITY or RATE are set) |
-| `INBOUND_RATE_LIMIT_CAPACITY` | To update inbound | Token bucket capacity for inbound transfers |
+| `INBOUND_RATE_LIMIT_CAPACITY` | To update inbound (unless declared in `lanes{}`) | Token bucket capacity for inbound transfers |
 | `INBOUND_RATE_LIMIT_RATE` | To update inbound | Token bucket refill rate (tokens/second) for inbound transfers |
 | `INBOUND_RATE_LIMIT_ENABLED` | No | Override `isEnabled` explicitly (`true`/`false`; defaults to `true` when CAPACITY or RATE are set) |
 | `FAST_FINALITY` | No | `true` to update the fast finality bucket instead of the standard finality bucket (v2 only, default: `false`) |
@@ -1258,7 +1356,7 @@ DEST_CHAIN=MANTLE_SEPOLIA \
 
 ##### Set or Update Fee Config
 
-All fee config env vars are optional — unset fields default to the current on-chain values, so you only need to pass the fields you want to change. When setting a fee config for the first time (no existing on-chain config), any unset fields default to `0`.
+All fee config env vars are optional. Each field resolves independently: an env var wins when set; an unset field takes the declared `lanes.<remote>.v2.feeConfig.<field>` from `config/chains/<local>.json` when the block declares it; otherwise it keeps the current on-chain value. The golden path for v2 lanes is to declare the whole fee config in `v2.feeConfig` and run the script with no fee env vars — the declaration drives the apply. Env vars remain the explicit override for incident response: a value that disagrees with the declaration is applied as-is with a per-field divergence notice plus a hand-edit hint, and `make doctor` WARNs until the declaration is reconciled (applies never write `lanes{}` back). When setting a fee config for the first time with no declaration and no env vars, unset fields default to `0`.
 
 ```bash
 DEST_CHAIN=MANTLE_SEPOLIA \
@@ -1280,12 +1378,12 @@ DEST_CHAIN=MANTLE_SEPOLIA \
 | Env var | Required | Description |
 |---|---|---|
 | `DEST_CHAIN` | Yes | Remote chain to configure fees for |
-| `DEST_GAS_OVERHEAD` | No | Gas overhead charged on the destination chain (must be > 0; defaults to current on-chain value) |
-| `DEST_BYTES_OVERHEAD` | No | Data availability bytes overhead (defaults to current on-chain value) |
-| `FINALITY_FEE_USD_CENTS` | No | Flat fee in 0.01 USD units for finality transfers (defaults to current on-chain value) |
-| `FAST_FINALITY_FEE_USD_CENTS` | No | Flat fee in 0.01 USD units for fast finality transfers (defaults to current on-chain value) |
-| `FINALITY_TRANSFER_FEE_BPS` | No | Fee in basis points deducted from the transferred amount for finality transfers [0–9999] (defaults to current on-chain value) |
-| `FAST_FINALITY_TRANSFER_FEE_BPS` | No | Fee in basis points deducted from the transferred amount for fast finality transfers [0–9999] (defaults to current on-chain value) |
+| `DEST_GAS_OVERHEAD` | No | Gas overhead charged on the destination chain (must be > 0; defaults to the declared `v2.feeConfig` value, then the current on-chain value) |
+| `DEST_BYTES_OVERHEAD` | No | Data availability bytes overhead (defaults to the declared `v2.feeConfig` value, then the current on-chain value) |
+| `FINALITY_FEE_USD_CENTS` | No | Flat fee in 0.01 USD units for finality transfers (defaults to the declared `v2.feeConfig` value, then the current on-chain value) |
+| `FAST_FINALITY_FEE_USD_CENTS` | No | Flat fee in 0.01 USD units for fast finality transfers (defaults to the declared `v2.feeConfig` value, then the current on-chain value) |
+| `FINALITY_TRANSFER_FEE_BPS` | No | Fee in basis points deducted from the transferred amount for finality transfers [0–9999] (defaults to the declared `v2.feeConfig` value, then the current on-chain value) |
+| `FAST_FINALITY_TRANSFER_FEE_BPS` | No | Fee in basis points deducted from the transferred amount for fast finality transfers [0–9999] (defaults to the declared `v2.feeConfig` value, then the current on-chain value) |
 | `DISABLE` | No | Set to `true` to disable the fee config for this lane, reverting the OnRamp to FeeQuoter defaults (default: `false`) |
 
 ##### Disable Fee Config
@@ -1304,6 +1402,47 @@ DEST_CHAIN=MANTLE_SEPOLIA \
   --broadcast
 ```
 
+### Manage CCV Config
+
+Token pools v2.0 and later verify cross-chain messages through **CCVs** (Cross-Chain Verifiers), configured per lane on the pool's `AdvancedPoolHooks` contract: a required set of verifiers for each direction (`outboundCCVs` / `inboundCCVs`) plus an optional additional set that applies once a transfer reaches (is at or above) the threshold amount (`thresholdOutboundCCVs` / `thresholdInboundCCVs`). Because the config lives on the hooks contract, these scripts resolve it via `pool.getAdvancedPoolHooks()`. The setter refuses by name with a named require on a pre-2.0.0 pool (the CCV surface is 2.0.0-only) or when no hooks contract is wired; the getter degrades gracefully, printing an informative message instead of reverting.
+
+##### View CCV Config
+
+Reads the per-lane verifier arrays and the pool-global threshold.
+
+```bash
+forge script \
+  script/configure/ccv/GetCCVConfig.s.sol \
+  --rpc-url \
+  $ETHEREUM_SEPOLIA_RPC_URL
+```
+
+##### Set or Update CCV Config
+
+Each verifier array and the threshold resolve independently through the same ladder as the fee and rate-limit scripts: an env var (a comma-separated address list) wins when set; an unset array takes the declared `lanes.<remote>.v2.ccv.<field>` from `config/chains/<local>.json` when the block declares it; otherwise it keeps the current on-chain value. The golden path for v2 lanes is to declare the CCV set in `v2.ccv` (and the threshold in the chain-level `ccvThreshold`) and run the script with no CCV env vars — the declaration drives the apply. **The read-modify-write is important**: `applyCCVConfigUpdates` replaces a lane's whole entry, so the script reads the current on-chain arrays first and overwrites only the arrays you declare — changing `OUTBOUND_CCVS` never wipes your inbound verifiers. Env vars remain the explicit override for incident response: a value that disagrees with the declaration (compared as a set, order-insensitive) is applied as-is with a divergence notice plus a hand-edit hint (the `v2.ccv` block has no `make add-lane` flag — reconcile it with a reviewed hand edit), and `make doctor` WARNs until reconciled (applies never write `lanes{}` back).
+
+```bash
+DEST_CHAIN=MANTLE_SEPOLIA \
+  OUTBOUND_CCVS=0xVerifierA,0xVerifierB \
+  INBOUND_CCVS=0xVerifierC \
+  forge script \
+  script/configure/ccv/UpdateCCVConfig.s.sol \
+  --rpc-url \
+  $ETHEREUM_SEPOLIA_RPC_URL \
+  --account \
+  $KEYSTORE_NAME \
+  --broadcast
+```
+
+| Env var | Required | Description |
+|---|---|---|
+| `DEST_CHAIN` | For lane arrays | Remote chain whose CCV set is being configured (omit to set only the pool-global threshold) |
+| `OUTBOUND_CCVS` | No | Comma-separated required verifier addresses for outgoing messages (defaults to the declared `v2.ccv.outboundCCVs`, then the current on-chain value) |
+| `INBOUND_CCVS` | No | Comma-separated required verifier addresses for incoming messages (defaults to the declared value, then on-chain) |
+| `THRESHOLD_OUTBOUND_CCVS` | No | Additional outbound verifiers required at or above the threshold amount; requires a non-empty outbound base set |
+| `THRESHOLD_INBOUND_CCVS` | No | Additional inbound verifiers required at or above the threshold amount; requires a non-empty inbound base set |
+| `CCV_THRESHOLD_AMOUNT` | No | Pool-global transfer amount at or above which the threshold verifier sets apply (defaults to the declared chain-level `ccvThreshold`, then the current on-chain value; `0` = no threshold) |
+
 ## Supported Networks
 
 **EVM chains (source or destination):**
@@ -1321,10 +1460,10 @@ DEST_CHAIN=MANTLE_SEPOLIA \
 
 The repo keeps its cross-chain state as **data, not code**, in two git-visible stores:
 
-- **`config/chains/<selectorName>.json`** — one reviewed file per chain: the API-synced `ccip{}` address block + API-synced identity/metadata (`displayName`, `chainFamily`, `environment`, `explorerUrl`, `nativeCurrencySymbol`), and the hand-authored keys (`chainNameIdentifier`, `rpcEnv`, `confirmations`, `ccipBnM`). Files are named by the canonical CCIP **selectorName** (e.g. `ethereum-testnet-sepolia.json`). `HelperConfig` reads them through `src/config/ChainConfig.sol` and discovers the chain list by scanning the directory, so adding a chain — or updating a CCIP address — is a **reviewed config edit with zero Solidity changes**.
+- **`config/chains/<selectorName>.json`** — one reviewed file per chain: the API-synced `ccip{}` address block + API-synced identity/metadata (`displayName`, `chainFamily`, `environment`, `explorerUrl`, `nativeCurrencySymbol`), the owner-written `lanes{}` policy subtree (which remotes this pool connects to, at what outbound rate limits — one entry per remote, keyed by the remote's selectorName, carrying its `remoteSelector` + `capacity`/`rate`), and the hand-authored keys (`chainNameIdentifier`, `rpcEnv`, `confirmations`, `ccipBnM`). Files are named by the canonical CCIP **selectorName** (e.g. `ethereum-testnet-sepolia.json`). `HelperConfig` reads them through `src/config/ChainConfig.sol` and discovers the chain list by scanning the directory, so adding a chain — or updating a CCIP address — is a **reviewed config edit with zero Solidity changes**.
 - **`addresses/<chainId>.json`** — the deployed-address registry (schema v2: `active` role pointers + versioned `deployments`), written automatically on a real broadcast via a single `DeploymentRecorder` call per artifact (user-specific, **gitignored**, local to the deploy machine; see `addresses/11155111.example.json`).
 
-**One writer per field:** the CCIP REST API owns **every field it serves** in the **git-tracked** `config/chains/*.json` (via the sync) — the `ccip{}` addresses AND the identity/metadata fields (`displayName`, `chainFamily`, `environment`, `explorerUrl`, `nativeCurrencySymbol`); only the keys the API serves nothing for (`chainNameIdentifier`, `rpcEnv`, `confirmations`, `ccipBnM`) are hand-authored in reviewed PRs, and the join keys are guard-validated — so for that file **a git diff is an unambiguous audit log**. The deployed-address registry `addresses/` is a **separate, gitignored** store (not a git audit trail); its integrity comes from a single writer — the `DeploymentRecorder` that emits the `script/deployments/**` ledger and the registry entry in one call. Environment variables remain available as **overrides** on top of both.
+**One writer per field:** the CCIP REST API owns **every field it serves** in the **git-tracked** `config/chains/*.json` (via the sync) — the `ccip{}` addresses AND the identity/metadata fields (`displayName`, `chainFamily`, `environment`, `explorerUrl`, `nativeCurrencySymbol`); the `lanes{}` subtree is **owner policy**, written only by `make add-lane` (or a reviewed hand edit) and **never by the API sync** — which remotes to connect and at what rate limits is a decision, not an API fact; only the keys the API serves nothing for (`chainNameIdentifier`, `rpcEnv`, `confirmations`, `ccipBnM`) are hand-authored in reviewed PRs, and the join keys are guard-validated — so for that file **a git diff is an unambiguous audit log**. The deployed-address registry `addresses/` is a **separate, gitignored** store (not a git audit trail); its integrity comes from a single writer — the `DeploymentRecorder` that emits the `script/deployments/**` ledger and the registry entry in one call. Environment variables remain available as **overrides** on top of both.
 
 > **Reference docs:** **[`docs/config-schema.md`](docs/config-schema.md)** is the per-field reference (every key in a chain config — identity, the `ccip{}` block, extras, and the non-EVM shape — with its type, writer, and whether it is API-synced, hand-authored, or deploy-written); **[`docs/config-architecture.md`](docs/config-architecture.md)** is the `make`-command reference plus the layered architecture (brand-colored Mermaid diagrams: layering, sync data-flow, the one-writer store model, and the selectorName join). The operational how-to (discover → add-chain → sync → doctor) stays below.
 
@@ -1362,6 +1501,8 @@ Tooling under `script/config/` keeps the config files true to the live [CCIP API
 ```bash
 make discover [FILTER=<term>]                        # list the API catalog vs your local configs
 make add-chain CHAIN=<selectorName> SELECTOR=<sel>   # generate config/chains/<selectorName>.json from the API
+make add-lane LOCAL=<a> REMOTE=<b> CAPACITY=<wei> RATE=<wei> [INBOUND_CAPACITY=<wei> INBOUND_RATE=<wei>] [BOTH=1]  # declare a lanes{} policy entry (inbound pair adds the inbound block; BOTH=1 adds the reciprocal)
+make adopt-token CHAIN=<name> TOKEN=<addr> [TOKEN_POOL=<addr>]        # adopt externally deployed contracts into the address registry
 make sync-preview CHAIN=<name>                        # fetch + log a chain's ccip{}, no write
 make sync CHAIN=<name> / make sync-all               # rewrite API-served fields (ccip{} + identity/metadata) from the API
 make sync-check [CHAIN=<name>]                        # read-only drift check (CI: bash script/config/sync-check.sh for 0/1/2)
@@ -1369,9 +1510,15 @@ make doctor CHAIN=<name>                              # layered [PASS]/[FAIL]/[W
 make fmt-config                                       # restore the canonical config format after a raw forge run
 ```
 
-`CHAIN=` is the canonical **selectorName** (the file basename). The sync writes **every API-served field** — the `ccip{}` subtree plus the identity/metadata fields (`displayName`, `chainFamily`, `environment`, `explorerUrl`, `nativeCurrencySymbol`) — leaving every hand-authored key (`chainNameIdentifier`, `rpcEnv`, `confirmations`, `ccipBnM`) untouched, and re-canonicalizes as `jq --indent 2 -S`, so a no-drift `make sync` is a **zero-diff** no-op. Every fetch is guarded: the API chainId must equal the config's (`SELECTOR MISMATCH`) and the config `name` must equal the API selectorName (`SELECTOR NAME MISMATCH`); non-EVM chains (e.g. `solana-devnet`) skip the EVM address sync cleanly but still refresh their served identity/metadata. A scheduled workflow (`.github/workflows/config-drift.yml`) runs the drift check weekly: drift fails visibly, an unreachable API only warns.
+`CHAIN=` is the canonical **selectorName** (the file basename). The sync writes **every API-served field** — the `ccip{}` subtree plus the identity/metadata fields (`displayName`, `chainFamily`, `environment`, `explorerUrl`, `nativeCurrencySymbol`) — leaving every hand-authored key (`chainNameIdentifier`, `rpcEnv`, `confirmations`, `ccipBnM`) and the `lanes{}` policy subtree untouched, and re-canonicalizes as `jq --indent 2 -S`, so a no-drift `make sync` is a **zero-diff** no-op. Every fetch is guarded: the API chainId must equal the config's (`SELECTOR MISMATCH`) and the config `name` must equal the API selectorName (`SELECTOR NAME MISMATCH`); non-EVM chains (e.g. `solana-devnet`) skip the EVM address sync cleanly but still refresh their served identity/metadata. A scheduled workflow (`.github/workflows/config-drift.yml`) runs the drift check weekly: drift fails visibly, an unreachable API only warns.
 
-The tooling is tested twice over: `forge test` pins the API->config transform against a committed real API response (`test/fixtures/ccip-api/`), and `bash script/config/test-tooling.sh` is a re-runnable failure-path suite (unknown chain, overwrite refusal, invalid names, `SELECTOR MISMATCH`, `SELECTOR NAME MISMATCH`, `NOT_FOUND`, API-down, non-EVM skip, the sync-check exit contract, an offline end-to-end sync against a local fixture server, the Makefile golden-path guards, and the canonical-format + zero-diff guarantees).
+`make adopt-token` brings externally deployed contracts into the deployed-address registry, and it is guarded too: everything is validated on-chain before anything is written (the token's registration path is probed, and a given pool must report a cataloged contract version per [`docs/pool-versions.md`](docs/pool-versions.md) and manage exactly that token); see [`docs/enabling-existing-token.md`](docs/enabling-existing-token.md).
+
+`make add-lane` is the mirror-image writer for the `lanes{}` subtree: it writes **only** `.lanes` (same preserve-and-replace pattern the sync uses for `.ccip`), copying the remote's `chainSelector` into the entry as `remoteSelector`. It is guarded too: a **duplicate** lane is a logged no-op that leaves the file byte-identical, a **self-lane** (same chain, or two config files sharing one selector) is refused, and a lane to a remote whose **pool is not deployed yet** logs a WARN naming the missing deploy. `make doctor` proves the mesh on top: every lane must resolve to an existing config file with a matching selector, and a **one-sided lane FAILs, naming both chains** (add the reciprocal with `BOTH=1`); lanes to non-EVM chains are exempt from reciprocity (destination-only). With an RPC configured, the doctor's final **lanes rung** reconciles the declared policy against the on-chain pool itself, both directions (declared-but-not-applied, rate-limit drift including declared `inbound{}`/`v2{}` blocks, and on-chain-but-not-declared lanes are WARNs; see `docs/config-architecture.md`).
+
+The declaration is also **consumed**: [Step 5](#step-5-apply-chain-updates-configure-cross-chain-routes) run with no rate-limit env vars applies the declared `lanes{}` policy directly (declare once, apply from the declaration), while the rate-limit env vars remain the explicit override for incident response. An env-override apply that leaves the declaration missing or diverging prints the exact `make add-lane` command to bring it in line, and the doctor WARNs until it is — applies never write `lanes{}` back.
+
+The tooling is tested twice over: `forge test` pins the API->config transform against a committed real API response (`test/fixtures/ccip-api/`) and proves the `lanes{}` subtree contracts (`test/config/LaneConfig.t.sol`: a lane survives a `ccip` sync, `add-lane` touches no other subtree, a one-sided lane fails the mesh rung from either side; the inbound block is written and nested policy blocks survive rewrites; `test/config/VerifyChainLaneReconcile.t.sol` proves the on-chain lanes rung per state, including the 1.5.0 version-dispatch path; `test/setup/ApplyChainUpdatesLaneSource.t.sol` proves the env > `lanes{}` rate-limit resolution ladder and the `make add-lane` remediation hint states), and `bash script/config/test-tooling.sh` is a re-runnable failure-path suite (unknown chain, overwrite refusal, invalid names, `SELECTOR MISMATCH`, `SELECTOR NAME MISMATCH`, `NOT_FOUND`, API-down, non-EVM skip, the sync-check exit contract, an offline end-to-end sync against a local fixture server, the Makefile golden-path guards, the add-lane preflights and guards, the mesh-reciprocity doctor verdicts, and the canonical-format + zero-diff guarantees).
 
 ### Deployed-address registry — `addresses/<chainId>.json` (the default)
 

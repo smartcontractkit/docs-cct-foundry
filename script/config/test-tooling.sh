@@ -15,6 +15,8 @@ cd "$(dirname "$0")/../.."
 
 TMP_CHAIN="tooling-tmp"
 TMP_FILE="config/chains/${TMP_CHAIN}.json"
+TMP_CHAIN_B="tooling-tmp-b"
+TMP_FILE_B="config/chains/${TMP_CHAIN_B}.json"
 FIXTURE="test/fixtures/ccip-api/chain-16015286601757825753.json"
 SEPOLIA_SELECTOR="16015286601757825753"
 # A real, non-bundled chain used by the add-chain print-names case; its generated config is a
@@ -29,7 +31,7 @@ server_pid=""
 server_dir=""
 
 cleanup() {
-    rm -f "$TMP_FILE" "$FUJI_FILE"
+    rm -f "$TMP_FILE" "$TMP_FILE_B" "$FUJI_FILE"
     [ -n "$server_pid" ] && kill "$server_pid" 2> /dev/null
     [ -n "$server_dir" ] && rm -rf "$server_dir"
 }
@@ -406,6 +408,257 @@ else
 fi
 rm -f "$TMP_FILE"
 
+# ---------------------------------------------------------------- add-lane + mesh doctor
+
+# 21. make add-lane preflights: every missing argument errors up front with the usage line.
+run_case "make add-lane without LOCAL errors up front" nonzero "LOCAL is required" -- \
+    make add-lane
+run_case "make add-lane without REMOTE errors up front" nonzero "REMOTE is required" -- \
+    make add-lane LOCAL=ethereum-testnet-sepolia
+run_case "make add-lane without CAPACITY errors up front" nonzero "CAPACITY is required" -- \
+    make add-lane LOCAL=ethereum-testnet-sepolia REMOTE=ethereum-testnet-sepolia-mantle-1
+run_case "make add-lane without RATE errors up front" nonzero "RATE is required" -- \
+    make add-lane LOCAL=ethereum-testnet-sepolia REMOTE=ethereum-testnet-sepolia-mantle-1 CAPACITY=1
+
+# 22. unknown remote -> friendly list of known chains + the add-chain hint
+run_case "make add-lane with an unknown remote lists known chains" nonzero "unknown chain 'nope'" -- \
+    make add-lane LOCAL=ethereum-testnet-sepolia REMOTE=nope CAPACITY=1 RATE=1
+
+# 23. self-lane, same name -> refused (no write happens; the guard fires before any file write)
+run_case "add-lane same-name self-lane is refused" nonzero "must be different chains" -- \
+    make add-lane LOCAL=ethereum-testnet-sepolia REMOTE=ethereum-testnet-sepolia CAPACITY=1 RATE=1
+
+# 24. self-lane, two FILES sharing one chainSelector (same chain under two names) -> refused. The
+#     throwaway is a copy of sepolia with only the name changed, so the selectors collide.
+python3 -c "
+import json
+d = json.load(open('config/chains/ethereum-testnet-sepolia.json'))
+d['name'] = '$TMP_CHAIN'
+json.dump(d, open('$TMP_FILE','w'), indent=2, sort_keys=True)
+"
+run_case "add-lane same-selector remote is refused (self-lane)" nonzero "share chainSelector" -- \
+    make add-lane LOCAL=ethereum-testnet-sepolia REMOTE="$TMP_CHAIN" CAPACITY=1 RATE=1
+rm -f "$TMP_FILE"
+
+# 25. add-lane on a scratch pair (no addresses/<chainId>.json for either): the lane is written with
+#     the remote's selector, and the remote's still-undeployed pool is a WARN naming the missing
+#     deploy - a declared-ahead-of-deploy lane, not a silent success.
+python3 -c "
+import json
+d = json.load(open('config/chains/ethereum-testnet-sepolia.json'))
+for name, cid, sel in [('$TMP_CHAIN','990001','9900010000000000001'),
+                       ('$TMP_CHAIN_B','990002','9900020000000000002')]:
+    d2 = dict(d)
+    d2['name'] = name; d2['chainId'] = cid; d2['chainSelector'] = sel
+    d2['chainNameIdentifier'] = name.upper().replace('-','_')
+    d2['rpcEnv'] = d2['chainNameIdentifier'] + '_RPC_URL'
+    d2['lanes'] = {}
+    json.dump(d2, open('config/chains/%s.json' % name,'w'), indent=2, sort_keys=True)
+"
+out="$(make add-lane LOCAL="$TMP_CHAIN" REMOTE="$TMP_CHAIN_B" CAPACITY=1000 RATE=10 2>&1)"
+status=$?
+if [ $status -eq 0 ] &&
+    echo "$out" | grep -q "wrote lane $TMP_CHAIN -> $TMP_CHAIN_B remoteSelector=9900020000000000002" &&
+    echo "$out" | grep -q "WARN: no tokenPool in addresses/990002.json for $TMP_CHAIN_B"; then
+    pass=$((pass + 1))
+    echo "[PASS] add-lane writes the lane + WARNs on the remote's placeholder pool (names the missing deploy)"
+else
+    fail=$((fail + 1))
+    failures+=("add-lane placeholder WARN")
+    echo "[FAIL] add-lane placeholder WARN (exit=$status)"
+    echo "$out" | tail -8 | sed 's/^/       | /'
+fi
+
+# 26. identical re-run (SAME capacity/rate the lane was written with) -> logged no-op, byte-identical.
+before="$(shasum "$TMP_FILE")"
+run_case "add-lane identical re-run is a logged no-op" zero "already exists - no-op" -- \
+    make add-lane LOCAL="$TMP_CHAIN" REMOTE="$TMP_CHAIN_B" CAPACITY=1000 RATE=10
+after="$(shasum "$TMP_FILE")"
+if [ "$before" = "$after" ]; then
+    pass=$((pass + 1))
+    echo "[PASS] add-lane identical re-run left ${TMP_CHAIN}.json byte-identical"
+else
+    fail=$((fail + 1))
+    failures+=("add-lane identical re-run byte-identical")
+    echo "[FAIL] add-lane identical re-run MUTATED ${TMP_CHAIN}.json"
+fi
+
+# 26b. changed args (DIFFERENT capacity/rate) on an existing entry -> WARN naming existing vs
+#      requested, entry left UNCHANGED (never a silent policy rewrite, never a silent no-op).
+before="$(shasum "$TMP_FILE")"
+run_case "add-lane changed args WARNs and leaves the entry unchanged" zero \
+    "already exists with DIFFERENT policy (existing capacity=1000 rate=10, requested capacity=5 rate=5)" -- \
+    make add-lane LOCAL="$TMP_CHAIN" REMOTE="$TMP_CHAIN_B" CAPACITY=5 RATE=5
+after="$(shasum "$TMP_FILE")"
+if [ "$before" = "$after" ]; then
+    pass=$((pass + 1))
+    echo "[PASS] add-lane changed-args left ${TMP_CHAIN}.json byte-identical"
+else
+    fail=$((fail + 1))
+    failures+=("add-lane changed-args byte-identical")
+    echo "[FAIL] add-lane changed-args MUTATED ${TMP_CHAIN}.json"
+fi
+
+# 27. one-sided lane -> the doctor's mesh-reciprocity rung FAILs naming BOTH chains (the API rung
+#     WARNs on the unknown scratch selector - flake handling, not failure - so the mesh FAIL is
+#     what makes the verdict nonzero)
+run_case "doctor FAILs a one-sided lane naming both chains" nonzero \
+    "one-sided lane $TMP_CHAIN -> $TMP_CHAIN_B ($TMP_CHAIN_B has no lanes.$TMP_CHAIN entry)" -- \
+    env FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN"
+
+# 28. the reciprocal entry clears it: doctor back to 0 FAIL
+make add-lane LOCAL="$TMP_CHAIN_B" REMOTE="$TMP_CHAIN" CAPACITY=1000 RATE=10 > /dev/null 2>&1
+run_case "doctor passes once the lane is reciprocated" zero "0 FAIL" -- \
+    env FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN"
+
+# 28b. the LANES rung (on-chain lane reconciliation) is RPC-gated: with TOOLING_TMP_RPC_URL unset it
+#      SKIPs cleanly instead of blocking an offline doctor run. The reconciliation logic itself needs
+#      a fork and is covered by test/config/VerifyChainLaneReconcile.t.sol.
+run_case "doctor lanes rung SKIPs cleanly without an RPC" zero \
+    "lanes: on-chain reconciliation needs an RPC" -- \
+    env FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN"
+
+# 29. BOTH=1 writes the reciprocal entry on the remote's file in the same invocation
+rm -f "$TMP_FILE" "$TMP_FILE_B"
+python3 -c "
+import json
+d = json.load(open('config/chains/ethereum-testnet-sepolia.json'))
+for name, cid, sel in [('$TMP_CHAIN','990001','9900010000000000001'),
+                       ('$TMP_CHAIN_B','990002','9900020000000000002')]:
+    d2 = dict(d)
+    d2['name'] = name; d2['chainId'] = cid; d2['chainSelector'] = sel
+    d2['chainNameIdentifier'] = name.upper().replace('-','_')
+    d2['rpcEnv'] = d2['chainNameIdentifier'] + '_RPC_URL'
+    d2['lanes'] = {}
+    json.dump(d2, open('config/chains/%s.json' % name,'w'), indent=2, sort_keys=True)
+"
+out="$(make add-lane LOCAL="$TMP_CHAIN" REMOTE="$TMP_CHAIN_B" CAPACITY=1000 RATE=10 BOTH=1 2>&1)"
+status=$?
+if [ $status -eq 0 ] &&
+    echo "$out" | grep -q "wrote lane $TMP_CHAIN -> $TMP_CHAIN_B" &&
+    echo "$out" | grep -q "wrote lane $TMP_CHAIN_B -> $TMP_CHAIN"; then
+    pass=$((pass + 1))
+    echo "[PASS] add-lane BOTH=1 writes the lane AND its reciprocal"
+else
+    fail=$((fail + 1))
+    failures+=("add-lane BOTH=1")
+    echo "[FAIL] add-lane BOTH=1 (exit=$status)"
+    echo "$out" | tail -8 | sed 's/^/       | /'
+fi
+rm -f "$TMP_FILE" "$TMP_FILE_B"
+
+# 29b. add-lane INBOUND_* pairing guard: one arg without the other errors up front (a declared
+#      inbound block carries both fields).
+run_case "make add-lane with INBOUND_CAPACITY but no INBOUND_RATE errors up front" nonzero \
+    "INBOUND_RATE is required" -- \
+    make add-lane LOCAL=ethereum-testnet-sepolia REMOTE=ethereum-testnet-sepolia-mantle-1 CAPACITY=1 RATE=1 INBOUND_CAPACITY=5
+run_case "make add-lane with INBOUND_RATE but no INBOUND_CAPACITY errors up front" nonzero \
+    "INBOUND_CAPACITY is required" -- \
+    make add-lane LOCAL=ethereum-testnet-sepolia REMOTE=ethereum-testnet-sepolia-mantle-1 CAPACITY=1 RATE=1 INBOUND_RATE=5
+
+# 29c. add-lane with BOTH inbound args writes the inbound{} policy block (scratch pair, offline).
+python3 -c "
+import json
+d = json.load(open('config/chains/ethereum-testnet-sepolia.json'))
+for name, cid, sel in [('$TMP_CHAIN','990001','9900010000000000001'),
+                       ('$TMP_CHAIN_B','990002','9900020000000000002')]:
+    d2 = dict(d)
+    d2['name'] = name; d2['chainId'] = cid; d2['chainSelector'] = sel
+    d2['chainNameIdentifier'] = name.upper().replace('-','_')
+    d2['rpcEnv'] = d2['chainNameIdentifier'] + '_RPC_URL'
+    d2['lanes'] = {}
+    json.dump(d2, open('config/chains/%s.json' % name,'w'), indent=2, sort_keys=True)
+"
+out="$(make add-lane LOCAL="$TMP_CHAIN" REMOTE="$TMP_CHAIN_B" CAPACITY=1000 RATE=10 INBOUND_CAPACITY=55 INBOUND_RATE=5 2>&1)"
+status=$?
+if [ $status -eq 0 ] &&
+    echo "$out" | grep -q "inboundCapacity=55 inboundRate=5" &&
+    [ "$(jq -r ".lanes[\"$TMP_CHAIN_B\"].inbound.capacity" "$TMP_FILE")" = "55" ] &&
+    [ "$(jq -r ".lanes[\"$TMP_CHAIN_B\"].inbound.rate" "$TMP_FILE")" = "5" ]; then
+    pass=$((pass + 1))
+    echo "[PASS] add-lane INBOUND_* writes the inbound policy block"
+else
+    fail=$((fail + 1))
+    failures+=("add-lane inbound block")
+    echo "[FAIL] add-lane inbound block (exit=$status)"
+    echo "$out" | tail -8 | sed 's/^/       | /'
+fi
+rm -f "$TMP_FILE" "$TMP_FILE_B"
+
+# ---------------------------------------------------------------- remove-lane
+
+# 30. make remove-lane preflights: every missing argument errors up front with the usage line.
+run_case "make remove-lane without LOCAL errors up front" nonzero "LOCAL is required" -- \
+    make remove-lane
+run_case "make remove-lane without REMOTE errors up front" nonzero "REMOTE is required" -- \
+    make remove-lane LOCAL=ethereum-testnet-sepolia
+
+# 30b. a real removal on the throwaway pair: the target entry is gone and a sibling lane entry
+#      (with its inbound{} block) survives intact in the same file.
+python3 -c "
+import json
+d = json.load(open('config/chains/ethereum-testnet-sepolia.json'))
+for name, cid, sel in [('$TMP_CHAIN','990001','9900010000000000001'),
+                       ('$TMP_CHAIN_B','990002','9900020000000000002')]:
+    d2 = dict(d)
+    d2['name'] = name; d2['chainId'] = cid; d2['chainSelector'] = sel
+    d2['chainNameIdentifier'] = name.upper().replace('-','_')
+    d2['rpcEnv'] = d2['chainNameIdentifier'] + '_RPC_URL'
+    d2['lanes'] = {}
+    json.dump(d2, open('config/chains/%s.json' % name,'w'), indent=2, sort_keys=True)
+"
+make add-lane LOCAL="$TMP_CHAIN" REMOTE="$TMP_CHAIN_B" CAPACITY=1000 RATE=10 > /dev/null 2>&1
+make add-lane LOCAL="$TMP_CHAIN" REMOTE=ethereum-testnet-sepolia CAPACITY=7 RATE=7 INBOUND_CAPACITY=55 INBOUND_RATE=5 > /dev/null 2>&1
+out="$(make remove-lane LOCAL="$TMP_CHAIN" REMOTE="$TMP_CHAIN_B" 2>&1)"
+status=$?
+if [ $status -eq 0 ] &&
+    echo "$out" | grep -q "removed lane $TMP_CHAIN -> $TMP_CHAIN_B from config/chains/$TMP_CHAIN.json" &&
+    echo "$out" | grep -q "the pool is untouched" &&
+    [ "$(jq -r ".lanes | has(\"$TMP_CHAIN_B\")" "$TMP_FILE")" = "false" ] &&
+    [ "$(jq -r '.lanes["ethereum-testnet-sepolia"].capacity' "$TMP_FILE")" = "7" ] &&
+    [ "$(jq -r '.lanes["ethereum-testnet-sepolia"].inbound.capacity' "$TMP_FILE")" = "55" ]; then
+    pass=$((pass + 1))
+    echo "[PASS] remove-lane removes the target entry, sibling lane (incl. inbound block) intact"
+else
+    fail=$((fail + 1))
+    failures+=("remove-lane real removal")
+    echo "[FAIL] remove-lane real removal (exit=$status)"
+    echo "$out" | tail -8 | sed 's/^/       | /'
+fi
+
+# 30c. removing an undeclared lane is a logged no-op, exit 0, file byte-identical.
+before="$(shasum "$TMP_FILE")"
+run_case "remove-lane on an undeclared lane is a logged no-op" zero "is not declared - no-op" -- \
+    make remove-lane LOCAL="$TMP_CHAIN" REMOTE="$TMP_CHAIN_B"
+after="$(shasum "$TMP_FILE")"
+if [ "$before" = "$after" ]; then
+    pass=$((pass + 1))
+    echo "[PASS] remove-lane no-op left ${TMP_CHAIN}.json byte-identical"
+else
+    fail=$((fail + 1))
+    failures+=("remove-lane no-op byte-identical")
+    echo "[FAIL] remove-lane no-op MUTATED ${TMP_CHAIN}.json"
+fi
+
+# 30d. BOTH=1 removes the lane AND its reciprocal in the same invocation.
+make add-lane LOCAL="$TMP_CHAIN" REMOTE="$TMP_CHAIN_B" CAPACITY=1000 RATE=10 BOTH=1 > /dev/null 2>&1
+out="$(make remove-lane LOCAL="$TMP_CHAIN" REMOTE="$TMP_CHAIN_B" BOTH=1 2>&1)"
+status=$?
+if [ $status -eq 0 ] &&
+    echo "$out" | grep -q "removed lane $TMP_CHAIN -> $TMP_CHAIN_B" &&
+    echo "$out" | grep -q "removed lane $TMP_CHAIN_B -> $TMP_CHAIN" &&
+    [ "$(jq -r ".lanes | has(\"$TMP_CHAIN_B\")" "$TMP_FILE")" = "false" ] &&
+    [ "$(jq -r ".lanes | has(\"$TMP_CHAIN\")" "$TMP_FILE_B")" = "false" ]; then
+    pass=$((pass + 1))
+    echo "[PASS] remove-lane BOTH=1 removes the lane AND its reciprocal"
+else
+    fail=$((fail + 1))
+    failures+=("remove-lane BOTH=1")
+    echo "[FAIL] remove-lane BOTH=1 (exit=$status)"
+    echo "$out" | tail -8 | sed 's/^/       | /'
+fi
+rm -f "$TMP_FILE" "$TMP_FILE_B"
+
 # ---------------------------------------------------------------- canonical config format
 
 # 19. the canonical-format guarantee: committed configs ARE canon (fmt-config -> no diff vs the git
@@ -452,6 +705,38 @@ else
     fail=$((fail + 1))
     failures+=("live sync zero-diff (precheck)")
     echo "[FAIL] live sync zero-diff: precheck sync-check ethereum-testnet-sepolia not CLEAN (drift or API down)"
+fi
+
+
+# 30. adopt-token missing-arg preflights: CHAIN and TOKEN are required, each named in the error.
+if out=$(make adopt-token TOKEN=0x0000000000000000000000000000000000000001 2>&1) || ! grep -q "CHAIN is required" <<< "$out"; then
+    fail=$((fail + 1))
+    failures+=("adopt-token missing CHAIN: accepted or error does not name CHAIN")
+    echo "[FAIL] adopt-token without CHAIN: accepted or error does not name CHAIN"
+else
+    pass=$((pass + 1))
+    echo "[PASS] adopt-token without CHAIN is refused naming CHAIN"
+fi
+
+# 31. adopt-token without TOKEN is refused, naming TOKEN.
+if out=$(make adopt-token CHAIN=ethereum-testnet-sepolia 2>&1) || ! grep -q "TOKEN is required" <<< "$out"; then
+    fail=$((fail + 1))
+    failures+=("adopt-token missing TOKEN: accepted or error does not name TOKEN")
+    echo "[FAIL] adopt-token without TOKEN: accepted or error does not name TOKEN"
+else
+    pass=$((pass + 1))
+    echo "[PASS] adopt-token without TOKEN is refused naming TOKEN"
+fi
+
+# 32. adopt-token on an unknown chain is refused, naming the chain and hinting add-chain.
+if out=$(make adopt-token CHAIN=zz-no-such-chain TOKEN=0x0000000000000000000000000000000000000001 2>&1) \
+    || ! grep -q "unknown chain 'zz-no-such-chain'" <<< "$out" || ! grep -q "make add-chain" <<< "$out"; then
+    fail=$((fail + 1))
+    failures+=("adopt-token unknown chain: accepted or missing name/add-chain hint")
+    echo "[FAIL] adopt-token on an unknown chain: accepted or missing name/add-chain hint"
+else
+    pass=$((pass + 1))
+    echo "[PASS] adopt-token on an unknown chain is refused with the add-chain hint"
 fi
 
 echo ""

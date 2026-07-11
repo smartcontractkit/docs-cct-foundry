@@ -5,6 +5,7 @@ import {console} from "forge-std/Script.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {TokenPool} from "@chainlink/contracts-ccip/contracts/pools/TokenPool.sol";
 import {RateLimiter} from "@chainlink/contracts-ccip/contracts/libraries/RateLimiter.sol";
+import {PoolVersions} from "../../src/PoolVersions.sol";
 
 /// @dev Minimal interface for v1 TokenPool rate limiter functions that were replaced in v2.
 interface ITokenPoolV1RateLimiter {
@@ -76,36 +77,36 @@ library RateLimiterUtils {
         }
     }
 
-    /// @notice Returns true if the pool exposes the v2 `getCurrentRateLimiterState(selector, bool)` function.
-    function isV2Pool(TokenPool pool, uint64 remoteChainSelector, bool fastFinality) internal view returns (bool) {
-        try pool.getCurrentRateLimiterState(remoteChainSelector, fastFinality) returns (
-            RateLimiter.TokenBucket memory, RateLimiter.TokenBucket memory
-        ) {
-            return true;
-        } catch {
-            return false;
-        }
-    }
-
-    /// @notice Returns the current outbound and inbound TokenBuckets for a given lane.
-    /// Single entry point for fetching live on-chain state, compatible with v1 and v2 pools.
+    /// @notice Returns the current outbound and inbound TokenBuckets for a given lane, dispatched
+    /// on the resolved pool contract version (v2 getter from 2.0.0, per-direction v1 getters
+    /// before). `UNKNOWN` is legal here because reads degrade instead of refusing: it falls back
+    /// to best effort (v2 getter first, v1 getters when that reverts).
     /// @param poolV2 The pool cast as the v2 TokenPool type.
     /// @param poolV1 The pool cast as the v1 interface.
     /// @param remoteChainSelector The remote chain selector to query.
     /// @param fastFinality Whether to query the fast finality bucket (v2 only).
-    /// @param isV2 Whether the pool is a v2 pool.
+    /// @param version The pool contract version resolved by `PoolVersion.resolve`/`tryResolve`.
     function getCurrentBuckets(
         TokenPool poolV2,
         ITokenPoolV1RateLimiter poolV1,
         uint64 remoteChainSelector,
         bool fastFinality,
-        bool isV2
+        PoolVersions.Version version
     ) internal view returns (RateLimiter.TokenBucket memory outbound, RateLimiter.TokenBucket memory inbound) {
-        if (isV2) {
+        if (version >= PoolVersions.Version.V2_0_0) {
             (outbound, inbound) = poolV2.getCurrentRateLimiterState(remoteChainSelector, fastFinality);
-        } else {
+        } else if (version != PoolVersions.Version.UNKNOWN) {
             outbound = poolV1.getCurrentOutboundRateLimiterState(remoteChainSelector);
             inbound = poolV1.getCurrentInboundRateLimiterState(remoteChainSelector);
+        } else {
+            try poolV2.getCurrentRateLimiterState(remoteChainSelector, fastFinality) returns (
+                RateLimiter.TokenBucket memory o, RateLimiter.TokenBucket memory i
+            ) {
+                (outbound, inbound) = (o, i);
+            } catch {
+                outbound = poolV1.getCurrentOutboundRateLimiterState(remoteChainSelector);
+                inbound = poolV1.getCurrentInboundRateLimiterState(remoteChainSelector);
+            }
         }
     }
 
@@ -116,26 +117,26 @@ library RateLimiterUtils {
         ITokenPoolV1RateLimiter poolV1,
         uint64 remoteChainSelector,
         bool fastFinality,
-        bool isV2
+        PoolVersions.Version version
     ) internal view returns (RateLimiter.Config memory outbound, RateLimiter.Config memory inbound) {
         (RateLimiter.TokenBucket memory ob, RateLimiter.TokenBucket memory ib) =
-            getCurrentBuckets(poolV2, poolV1, remoteChainSelector, fastFinality, isV2);
+            getCurrentBuckets(poolV2, poolV1, remoteChainSelector, fastFinality, version);
         outbound = RateLimiter.Config({isEnabled: ob.isEnabled, capacity: ob.capacity, rate: ob.rate});
         inbound = RateLimiter.Config({isEnabled: ib.isEnabled, capacity: ib.capacity, rate: ib.rate});
     }
 
     /// @notice Logs the current rate limiter state for a given remote chain, compatible with v1 and v2 pools.
-    /// Reuses the already-known isV2 flag to avoid a redundant RPC call.
+    /// Reuses the already-resolved version to avoid a redundant RPC call.
     function logRateLimiterState(
         TokenPool poolV2,
         ITokenPoolV1RateLimiter poolV1,
         uint64 remoteChainSelector,
         bool fastFinality,
-        bool isV2
+        PoolVersions.Version version
     ) internal view {
         console.log("Current Rate Limiter State:");
         (RateLimiter.TokenBucket memory outbound, RateLimiter.TokenBucket memory inbound) =
-            getCurrentBuckets(poolV2, poolV1, remoteChainSelector, fastFinality, isV2);
+            getCurrentBuckets(poolV2, poolV1, remoteChainSelector, fastFinality, version);
         _logBucket("Outbound", outbound);
         _logBucket("Inbound ", inbound);
         console.log("");
@@ -150,11 +151,11 @@ library RateLimiterUtils {
         TokenPool poolV2,
         ITokenPoolV1RateLimiter poolV1,
         uint64 remoteChainSelector,
-        bool isV2
+        PoolVersions.Version version
     ) internal view {
-        if (!isV2) {
+        if (version < PoolVersions.Version.V2_0_0) {
             (RateLimiter.TokenBucket memory ob, RateLimiter.TokenBucket memory ib) =
-                getCurrentBuckets(poolV2, poolV1, remoteChainSelector, false, false);
+                getCurrentBuckets(poolV2, poolV1, remoteChainSelector, false, version);
             _logBucket("Outbound [standard]", ob);
             _logBucket("Inbound  [standard]", ib);
             console.log("");

@@ -8,15 +8,15 @@ import {IPoolV2} from "@chainlink/contracts-ccip/contracts/interfaces/IPoolV2.so
 import {RateLimiter} from "@chainlink/contracts-ccip/contracts/libraries/RateLimiter.sol";
 import {FinalityCodec} from "@chainlink/contracts-ccip/contracts/libraries/FinalityCodec.sol";
 import {CctActions, IRateLimiterV1} from "../../src/actions/CctActions.sol";
-import {RateLimiterUtils} from "../../script/utils/RateLimiterUtils.s.sol";
+import {PoolVersions} from "../../src/PoolVersions.sol";
 import {BaseForkTest} from "../BaseForkTest.t.sol";
 
 /// @dev A minimal pool that exposes ONLY the v1.x rate-limiter surface (`setChainRateLimiterConfig` +
-///      the two per-direction getters) and NOT the v2 `getCurrentRateLimiterState(uint64,bool)` getter,
-///      so the capability probe (`RateLimiterUtils.isV2Pool`) detects it as v1. It faithfully stores the
-///      config the v1 setter writes, so the v1 dispatch path can be fork-executed and read back — the
-///      1.6.x generation is no longer in this repo's dependency set, so a minimal faithful v1 ABI is the
-///      honest way to prove the extracted dual-generation dispatch still routes correctly.
+///      the two per-direction getters) and NOT the v2 `getCurrentRateLimiterState(uint64,bool)` getter.
+///      It faithfully stores the config the v1 setter writes, so the v1 dispatch path can be
+///      fork-executed and read back — the 1.6.x generation is no longer in this repo's dependency set,
+///      so a minimal faithful v1 ABI is the honest way to prove the dual-generation dispatch still
+///      routes correctly.
 contract MockV1RateLimiterPool {
     address public owner;
 
@@ -118,7 +118,7 @@ contract ConfigureActionsForkTest is BaseForkTest {
         RateLimiter.Config memory out = _cfg(true, 1_000e18, 10e18);
         RateLimiter.Config memory inb = _cfg(true, 2_000e18, 20e18);
 
-        _exec(owner, CctActions.setRateLimits(pool, true, SELECTOR, false, out, inb));
+        _exec(owner, CctActions.setRateLimits(pool, PoolVersions.Version.V2_0_0, SELECTOR, false, out, inb));
 
         (RateLimiter.TokenBucket memory o, RateLimiter.TokenBucket memory i) =
             TokenPool(pool).getCurrentRateLimiterState(SELECTOR, false);
@@ -134,7 +134,7 @@ contract ConfigureActionsForkTest is BaseForkTest {
         RateLimiter.Config memory out = _cfg(true, 500e18, 5e18);
         RateLimiter.Config memory inb = _cfg(false, 0, 0);
 
-        _exec(owner, CctActions.setRateLimits(pool, true, SELECTOR, true, out, inb));
+        _exec(owner, CctActions.setRateLimits(pool, PoolVersions.Version.V2_0_0, SELECTOR, true, out, inb));
 
         (RateLimiter.TokenBucket memory o, RateLimiter.TokenBucket memory i) =
             TokenPool(pool).getCurrentRateLimiterState(SELECTOR, true);
@@ -144,21 +144,16 @@ contract ConfigureActionsForkTest is BaseForkTest {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Version-detected dispatch — 1.6.x -> v1 setter, 2.0.0 -> v2 setter
+    // Version-dispatched setters — 1.5.0-1.6.1 -> v1 setter, 2.0.0 -> v2 setter
     // ─────────────────────────────────────────────────────────────────────────
-
-    function test_VersionDetection_ProbeRoutesByCapability() public {
-        MockV1RateLimiterPool v1 = new MockV1RateLimiterPool();
-        assertFalse(RateLimiterUtils.isV2Pool(TokenPool(address(v1)), SELECTOR, false), "v1 surface detects as v1");
-        assertTrue(RateLimiterUtils.isV2Pool(TokenPool(pool), SELECTOR, false), "2.0.0 pool detects as v2");
-    }
 
     function test_VersionDispatch_V1Calldata() public {
         MockV1RateLimiterPool v1 = new MockV1RateLimiterPool();
         RateLimiter.Config memory out = _cfg(true, 2, 1);
         RateLimiter.Config memory inb = _cfg(true, 100_000e18, 100e18);
 
-        CctActions.Call[] memory calls = CctActions.setRateLimits(address(v1), false, SELECTOR, false, out, inb);
+        CctActions.Call[] memory calls =
+            CctActions.setRateLimits(address(v1), PoolVersions.Version.V1_6_1, SELECTOR, false, out, inb);
         assertEq(calls.length, 1, "v1 dispatch is one call");
         assertEq(calls[0].target, address(v1), "targets the v1 pool");
         assertEq(
@@ -181,15 +176,18 @@ contract ConfigureActionsForkTest is BaseForkTest {
             inboundRateLimiterConfig: inb
         });
 
-        CctActions.Call[] memory calls = CctActions.setRateLimits(pool, true, SELECTOR, false, out, inb);
+        CctActions.Call[] memory calls =
+            CctActions.setRateLimits(pool, PoolVersions.Version.V2_0_0, SELECTOR, false, out, inb);
         assertEq(calls[0].target, pool, "targets the v2 pool");
         assertEq(calls[0].data, abi.encodeCall(TokenPool.setRateLimitConfig, (expected)), "v2 setter calldata");
     }
 
     function test_VersionDispatch_V1SetterOnV2PoolReverts() public {
         RateLimiter.Config memory out = _cfg(true, 1e18, 1e18);
-        // Force the v1 calldata (isV2=false) but aim it at the real 2.0.0 pool: the selector does not exist.
-        CctActions.Call[] memory calls = CctActions.setRateLimits(pool, false, SELECTOR, false, out, out);
+        // Force the v1 calldata (a v1-range version) but aim it at the real 2.0.0 pool: the selector
+        // does not exist there.
+        CctActions.Call[] memory calls =
+            CctActions.setRateLimits(pool, PoolVersions.Version.V1_6_1, SELECTOR, false, out, out);
         vm.prank(owner);
         (bool ok,) = calls[0].target.call(calls[0].data);
         assertFalse(ok, "v1 setter must not exist on a 2.0.0 pool");
@@ -200,7 +198,9 @@ contract ConfigureActionsForkTest is BaseForkTest {
         RateLimiter.Config memory out = _cfg(true, 2, 1);
         RateLimiter.Config memory inb = _cfg(true, 100_000e18, 100e18);
 
-        _exec(address(this), CctActions.setRateLimits(address(v1), false, SELECTOR, false, out, inb));
+        _exec(
+            address(this), CctActions.setRateLimits(address(v1), PoolVersions.Version.V1_6_1, SELECTOR, false, out, inb)
+        );
 
         RateLimiter.TokenBucket memory o = v1.getCurrentOutboundRateLimiterState(SELECTOR);
         assertTrue(o.isEnabled, "v1 outbound enabled");
@@ -320,7 +320,12 @@ contract ConfigureActionsForkTest is BaseForkTest {
         _exec(
             address(this),
             CctActions.setRateLimits(
-                address(probe), true, SELECTOR, false, _cfg(true, 1_000e18, 10e18), _cfg(false, 0, 0)
+                address(probe),
+                PoolVersions.Version.V2_0_0,
+                SELECTOR,
+                false,
+                _cfg(true, 1_000e18, 10e18),
+                _cfg(false, 0, 0)
             )
         );
 

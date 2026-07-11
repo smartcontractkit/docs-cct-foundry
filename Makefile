@@ -13,7 +13,7 @@ KNOWN_CHAINS := $(basename $(notdir $(wildcard $(CONFIG_DIR)/*.json)))
 SYNC_SCRIPT := script/config/SyncCcipConfig.s.sol
 
 .DEFAULT_GOAL := help
-.PHONY: help tools discover add-chain sync sync-preview sync-all sync-check doctor fmt-config
+.PHONY: adopt-token help tools discover add-chain add-lane remove-lane sync sync-preview sync-all sync-check doctor fmt-config
 
 # Recipe-time guard: the CHAIN's config file must exist (helpful list + add-chain hint on a miss).
 define require-chain-config
@@ -50,6 +50,59 @@ add-chain: tools ## Generate config/chains/<CHAIN>.json from the live API (CHAIN
 	$(if $(SELECTOR),,$(error SELECTOR is required - find it with: make discover FILTER=<term>))
 	FOUNDRY_PROFILE=sync forge script $(SYNC_SCRIPT) --sig "init(string,uint256)" "$(CHAIN)" "$(SELECTOR)"
 	$(canon-chain-config)
+
+add-lane: tools ## Append a lanes{} policy entry LOCAL -> REMOTE (LOCAL= REMOTE= CAPACITY= RATE= required; INBOUND_CAPACITY= + INBOUND_RATE= add the inbound block; BOTH=1 adds the reciprocal)
+	$(if $(LOCAL),,$(error LOCAL is required: make add-lane LOCAL=<name> REMOTE=<name> CAPACITY=<wei> RATE=<wei> [INBOUND_CAPACITY=<wei> INBOUND_RATE=<wei>] [BOTH=1]))
+	$(if $(REMOTE),,$(error REMOTE is required: make add-lane LOCAL=<name> REMOTE=<name> CAPACITY=<wei> RATE=<wei> [INBOUND_CAPACITY=<wei> INBOUND_RATE=<wei>] [BOTH=1]))
+	$(if $(CAPACITY),,$(error CAPACITY is required - the outbound rate-limit bucket capacity in wei))
+	$(if $(RATE),,$(error RATE is required - the outbound rate-limit refill rate in wei per second))
+ifdef INBOUND_CAPACITY
+	$(if $(INBOUND_RATE),,$(error INBOUND_RATE is required when INBOUND_CAPACITY is set - a declared inbound block carries both fields))
+endif
+ifdef INBOUND_RATE
+	$(if $(INBOUND_CAPACITY),,$(error INBOUND_CAPACITY is required when INBOUND_RATE is set - a declared inbound block carries both fields))
+endif
+	@for c in "$(LOCAL)" "$(REMOTE)"; do \
+		test -f "$(CONFIG_DIR)/$$c.json" || { \
+			echo "unknown chain '$$c' - known chains: $(KNOWN_CHAINS)"; \
+			echo "New chain? make add-chain CHAIN=<local-short-name> SELECTOR=<from 'make discover'>"; \
+			exit 1; }; \
+	done
+ifdef INBOUND_CAPACITY
+	FOUNDRY_PROFILE=sync forge script $(SYNC_SCRIPT) --sig "addLane(string,string,uint256,uint256,uint256,uint256)" "$(LOCAL)" "$(REMOTE)" "$(CAPACITY)" "$(RATE)" "$(INBOUND_CAPACITY)" "$(INBOUND_RATE)"
+else
+	FOUNDRY_PROFILE=sync forge script $(SYNC_SCRIPT) --sig "addLane(string,string,uint256,uint256)" "$(LOCAL)" "$(REMOTE)" "$(CAPACITY)" "$(RATE)"
+endif
+ifdef BOTH
+ifdef INBOUND_CAPACITY
+	FOUNDRY_PROFILE=sync forge script $(SYNC_SCRIPT) --sig "addLane(string,string,uint256,uint256,uint256,uint256)" "$(REMOTE)" "$(LOCAL)" "$(CAPACITY)" "$(RATE)" "$(INBOUND_CAPACITY)" "$(INBOUND_RATE)"
+else
+	FOUNDRY_PROFILE=sync forge script $(SYNC_SCRIPT) --sig "addLane(string,string,uint256,uint256)" "$(REMOTE)" "$(LOCAL)" "$(CAPACITY)" "$(RATE)"
+endif
+endif
+	@for c in "$(LOCAL)" "$(REMOTE)"; do \
+		tmp="$$(mktemp)" && jq --indent 2 -S . "$(CONFIG_DIR)/$$c.json" > "$$tmp" && mv "$$tmp" "$(CONFIG_DIR)/$$c.json"; \
+	done
+	@echo "review the lane policy diff (lanes{} = owner policy), then: make doctor CHAIN=$(LOCAL)"
+
+remove-lane: tools ## Remove a lanes{} policy entry LOCAL -> REMOTE from the declaration (LOCAL= REMOTE= required; BOTH=1 removes the reciprocal; on-chain removal via ApplyChainUpdates is a separate step)
+	$(if $(LOCAL),,$(error LOCAL is required: make remove-lane LOCAL=<name> REMOTE=<name> [BOTH=1]))
+	$(if $(REMOTE),,$(error REMOTE is required: make remove-lane LOCAL=<name> REMOTE=<name> [BOTH=1]))
+	FOUNDRY_PROFILE=sync forge script $(SYNC_SCRIPT) --sig "removeLane(string,string)" "$(LOCAL)" "$(REMOTE)"
+ifdef BOTH
+	FOUNDRY_PROFILE=sync forge script $(SYNC_SCRIPT) --sig "removeLane(string,string)" "$(REMOTE)" "$(LOCAL)"
+endif
+	@for c in "$(LOCAL)" "$(REMOTE)"; do \
+		test -f "$(CONFIG_DIR)/$$c.json" || continue; \
+		tmp="$$(mktemp)" && jq --indent 2 -S . "$(CONFIG_DIR)/$$c.json" > "$$tmp" && mv "$$tmp" "$(CONFIG_DIR)/$$c.json"; \
+	done
+	@echo "review the lane policy diff (lanes{} = owner policy), then: make doctor CHAIN=$(LOCAL)"
+
+adopt-token: tools ## Adopt an externally deployed token into the registry (CHAIN= TOKEN= required; TOKEN_POOL= optional)
+	$(if $(CHAIN),,$(error CHAIN is required: make adopt-token CHAIN=<name> TOKEN=<addr> [TOKEN_POOL=<addr>]))
+	$(if $(TOKEN),,$(error TOKEN is required - the externally deployed token address to adopt))
+	$(require-chain-config)
+	FOUNDRY_PROFILE=sync forge script script/config/AdoptToken.s.sol --sig "run(string,address,address)" "$(CHAIN)" "$(TOKEN)" "$(or $(TOKEN_POOL),0x0000000000000000000000000000000000000000)"
 
 sync: tools ## Refresh <CHAIN>'s ccip{} block from the live API (CHAIN= required)
 	$(if $(CHAIN),,$(error CHAIN is required: make sync CHAIN=<name>))

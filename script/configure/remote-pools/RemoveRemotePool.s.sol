@@ -4,6 +4,8 @@ pragma solidity 0.8.24;
 import {console} from "forge-std/Script.sol";
 import {HelperConfig} from "../../HelperConfig.s.sol";
 import {TokenPool} from "@chainlink/contracts-ccip/contracts/pools/TokenPool.sol";
+import {PoolVersion} from "../../utils/PoolVersion.s.sol";
+import {PoolVersions} from "../../../src/PoolVersions.sol";
 import {CctActions} from "../../../src/actions/CctActions.sol";
 import {EoaExecutor} from "../../../src/base/EoaExecutor.s.sol";
 
@@ -33,7 +35,6 @@ contract RemoveRemotePool is EoaExecutor {
         helperConfig = new HelperConfig();
         uint256 sourceChainId = block.chainid;
         uint256 destChainId = helperConfig.parseChainName(destChainName);
-        string memory sourceChainName = helperConfig.getChainName(sourceChainId);
         uint64 remoteChainSelector = helperConfig.getNetworkConfig(destChainId).chainSelector;
 
         // ── Resolve pool address ───────────────────────────────────────────
@@ -46,6 +47,28 @@ contract RemoveRemotePool is EoaExecutor {
                 "_TOKEN_POOL environment variable. Alternatively, use the inline alias TOKEN_POOL=0x..."
             )
         );
+
+        _removeRemotePool(tokenPoolAddress, remotePoolAddress, remoteChainSelector, destChainName, destChainId);
+    }
+
+    /// @dev Everything after input resolution, starting with the version fence. Split from run()
+    ///      so the fence-before-read ordering is testable with an injected pool address (env-based
+    ///      pool resolution is process-global and cannot be exercised race-free under parallel
+    ///      test suites).
+    function _removeRemotePool(
+        address tokenPoolAddress,
+        address remotePoolAddress,
+        uint64 remoteChainSelector,
+        string memory destChainName,
+        uint256 destChainId
+    ) internal {
+        uint256 sourceChainId = block.chainid;
+        string memory sourceChainName = helperConfig.getChainName(sourceChainId);
+
+        // Resolve and fence the pool version BEFORE any version-shaped read: a 1.5.0 pool must get
+        // the named refusal here, not a raw selector revert from getRemotePools below.
+        (PoolVersions.Version poolVersion,) = PoolVersion.resolve(tokenPoolAddress);
+        PoolVersions.requireSupports(PoolVersions.Op.REMOVE_REMOTE_POOL, poolVersion, tokenPoolAddress);
 
         TokenPool tokenPool = TokenPool(tokenPoolAddress);
 
