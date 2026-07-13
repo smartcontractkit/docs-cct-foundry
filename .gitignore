@@ -13,6 +13,8 @@ docs/*
 !docs/config-schema.md
 !docs/config-architecture.md
 !docs/deployed-addresses.md
+!docs/pool-versions.md
+!docs/enabling-existing-token.md
 
 # Dotenv file
 .env

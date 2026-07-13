@@ -22,6 +22,7 @@
   "displayName": "Ethereum Sepolia",
   "environment": "testnet",
   "explorerUrl": "https://sepolia.etherscan.io",
+  "lanes": {},
   "name": "ethereum-testnet-sepolia",
   "nativeCurrencySymbol": "ETH",
   "rpcEnv": "ETHEREUM_SEPOLIA_RPC_URL"

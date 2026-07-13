@@ -4,6 +4,8 @@ pragma solidity 0.8.24;
 import {Script, console} from "forge-std/Script.sol";
 import {HelperConfig} from "../../HelperConfig.s.sol";
 import {TokenPool} from "@chainlink/contracts-ccip/contracts/pools/TokenPool.sol";
+import {PoolVersion} from "../../utils/PoolVersion.s.sol";
+import {PoolVersions} from "../../../src/PoolVersions.sol";
 
 /// @notice Reads and displays the remote pool addresses configured on a TokenPool for a given remote chain.
 ///
@@ -53,11 +55,28 @@ contract GetRemotePools is Script {
 
         TokenPool tokenPool = TokenPool(tokenPoolAddress);
 
+        // Read-only path: resolve the version to pick the right getter (getRemotePool singular on
+        // 1.5.0, getRemotePools from 1.5.1); an unrecognized version warns and degrades to best
+        // effort instead of refusing.
+        (bool versionKnown, PoolVersions.Version version, string memory poolTypeAndVersion) =
+            PoolVersion.tryResolve(tokenPoolAddress);
+        if (versionKnown) {
+            console.log(string.concat("Pool Version:    ", poolTypeAndVersion));
+        } else {
+            console.log(
+                string.concat(
+                    unicode"⚠️  WARN: unrecognized pool version \"",
+                    poolTypeAndVersion,
+                    unicode"\"; read-only display, best effort."
+                )
+            );
+        }
+
         bool isSupported = tokenPool.isSupportedChain(remoteChainSelector);
         console.log(string.concat("Chain Supported: ", isSupported ? "Yes" : "No"));
 
         if (isSupported) {
-            bytes[] memory remotePools = tokenPool.getRemotePools(remoteChainSelector);
+            bytes[] memory remotePools = PoolVersion.remotePools(tokenPoolAddress, version, remoteChainSelector);
             console.log(string.concat("Remote Pools:    ", vm.toString(remotePools.length)));
             for (uint256 i = 0; i < remotePools.length; i++) {
                 if (remotePools[i].length == 32) {

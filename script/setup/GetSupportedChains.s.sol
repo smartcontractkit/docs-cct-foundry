@@ -5,6 +5,8 @@ import {Script, console} from "forge-std/Script.sol";
 import {HelperConfig} from "../HelperConfig.s.sol";
 import {ChainHandlers} from "../utils/ChainHandlers.s.sol";
 import {TokenPool} from "@chainlink/contracts-ccip/contracts/pools/TokenPool.sol";
+import {PoolVersion} from "../utils/PoolVersion.s.sol";
+import {PoolVersions} from "../../src/PoolVersions.sol";
 
 /// @notice Reads and displays all remote chains supported by a TokenPool.
 ///
@@ -43,6 +45,24 @@ contract GetSupportedChains is Script {
         console.log("");
 
         TokenPool tokenPool = TokenPool(tokenPoolAddress);
+
+        // Read-only path: resolve the version to pick the right getter (getRemotePool singular on
+        // 1.5.0, getRemotePools from 1.5.1); an unrecognized version warns and degrades to best
+        // effort instead of refusing.
+        (bool versionKnown, PoolVersions.Version version, string memory poolTypeAndVersion) =
+            PoolVersion.tryResolve(tokenPoolAddress);
+        if (versionKnown) {
+            console.log(string.concat("Pool Version: ", poolTypeAndVersion));
+        } else {
+            console.log(
+                string.concat(
+                    unicode"⚠️  WARN: unrecognized pool version \"",
+                    poolTypeAndVersion,
+                    unicode"\"; read-only display, best effort."
+                )
+            );
+        }
+
         uint64[] memory supportedChains = tokenPool.getSupportedChains();
 
         console.log(string.concat("Supported Remote Chains: ", vm.toString(supportedChains.length)));
@@ -50,7 +70,7 @@ contract GetSupportedChains is Script {
 
         for (uint256 i = 0; i < supportedChains.length; i++) {
             uint64 selector = supportedChains[i];
-            bytes[] memory remotePools = tokenPool.getRemotePools(selector);
+            bytes[] memory remotePools = PoolVersion.remotePools(tokenPoolAddress, version, selector);
             string memory remoteChainName = helperConfig.getChainNameBySelector(selector);
             console.log(string.concat("  [", vm.toString(i), "] ", remoteChainName, " (", vm.toString(selector), ")"));
             console.log(string.concat("       Remote Pools: ", vm.toString(remotePools.length)));

@@ -21,6 +21,7 @@
   "displayName": "Mantle Sepolia",
   "environment": "testnet",
   "explorerUrl": "https://explorer.sepolia.mantle.xyz",
+  "lanes": {},
   "name": "ethereum-testnet-sepolia-mantle-1",
   "nativeCurrencySymbol": "MNT",
   "rpcEnv": "MANTLE_SEPOLIA_RPC_URL"

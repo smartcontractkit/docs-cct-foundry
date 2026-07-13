@@ -6,12 +6,20 @@ import {HelperConfig} from "../HelperConfig.s.sol"; // Network configuration hel
 import {TokenPool} from "@chainlink/contracts-ccip/contracts/pools/TokenPool.sol";
 import {RateLimiter} from "@chainlink/contracts-ccip/contracts/libraries/RateLimiter.sol";
 import {ChainHandlers} from "../utils/ChainHandlers.s.sol";
-import {CctActions} from "../../src/actions/CctActions.sol";
+import {ChainConfig} from "../../src/config/ChainConfig.sol";
+import {PoolVersion} from "../utils/PoolVersion.s.sol";
+import {PoolVersions} from "../../src/PoolVersions.sol";
+import {CctActions, ITokenPoolV150} from "../../src/actions/CctActions.sol";
 import {EoaExecutor} from "../../src/base/EoaExecutor.s.sol";
 
 /// @notice Configures cross-chain lanes on the source TokenPool by calling applyChainUpdates.
 /// Sets the remote pool(s), remote token, and optional rate limiter configs per destination chain.
 /// Idempotent: if a destination chain is already configured, the existing config is removed and replaced.
+///
+/// Lane updates dispatch on the source pool's on-chain contract version (see docs/pool-versions.md):
+/// pools 1.5.1 and later use the modern removes/adds applyChainUpdates shape, while a 1.5.0 pool uses
+/// its own single-argument encoding, announced in the console as "Pool contract version 1.5.0
+/// detected; using the 1.5.0 lane-update encoding."
 ///
 /// Supports two input modes, chosen by whether VIA_JSON_FILE is set:
 ///
@@ -77,6 +85,22 @@ import {EoaExecutor} from "../../src/base/EoaExecutor.s.sol";
 ///   INBOUND_RATE_LIMIT_CAPACITY   - uint128, token bucket capacity (isEnabled defaults to true when set)
 ///   INBOUND_RATE_LIMIT_RATE       - uint128, token bucket refill rate (isEnabled defaults to true when set)
 ///   INBOUND_RATE_LIMIT_ENABLED    - true/false (optional override; defaults to true if CAPACITY/RATE provided)
+///
+/// Rate-limit input resolution ladder (CLI mode, per direction — matching the repo's
+/// inline > env > registry idiom):
+///   1. Any of the direction's rate-limit env vars set → the env values win, byte-for-byte the
+///      historical behavior above. When the local chain config declares a diverging lanes{} policy
+///      for the destination, a one-line console notice names both values (`make doctor` WARNs until
+///      reconciled) and the closing output prints the exact `make add-lane` remediation command.
+///   2. Env vars unset → the declared `lanes{}` policy in `config/chains/<local>.json` supplies the
+///      bucket: `capacity`/`rate` drive the outbound bucket (enabled iff either is non-zero, the
+///      same inference the doctor's lanes rung uses); the optional `inbound{capacity,rate}` block
+///      drives the inbound bucket, and an ABSENT inbound block keeps the env-absent default
+///      (disabled).
+///   3. Neither env vars nor a lanes{} entry → the historical default stands: disabled buckets
+///      (the console says so).
+/// lanes{} is owner intent — an env-driven apply never writes it back. The printed `make add-lane`
+/// hint plus the doctor WARN close the loop through a reviewed edit by design.
 contract ApplyChainUpdates is EoaExecutor {
     HelperConfig public helperConfig;
 
@@ -194,7 +218,9 @@ contract ApplyChainUpdates is EoaExecutor {
         console.log(
             string.concat("[Step 1] Applying chain updates to pool on ", helperConfig.getChainName(sourceChainId))
         );
-        executeCalls(CctActions.applyChainUpdates(poolAddress, chainSelectorRemovals, chainUpdates));
+        (PoolVersions.Version poolVersion, string memory poolTypeAndVersion) = PoolVersion.resolve(poolAddress);
+        console.log(string.concat("Pool contract: ", poolTypeAndVersion));
+        executeCalls(_buildLaneUpdateCalls(poolVersion, poolAddress, chainSelectorRemovals, chainUpdates, shouldRemove));
         console.log(unicode"✅ Chain updates applied successfully!");
 
         console.log("");
@@ -412,8 +438,7 @@ contract ApplyChainUpdates is EoaExecutor {
         console.log("========================================");
         console.log("");
 
-        (RateLimiter.Config memory outboundRateLimiterConfig, RateLimiter.Config memory inboundRateLimiterConfig) =
-            _buildRateLimiterConfigs();
+        RateLimitResolution memory rateLimits = _resolveRateLimiterConfigs(destChainName, dest.chainSelector);
 
         console.log("Chain Update Parameters:");
         console.log(string.concat("  Source Pool:                  ", vm.toString(poolAddress)));
@@ -421,24 +446,21 @@ contract ApplyChainUpdates is EoaExecutor {
         console.log(string.concat("  Destination Chain Family:     ", destChainFamilyStr));
         console.log(string.concat("  Destination Pool:             ", dest.rawPoolAddress));
         console.log(string.concat("  Destination Token:            ", dest.rawTokenAddress));
-        console.log(string.concat("  Outbound Rate Limit Enabled:  ", vm.toString(outboundRateLimiterConfig.isEnabled)));
+        console.log(string.concat("  Outbound Rate Limit Enabled:  ", vm.toString(rateLimits.outbound.isEnabled)));
+        console.log(string.concat("  Outbound Rate Limit Rate:     ", vm.toString(uint256(rateLimits.outbound.rate))));
+        console.log(string.concat("  Inbound Rate Limit Enabled:   ", vm.toString(rateLimits.inbound.isEnabled)));
         console.log(
-            string.concat("  Outbound Rate Limit Rate:     ", vm.toString(uint256(outboundRateLimiterConfig.rate)))
+            string.concat("  Inbound Rate Limit Capacity:  ", vm.toString(uint256(rateLimits.inbound.capacity)))
         );
-        console.log(string.concat("  Inbound Rate Limit Enabled:   ", vm.toString(inboundRateLimiterConfig.isEnabled)));
-        console.log(
-            string.concat("  Inbound Rate Limit Capacity:  ", vm.toString(uint256(inboundRateLimiterConfig.capacity)))
-        );
-        console.log(
-            string.concat("  Inbound Rate Limit Rate:      ", vm.toString(uint256(inboundRateLimiterConfig.rate)))
-        );
+        console.log(string.concat("  Inbound Rate Limit Rate:      ", vm.toString(uint256(rateLimits.inbound.rate))));
+        _logRateLimitResolution(rateLimits, destChainName);
         console.log("");
 
         console.log(
             string.concat("\n[Step 1] Applying chain updates to pool on ", helperConfig.getChainName(sourceChainId))
         );
 
-        _applyChainUpdateToPool(poolAddress, dest, outboundRateLimiterConfig, inboundRateLimiterConfig);
+        _applyChainUpdateToPool(poolAddress, dest, rateLimits.outbound, rateLimits.inbound);
 
         console.log("");
         console.log("========================================");
@@ -455,6 +477,7 @@ contract ApplyChainUpdates is EoaExecutor {
             string.concat("Explorer:     ", helperConfig.getExplorerUrl(sourceChainId, "/address/", poolAddress))
         );
         console.log("========================================");
+        _logAddLaneHint(rateLimits);
         console.log("");
     }
 
@@ -577,38 +600,446 @@ contract ApplyChainUpdates is EoaExecutor {
             inboundRateLimiterConfig: inboundRateLimiterConfig
         });
 
-        // Apply the chain updates through the shared action layer (broadcast as an EOA).
-        executeCalls(CctActions.applyChainUpdates(poolAddress, chainSelectorRemovals, chainUpdates));
+        // Apply the chain updates through the shared action layer.
+        (PoolVersions.Version poolVersion, string memory poolTypeAndVersion) = PoolVersion.resolve(poolAddress);
+        console.log(string.concat("Pool contract: ", poolTypeAndVersion));
+        bool[] memory replaceExisting = new bool[](1);
+        replaceExisting[0] = chainAlreadyConfigured;
+        executeCalls(
+            _buildLaneUpdateCalls(poolVersion, poolAddress, chainSelectorRemovals, chainUpdates, replaceExisting)
+        );
         console.log(unicode"✅ Chain updates applied successfully!");
     }
 
-    /// @dev Reads optional rate limit env vars and returns outbound/inbound RateLimiter.Config structs.
-    /// isEnabled defaults to true when CAPACITY or RATE are provided; override with ENABLED=false.
-    function _buildRateLimiterConfigs()
+    /// @dev The exhaustive version switch of the lane-update dispatch: 1.5.0 takes the
+    ///      single-argument encoding, every later cataloged version takes the modern
+    ///      (removes[], adds[]) encoding. `PoolVersion.resolve` refuses uncataloged versions before
+    ///      this switch runs, and a version added to the catalog without a branch here fails loudly
+    ///      instead of falling through to the modern encoding.
+    function _buildLaneUpdateCalls(
+        PoolVersions.Version version,
+        address poolAddress,
+        uint64[] memory chainSelectorRemovals,
+        TokenPool.ChainUpdate[] memory chainUpdates,
+        bool[] memory replaceExisting
+    ) internal pure returns (CctActions.Call[] memory) {
+        if (version == PoolVersions.Version.V1_5_0) {
+            console.log("Pool contract version 1.5.0 detected; using the 1.5.0 lane-update encoding.");
+            return CctActions.applyChainUpdatesV150(poolAddress, _toV150Updates(chainUpdates, replaceExisting));
+        }
+        if (
+            version == PoolVersions.Version.V1_5_1 || version == PoolVersions.Version.V1_6_1
+                || version == PoolVersions.Version.V2_0_0
+        ) {
+            return CctActions.applyChainUpdates(poolAddress, chainSelectorRemovals, chainUpdates);
+        }
+        revert(
+            "ApplyChainUpdates: pool version has no lane-update dispatch branch; extend the switch here and the catalog in src/PoolVersions.sol"
+        );
+    }
+
+    /// @dev Converts modern `ChainUpdate` entries to the 1.5.0 shape. A replaced lane becomes an
+    ///      `allowed: false` entry (disabled rate limits, per the 1.5.0 validation rules) followed by
+    ///      its `allowed: true` entry; 1.5.0 processes the array in order, so the pair is one atomic
+    ///      replacement. 1.5.0 supports exactly one remote pool address per chain.
+    function _toV150Updates(TokenPool.ChainUpdate[] memory updates, bool[] memory replaceExisting)
+        internal
+        pure
+        returns (ITokenPoolV150.ChainUpdate[] memory out)
+    {
+        uint256 count = updates.length;
+        for (uint256 i = 0; i < replaceExisting.length; i++) {
+            if (replaceExisting[i]) count++;
+        }
+        out = new ITokenPoolV150.ChainUpdate[](count);
+        uint256 k = 0;
+        for (uint256 i = 0; i < updates.length; i++) {
+            require(
+                updates[i].remotePoolAddresses.length == 1,
+                string.concat(
+                    "Pool contract version 1.5.0 supports exactly one remote pool per chain; got ",
+                    vm.toString(updates[i].remotePoolAddresses.length),
+                    " for selector ",
+                    vm.toString(updates[i].remoteChainSelector)
+                )
+            );
+            if (replaceExisting[i]) {
+                out[k++] = ITokenPoolV150.ChainUpdate({
+                    remoteChainSelector: updates[i].remoteChainSelector,
+                    allowed: false,
+                    remotePoolAddress: "",
+                    remoteTokenAddress: "",
+                    outboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0}),
+                    inboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0})
+                });
+            }
+            out[k++] = ITokenPoolV150.ChainUpdate({
+                remoteChainSelector: updates[i].remoteChainSelector,
+                allowed: true,
+                remotePoolAddress: updates[i].remotePoolAddresses[0],
+                remoteTokenAddress: updates[i].remoteTokenAddress,
+                outboundRateLimiterConfig: updates[i].outboundRateLimiterConfig,
+                inboundRateLimiterConfig: updates[i].inboundRateLimiterConfig
+            });
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Rate-limit input resolution  — env > lanes{} > disabled default (CLI mode)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @dev How the CLI-mode rate-limit buckets were resolved, per direction, plus everything the
+    ///      console (and the tests) need to explain the decision: which rung supplied each bucket,
+    ///      which lanes{} entry matched, whether an env override diverges from the declared policy,
+    ///      and the exact `make add-lane` command that would bring the declaration in line.
+    struct RateLimitResolution {
+        RateLimiter.Config outbound;
+        RateLimiter.Config inbound;
+        bool outboundFromEnv;
+        bool inboundFromEnv;
+        bool outboundFromLanes;
+        bool inboundFromLanes;
+        bool configFound; // config/chains/<configName>.json exists for the local chain
+        string configName;
+        DeclaredLane lane; // the matched lanes{} entry, when lane.found
+        bool outboundDiverges; // env override differs from the declared outbound policy
+        bool inboundDiverges; // env override differs from the declared inbound{} block
+        bool addLaneHint; // an env-driven apply left the declaration missing or diverging
+        string addLaneCommand; // the exact remediation command, with the values just applied
+    }
+
+    /// @dev One declared lanes{} entry, parsed with the same conventions as the doctor's lanes rung
+    ///      (`VerifyChain._declaredBucket`): quoted-decimal uints read via `vm.parseJsonUint`, a
+    ///      missing capacity/rate key reads as 0, and a bucket is enabled iff capacity or rate is
+    ///      non-zero. An absent `inbound{}` block is undeclared, never defaulted.
+    struct DeclaredLane {
+        bool found;
+        string key;
+        uint256 capacity;
+        uint256 rate;
+        bool inboundDeclared;
+        uint256 inboundCapacity;
+        uint256 inboundRate;
+    }
+
+    /// @dev Resolves the CLI-mode rate-limit buckets through the two-rung input ladder, per
+    ///      direction (see the contract natspec). lanes{} is OWNER INTENT: an env-driven apply
+    ///      never writes it back — the `make add-lane` hint plus the doctor WARN close the loop
+    ///      through a reviewed edit by design.
+    function _resolveRateLimiterConfigs(string memory destChainName, uint64 destChainSelector)
         internal
         view
-        returns (RateLimiter.Config memory outbound, RateLimiter.Config memory inbound)
+        returns (RateLimitResolution memory res)
     {
+        (res.outboundFromEnv, res.outbound) = _envBucket("OUTBOUND");
+        (res.inboundFromEnv, res.inbound) = _envBucket("INBOUND");
+
+        string memory json;
+        (res.configFound, res.configName, json) = _findLocalChainConfig();
+        if (res.configFound) res.lane = _findDeclaredLane(json, destChainName, destChainSelector);
+
+        // Rung 2: a direction with no env vars takes the declared lanes{} policy. An absent
+        // inbound{} block keeps the env-absent default (disabled), exactly as before.
+        if (!res.outboundFromEnv && res.lane.found) {
+            res.outboundFromLanes = true;
+            res.outbound = _declaredConfig(res.lane.capacity, res.lane.rate);
+        }
+        if (!res.inboundFromEnv && res.lane.found && res.lane.inboundDeclared) {
+            res.inboundFromLanes = true;
+            res.inbound = _declaredConfig(res.lane.inboundCapacity, res.lane.inboundRate);
+        }
+
+        // Rung 1 cross-check: an env override that disagrees with the declared policy is a notice,
+        // never a revert (the doctor WARNs until reconciled). An undeclared inbound{} block is not
+        // compared — same absent-means-undeclared rule the doctor applies.
+        if (res.lane.found && res.outboundFromEnv) {
+            res.outboundDiverges = _diverges(res.outbound, res.lane.capacity, res.lane.rate);
+        }
+        if (res.lane.found && res.inboundFromEnv && res.lane.inboundDeclared) {
+            res.inboundDiverges = _diverges(res.inbound, res.lane.inboundCapacity, res.lane.inboundRate);
+        }
+
+        if (
+            (res.outboundFromEnv || res.inboundFromEnv) && res.configFound
+                && (!res.lane.found || res.outboundDiverges || res.inboundDiverges)
+        ) {
+            res.addLaneHint = true;
+            res.addLaneCommand = _composeAddLaneCommand(res, destChainName);
+        }
+    }
+
+    /// @dev Reads one direction's rate-limit env vars — byte-for-byte the historical env behavior:
+    ///      isEnabled defaults to true when CAPACITY or RATE is set, ENABLED overrides it
+    ///      explicitly, and a disabled bucket zeroes its values. `provided` is true when ANY of the
+    ///      direction's env vars is set (the rung-1 trigger).
+    function _envBucket(string memory prefix) internal view returns (bool provided, RateLimiter.Config memory config) {
+        string memory capacityVar = string.concat(prefix, "_RATE_LIMIT_CAPACITY");
+        string memory rateVar = string.concat(prefix, "_RATE_LIMIT_RATE");
+        string memory enabledVar = string.concat(prefix, "_RATE_LIMIT_ENABLED");
+
+        bool valuesProvided = _rlEnvExists(capacityVar) || _rlEnvExists(rateVar);
+        provided = valuesProvided || _rlEnvExists(enabledVar);
+        bool enabled = _rlEnvBool(enabledVar, valuesProvided);
+        config = RateLimiter.Config({
+            isEnabled: enabled,
+            capacity: enabled ? uint128(_rlEnvUint(capacityVar)) : 0,
+            rate: enabled ? uint128(_rlEnvUint(rateVar)) : 0
+        });
+    }
+
+    /// @dev A declared bucket as a RateLimiter.Config: enabled iff capacity or rate is non-zero —
+    ///      the same inference the doctor's lanes rung uses (declared 0/0 is declared-disabled).
+    function _declaredConfig(uint256 capacity, uint256 rate) internal pure returns (RateLimiter.Config memory) {
+        bool enabled = capacity != 0 || rate != 0;
+        return RateLimiter.Config({isEnabled: enabled, capacity: uint128(capacity), rate: uint128(rate)});
+    }
+
+    /// @dev Same agreement rule as the doctor's lanes rung (`VerifyChain._reconcileBucket`):
+    ///      enabled states must match, and an enabled bucket must match on capacity and rate.
+    function _diverges(RateLimiter.Config memory applied, uint256 declaredCapacity, uint256 declaredRate)
+        internal
+        pure
+        returns (bool)
+    {
+        bool declaredEnabled = declaredCapacity != 0 || declaredRate != 0;
+        if (applied.isEnabled != declaredEnabled) return true;
+        return applied.isEnabled && (applied.capacity != declaredCapacity || applied.rate != declaredRate);
+    }
+
+    /// @dev The local chain's config file (matched on the declared `chainId` == block.chainid),
+    ///      discovered the same way HelperConfig discovers chains: by scanning `config/chains/`.
+    function _findLocalChainConfig() internal view returns (bool found, string memory name, string memory json) {
+        string[] memory names = ChainConfig.names();
+        for (uint256 i = 0; i < names.length; i++) {
+            string memory path = string.concat(vm.projectRoot(), "/config/chains/", names[i], ".json");
+            // A file deleted or half-written between the directory scan and the read (parallel
+            // test suites clean up scratch configs) is skipped, never an aborted run. Cheatcodes
+            // are external calls to the VM contract, so try/catch applies directly — no self-call
+            // (forge rejects address(this) in script contracts at runtime).
+            try vm.readFile(path) returns (string memory candidate) {
+                try vm.parseJsonUint(candidate, ".chainId") returns (uint256 declaredChainId) {
+                    if (declaredChainId == block.chainid) return (true, names[i], candidate);
+                } catch {
+                    continue;
+                }
+            } catch {
+                continue;
+            }
+        }
+        return (false, "", "");
+    }
+
+    /// @dev Finds the lanes{} entry for the destination in the local chain config. Match by remote
+    ///      chain name first — a lanes key IS the remote's config file basename, and DEST_CHAIN may
+    ///      carry either that basename or the remote's chainNameIdentifier — then fall back to
+    ///      remoteSelector equality (the same join key the doctor's lanes rung reconciles on).
+    function _findDeclaredLane(string memory json, string memory destChainName, uint64 destChainSelector)
+        internal
+        view
+        returns (DeclaredLane memory lane)
+    {
+        if (!vm.keyExistsJson(json, ".lanes")) return lane;
+        string[] memory keys = vm.parseJsonKeys(json, ".lanes");
+
+        for (uint256 i = 0; i < keys.length && !lane.found; i++) {
+            if (_sameString(keys[i], destChainName)) _readDeclaredLane(json, keys[i], lane);
+        }
+        for (uint256 i = 0; i < keys.length && !lane.found; i++) {
+            (bool ok, ChainConfig.Chain memory c,) = ChainConfig.tryLoad(keys[i]);
+            if (ok && _sameString(c.chainNameIdentifier, destChainName)) _readDeclaredLane(json, keys[i], lane);
+        }
+        for (uint256 i = 0; i < keys.length && !lane.found; i++) {
+            string memory selectorKey = string.concat(".lanes.", keys[i], ".remoteSelector");
+            if (vm.keyExistsJson(json, selectorKey) && vm.parseJsonUint(json, selectorKey) == destChainSelector) {
+                _readDeclaredLane(json, keys[i], lane);
+            }
+        }
+    }
+
+    /// @dev Parses one matched lanes{} entry into `lane` (see the DeclaredLane parsing conventions).
+    function _readDeclaredLane(string memory json, string memory key, DeclaredLane memory lane) internal view {
+        lane.found = true;
+        lane.key = key;
+        string memory lanePath = string.concat(".lanes.", key);
+        (lane.capacity, lane.rate) = _declaredBucket(json, lanePath);
+        if (vm.keyExistsJson(json, string.concat(lanePath, ".inbound"))) {
+            lane.inboundDeclared = true;
+            (lane.inboundCapacity, lane.inboundRate) = _declaredBucket(json, string.concat(lanePath, ".inbound"));
+        }
+    }
+
+    /// @dev Declared (capacity, rate) at `declPath`; a missing key reads as 0. Duplicated from the
+    ///      doctor's lanes rung (`VerifyChain._declaredBucket`) so both consumers parse identically.
+    function _declaredBucket(string memory json, string memory declPath)
+        internal
+        view
+        returns (uint256 capacity, uint256 rate)
+    {
+        string memory capacityKey = string.concat(declPath, ".capacity");
+        string memory rateKey = string.concat(declPath, ".rate");
+        capacity = vm.keyExistsJson(json, capacityKey) ? vm.parseJsonUint(json, capacityKey) : 0;
+        rate = vm.keyExistsJson(json, rateKey) ? vm.parseJsonUint(json, rateKey) : 0;
+    }
+
+    /// @dev The exact `make add-lane` remediation command carrying the values just applied. The
+    ///      INBOUND pair is included iff the applied inbound bucket is enabled.
+    function _composeAddLaneCommand(RateLimitResolution memory res, string memory destChainName)
+        internal
+        view
+        returns (string memory cmd)
+    {
+        string memory remote = res.lane.found ? res.lane.key : _remoteConfigName(destChainName);
+        cmd = string.concat(
+            "make add-lane LOCAL=",
+            res.configName,
+            " REMOTE=",
+            remote,
+            " CAPACITY=",
+            vm.toString(uint256(res.outbound.capacity)),
+            " RATE=",
+            vm.toString(uint256(res.outbound.rate))
+        );
+        if (res.inbound.isEnabled) {
+            cmd = string.concat(
+                cmd,
+                " INBOUND_CAPACITY=",
+                vm.toString(uint256(res.inbound.capacity)),
+                " INBOUND_RATE=",
+                vm.toString(uint256(res.inbound.rate))
+            );
+        }
+    }
+
+    /// @dev The destination's config file basename for the hint: the DEST_CHAIN value itself when a
+    ///      config file of that name exists, otherwise the file whose chainNameIdentifier matches;
+    ///      falls back to the raw DEST_CHAIN value when the remote has no config file yet.
+    function _remoteConfigName(string memory destChainName) internal view returns (string memory) {
+        string[] memory names = ChainConfig.names();
+        for (uint256 i = 0; i < names.length; i++) {
+            if (_sameString(names[i], destChainName)) return names[i];
+        }
+        for (uint256 i = 0; i < names.length; i++) {
+            (bool ok, ChainConfig.Chain memory c,) = ChainConfig.tryLoad(names[i]);
+            if (ok && _sameString(c.chainNameIdentifier, destChainName)) return names[i];
+        }
+        return destChainName;
+    }
+
+    /// @dev The resolution-ladder console lines: which rung supplied the buckets, and the
+    ///      per-direction divergence notice (a notice, not a revert) naming both values and the
+    ///      lane entry.
+    function _logRateLimitResolution(RateLimitResolution memory res, string memory destChainName) internal pure {
+        if (res.outboundFromLanes || res.inboundFromLanes) {
+            console.log(
+                string.concat(
+                    "  Rate limits resolved from lanes.",
+                    res.lane.key,
+                    " in config/chains/",
+                    res.configName,
+                    ".json (",
+                    res.outboundFromLanes ? (res.inboundFromLanes ? "outbound + inbound" : "outbound") : "inbound",
+                    ")"
+                )
+            );
+        }
+        if (!res.outboundFromEnv && !res.inboundFromEnv && !res.lane.found) {
+            console.log(
+                string.concat(
+                    "  No rate-limit env vars and no lanes{} entry for ",
+                    destChainName,
+                    res.configFound ? string.concat(" in config/chains/", res.configName, ".json") : "",
+                    "; rate limiting disabled (default). Set the env vars, or declare the lane: make add-lane"
+                )
+            );
+        }
+        if (res.outboundDiverges) {
+            console.log(_divergenceNotice("OUTBOUND", res.outbound, res.lane.capacity, res.lane.rate, res));
+        }
+        if (res.inboundDiverges) {
+            console.log(_divergenceNotice("INBOUND", res.inbound, res.lane.inboundCapacity, res.lane.inboundRate, res));
+        }
+    }
+
+    /// @dev One divergence-notice line for one direction, naming the applied env values, the
+    ///      declared lanes{} values, and the lane entry.
+    function _divergenceNotice(
+        string memory direction,
+        RateLimiter.Config memory applied,
+        uint256 declaredCapacity,
+        uint256 declaredRate,
+        RateLimitResolution memory res
+    ) internal pure returns (string memory) {
+        return string.concat(
+            unicode"  ⚠️  ",
+            direction,
+            " rate-limit env override (enabled=",
+            vm.toString(applied.isEnabled),
+            " capacity=",
+            vm.toString(uint256(applied.capacity)),
+            " rate=",
+            vm.toString(uint256(applied.rate)),
+            ") diverges from declared lanes.",
+            res.lane.key,
+            " (capacity=",
+            vm.toString(declaredCapacity),
+            " rate=",
+            vm.toString(declaredRate),
+            ") in config/chains/",
+            res.configName,
+            ".json - make doctor will WARN until reconciled"
+        );
+    }
+
+    /// @dev The closing remediation hint. lanes{} is owner intent — applies never auto-write it;
+    ///      this hint plus the doctor WARN close the loop through a reviewed edit by design. Note
+    ///      `make add-lane` skips an EXISTING entry (duplicate = byte-identical no-op), so the
+    ///      divergence variant names the hand edit first.
+    function _logAddLaneHint(RateLimitResolution memory res) internal pure {
+        if (!res.addLaneHint) return;
+        if (res.lane.found) {
+            console.log(
+                string.concat(
+                    unicode"⚠️  Applied rate limits diverge from declared lanes.",
+                    res.lane.key,
+                    " in config/chains/",
+                    res.configName,
+                    ".json. Reconcile the declaration: edit the entry to the applied values, or remove it and run: ",
+                    res.addLaneCommand
+                )
+            );
+        } else {
+            console.log(
+                string.concat(
+                    unicode"⚠️  This lane is not declared in lanes{} (config/chains/",
+                    res.configName,
+                    ".json). Declare it: ",
+                    res.addLaneCommand
+                )
+            );
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Env-access seams
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @dev Env-access seams for the rate-limit resolution ladder. Virtual so tests can inject
+    ///      values without vm.setEnv (env vars are process-global and forge runs suites in
+    ///      parallel); the default implementations preserve the original vm.envOr reads exactly.
+    function _rlEnvExists(string memory name) internal view virtual returns (bool) {
         string memory sentinel = "__not_set__";
-        bool outboundProvided = keccak256(bytes(vm.envOr("OUTBOUND_RATE_LIMIT_CAPACITY", sentinel)))
-                != keccak256(bytes(sentinel))
-            || keccak256(bytes(vm.envOr("OUTBOUND_RATE_LIMIT_RATE", sentinel))) != keccak256(bytes(sentinel));
-        bool inboundProvided = keccak256(bytes(vm.envOr("INBOUND_RATE_LIMIT_CAPACITY", sentinel)))
-                != keccak256(bytes(sentinel))
-            || keccak256(bytes(vm.envOr("INBOUND_RATE_LIMIT_RATE", sentinel))) != keccak256(bytes(sentinel));
+        return keccak256(bytes(vm.envOr(name, sentinel))) != keccak256(bytes(sentinel));
+    }
 
-        bool outboundEnabled = vm.envOr("OUTBOUND_RATE_LIMIT_ENABLED", outboundProvided);
-        bool inboundEnabled = vm.envOr("INBOUND_RATE_LIMIT_ENABLED", inboundProvided);
+    function _rlEnvUint(string memory name) internal view virtual returns (uint256) {
+        return vm.envOr(name, uint256(0));
+    }
 
-        outbound = RateLimiter.Config({
-            isEnabled: outboundEnabled,
-            capacity: outboundEnabled ? uint128(vm.envOr("OUTBOUND_RATE_LIMIT_CAPACITY", uint256(0))) : 0,
-            rate: outboundEnabled ? uint128(vm.envOr("OUTBOUND_RATE_LIMIT_RATE", uint256(0))) : 0
-        });
-        inbound = RateLimiter.Config({
-            isEnabled: inboundEnabled,
-            capacity: inboundEnabled ? uint128(vm.envOr("INBOUND_RATE_LIMIT_CAPACITY", uint256(0))) : 0,
-            rate: inboundEnabled ? uint128(vm.envOr("INBOUND_RATE_LIMIT_RATE", uint256(0))) : 0
-        });
+    function _rlEnvBool(string memory name, bool defaultValue) internal view virtual returns (bool) {
+        return vm.envOr(name, defaultValue);
+    }
+
+    function _sameString(string memory a, string memory b) internal pure returns (bool) {
+        return keccak256(bytes(a)) == keccak256(bytes(b));
     }
 }

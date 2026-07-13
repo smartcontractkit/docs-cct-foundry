@@ -20,7 +20,10 @@ cd "$(dirname "$0")/../.."
 chains=("$@")
 if [ ${#chains[@]} -eq 0 ]; then
     for f in config/chains/*.json; do
-        chains+=("$(basename "$f" .json)")
+        base="$(basename "$f" .json)"
+        # Skip the gitignored zz-scratch-* files the test suites write here (fake selectors).
+        case "$base" in zz-scratch-*) continue ;; esac
+        chains+=("$base")
     done
 fi
 

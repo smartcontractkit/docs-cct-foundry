@@ -21,6 +21,7 @@
   "displayName": "Plume Testnet",
   "environment": "testnet",
   "explorerUrl": "https://testnet-explorer.plume.org",
+  "lanes": {},
   "name": "plume-testnet-sepolia",
   "nativeCurrencySymbol": "PLUME",
   "rpcEnv": "PLUME_TESTNET_RPC_URL"

@@ -31,12 +31,14 @@ contract RegistryResolutionTest is Test {
         return string.concat("addresses/", vm.toString(chainId), ".json");
     }
 
-    /// @dev Revert-safe cleanup: delete this suite's scratch registry file BEFORE the test runs, never
+    /// @dev Revert-safe cleanup: delete this suite's scratch registry files BEFORE the test runs, never
     /// relying on end-of-test deletion. `addresses/*.json` is gitignored, so a file left behind by a
     /// mid-test revert survives invisibly (`git status` stays clean) and bricks every later `forge test`
     /// (the rung-4 preconditions assert the file is absent). Cleaning up front makes the suite idempotent.
     function setUp() public {
         if (vm.exists(_registryPath(INK_SEPOLIA_CHAIN_ID))) vm.removeFile(_registryPath(INK_SEPOLIA_CHAIN_ID));
+        if (vm.exists(_registryPath(MANTLE_SEPOLIA_CHAIN_ID))) vm.removeFile(_registryPath(MANTLE_SEPOLIA_CHAIN_ID));
+        if (vm.exists(_registryPath(PLUME_TESTNET_CHAIN_ID))) vm.removeFile(_registryPath(PLUME_TESTNET_CHAIN_ID));
     }
 
     function test_ResolutionPrecedence_InlineOverChainEnvOverRegistryOverZero() public {

@@ -18,6 +18,25 @@ import {ERC20LockBox} from "@chainlink/contracts-ccip/contracts/pools/ERC20LockB
 import {AuthorizedCallers} from "@chainlink/contracts/src/v0.8/shared/access/AuthorizedCallers.sol";
 import {IBurnMintERC20} from "@chainlink/contracts-ccip/contracts/interfaces/IBurnMintERC20.sol";
 import {IERC20} from "@openzeppelin/contracts@5.3.0/token/ERC20/IERC20.sol";
+import {PoolVersions} from "../PoolVersions.sol";
+
+/// @notice Minimal view of the TokenPool 1.5.0 lane setter. 1.5.0 is the one contract version whose
+///         `applyChainUpdates` differs from every later version: a single-argument call whose
+///         `ChainUpdate` carries an `allowed` flag (removals are `allowed: false` entries, processed
+///         in array order) and ONE remote pool address. 1.5.1 and later share the modern
+///         `(removes[], adds[])` shape the `applyChainUpdates` builder targets.
+interface ITokenPoolV150 {
+    struct ChainUpdate {
+        uint64 remoteChainSelector;
+        bool allowed;
+        bytes remotePoolAddress;
+        bytes remoteTokenAddress;
+        RateLimiter.Config outboundRateLimiterConfig;
+        RateLimiter.Config inboundRateLimiterConfig;
+    }
+
+    function applyChainUpdates(ChainUpdate[] calldata chains) external;
+}
 
 /// @notice Minimal view of the v1.x TokenPool rate-limiter setter (`setChainRateLimiterConfig`), which v2
 ///         pools replaced with `setRateLimitConfig(RateLimitConfigArgs[])`. Declared here so the action
@@ -29,6 +48,24 @@ interface IRateLimiterV1 {
         RateLimiter.Config memory outboundConfig,
         RateLimiter.Config memory inboundConfig
     ) external;
+}
+
+/// @notice Minimal view of the v1.x LockReleaseTokenPool liquidity surface. The ENTIRE v1.x LockRelease
+///         family (1.5.0 / 1.5.1 / 1.6.1) manages liquidity ON THE POOL through a rebalancer: the owner
+///         sets a rebalancer, and only the rebalancer may `provideLiquidity` (pulls tokens IN via
+///         `transferFrom`, so the caller must approve first) or `withdrawLiquidity` (sends tokens OUT to
+///         the caller, reverting `InsufficientLiquidity` when the pool balance is below the amount).
+///         v2.0.0 removed all four functions and moved lock/release liquidity to an external `ILockBox`
+///         (deposit/withdraw happen on the lockbox — see `operations/DepositToLockBox.s.sol`), so this
+///         interface is NOT in the vendored 2.0.0 package and is declared here as a shim, exactly like
+///         `ITokenPoolV150`. `getToken()` is shared with `TokenPool` and returns the pool's local token,
+///         needed for the approve that precedes `provideLiquidity`.
+interface ILockReleaseV1Liquidity {
+    function getRebalancer() external view returns (address);
+    function setRebalancer(address rebalancer) external;
+    function provideLiquidity(uint256 amount) external;
+    function withdrawLiquidity(uint256 amount) external;
+    function getToken() external view returns (IERC20);
 }
 
 /// @title CctActions
@@ -105,7 +142,8 @@ library CctActions {
     // Pool lane configuration
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @notice Add/remove/update remote chains on a token pool via `applyChainUpdates`.
+    /// @notice Add/remove/update remote chains on a token pool via `applyChainUpdates`. This is the
+    ///         lane setter for pool contract versions 1.5.1 and later, which all share this ABI.
     /// @dev Takes ALREADY-ENCODED remote pool and token bytes inside `ChainUpdate` (EVM:
     ///      `abi.encode(address)`; SVM: raw 32 bytes) so the chain-family encoding stays in
     ///      `ChainHandlers` — the action layer never interprets remote addresses.
@@ -115,6 +153,18 @@ library CctActions {
         returns (Call[] memory)
     {
         return _one(pool, abi.encodeCall(TokenPool.applyChainUpdates, (removes, updates)));
+    }
+
+    /// @notice The 1.5.0-shaped lane setter (`applyChainUpdates(ChainUpdate[])`). Entries are
+    ///         processed in array order, so a replacement is one call with the `allowed: false`
+    ///         entry before the `allowed: true` entry for the same selector. Removal entries must
+    ///         carry disabled rate-limit configs; the version supports one remote pool per chain.
+    function applyChainUpdatesV150(address pool, ITokenPoolV150.ChainUpdate[] memory updates)
+        internal
+        pure
+        returns (Call[] memory)
+    {
+        return _one(pool, abi.encodeCall(ITokenPoolV150.applyChainUpdates, (updates)));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -217,20 +267,22 @@ library CctActions {
         return _one(pool, abi.encodeCall(TokenPool.setRateLimitConfig, (args)));
     }
 
-    /// @notice Version-detected rate-limit dispatch: routes a single-lane update to the v1 setter
-    ///         (`setChainRateLimiterConfig`) or the v2 setter (`setRateLimitConfig`) based on `isV2` — the
-    ///         same capability the docs-team `RateLimiterUtils.isV2Pool` probe detects script-side. `isV2`
-    ///         stays a parameter (like the claim-path probe) so the builder remains pure. `fastFinality` is
-    ///         ignored on v1 (v1 pools have only the standard bucket).
+    /// @notice Version-dispatched rate-limit setter: routes a single-lane update to the v2 setter
+    ///         (`setRateLimitConfig`) on pool versions that carry it, and to the v1 setter
+    ///         (`setChainRateLimiterConfig`) on the versions that carry that one, per the
+    ///         `PoolVersions` capability-range table. `version` stays a parameter (resolution from
+    ///         on-chain `typeAndVersion()` is script-side, `script/utils/PoolVersion.s.sol`) so the
+    ///         builder remains pure; the enum is data. `fastFinality` is ignored on v1 (v1 pools
+    ///         have only the standard bucket). An unresolved (`UNKNOWN`) version refuses by name.
     function setRateLimits(
         address pool,
-        bool isV2,
+        PoolVersions.Version version,
         uint64 remoteChainSelector,
         bool fastFinality,
         RateLimiter.Config memory outbound,
         RateLimiter.Config memory inbound
     ) internal pure returns (Call[] memory) {
-        if (isV2) {
+        if (PoolVersions.isSupported(PoolVersions.Op.SET_RATE_LIMIT_CONFIG, version)) {
             TokenPool.RateLimitConfigArgs[] memory args = new TokenPool.RateLimitConfigArgs[](1);
             args[0] = TokenPool.RateLimitConfigArgs({
                 remoteChainSelector: remoteChainSelector,
@@ -240,6 +292,7 @@ library CctActions {
             });
             return setRateLimitConfig(pool, args);
         }
+        PoolVersions.requireSupports(PoolVersions.Op.SET_CHAIN_RATE_LIMITER_CONFIG, version, pool);
         return setChainRateLimiterConfig(pool, remoteChainSelector, outbound, inbound);
     }
 
@@ -299,6 +352,26 @@ library CctActions {
     /// @notice Point a v2 pool at a new `AdvancedPoolHooks` contract.
     function updateAdvancedPoolHooks(address pool, address newHook) internal pure returns (Call[] memory) {
         return _one(pool, abi.encodeCall(TokenPool.updateAdvancedPoolHooks, (IAdvancedPoolHooks(newHook))));
+    }
+
+    /// @notice Apply per-lane CCV (Cross-Chain Verifier) config updates on an `AdvancedPoolHooks` (v2).
+    /// @dev `applyCCVConfigUpdates` FULLY REPLACES each chain's stored entry, so the caller must pass the
+    ///      full four-array shape for every lane it touches (the setter script reads the current on-chain
+    ///      config and carries undeclared arrays through unchanged). Targets the hooks contract, which is
+    ///      Ownable with its OWN owner (resolved script-side); the executing account must be that owner.
+    function applyCCVConfigUpdates(address hooks, AdvancedPoolHooks.CCVConfigArg[] memory args)
+        internal
+        pure
+        returns (Call[] memory)
+    {
+        return _one(hooks, abi.encodeCall(AdvancedPoolHooks.applyCCVConfigUpdates, (args)));
+    }
+
+    /// @notice Set the pool-global additional-CCV threshold amount on an `AdvancedPoolHooks` (v2). A single
+    ///         value (not per-lane): 0 disables the threshold so no lane's `threshold*CCVs` are required.
+    /// @dev Targets the hooks contract; the executing account must be the hooks owner.
+    function setThresholdAmount(address hooks, uint256 amount) internal pure returns (Call[] memory) {
+        return _one(hooks, abi.encodeCall(AdvancedPoolHooks.setThresholdAmount, (amount)));
     }
 
     /// @notice Apply allowlist updates (`removes`, `adds`) on an `AdvancedPoolHooks` (v2) or a v1 pool —
@@ -373,6 +446,31 @@ library CctActions {
         returns (Call[] memory)
     {
         return _one(pool, abi.encodeCall(TokenPool.withdrawFeeTokens, (feeTokens, recipient)));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // LockRelease v1.x liquidity management (rebalancer model; removed in 2.0.0)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @notice Set the rebalancer on a v1.x LockRelease pool (`setRebalancer`, onlyOwner). The rebalancer
+    ///         is the one account allowed to `provideLiquidity` / `withdrawLiquidity`. Removed in 2.0.0,
+    ///         where liquidity moved to the external lock box; gate with the type+version fence.
+    function setRebalancer(address pool, address rebalancer) internal pure returns (Call[] memory) {
+        return _one(pool, abi.encodeCall(ILockReleaseV1Liquidity.setRebalancer, (rebalancer)));
+    }
+
+    /// @notice Provide `amount` of liquidity to a v1.x LockRelease pool (`provideLiquidity`). The pool
+    ///         pulls the tokens via `transferFrom`, so the caller must `approve(pool, amount)` first, and
+    ///         the caller must be the pool's rebalancer. Removed in 2.0.0.
+    function provideLiquidity(address pool, uint256 amount) internal pure returns (Call[] memory) {
+        return _one(pool, abi.encodeCall(ILockReleaseV1Liquidity.provideLiquidity, (amount)));
+    }
+
+    /// @notice Withdraw `amount` of liquidity from a v1.x LockRelease pool (`withdrawLiquidity`). Tokens
+    ///         transfer OUT to the caller (the rebalancer); the pool reverts `InsufficientLiquidity` when
+    ///         its balance is below `amount`. Removed in 2.0.0.
+    function withdrawLiquidity(address pool, uint256 amount) internal pure returns (Call[] memory) {
+        return _one(pool, abi.encodeCall(ILockReleaseV1Liquidity.withdrawLiquidity, (amount)));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
