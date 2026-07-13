@@ -136,7 +136,7 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
     /// Declaring/env-setting ONLY outboundCCVs must NOT wipe the other three arrays: the built
     /// CCVConfigArg carries the current on-chain inbound (and empty threshold) arrays unchanged.
     function test_RMW_EnvOnlyOutbound_CarriesCurrentOtherArrays() public {
-        _localChain(1);
+        string memory name = _localChain(1);
         harness.setFakeEnv("OUTBOUND_CCVS", vm.toString(E1));
 
         UpdateCCVConfig.CCVConfigResolution memory res =
@@ -150,11 +150,13 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
         assertEq(args[0].inboundCCVs[0], CUR2, "inbound is the current on-chain value");
         assertEq(args[0].thresholdOutboundCCVs.length, 0, "threshold-out preserved");
         assertEq(args[0].thresholdInboundCCVs.length, 0, "threshold-in preserved");
+
+        vm.removeFile(_path(name));
     }
 
     /// Changing only the CCV arrays leaves the pool-global threshold untouched (not written to 0).
     function test_RMW_NoThresholdEnv_PreservesCurrentThreshold() public {
-        _localChain(2);
+        string memory name = _localChain(2);
         harness.setFakeEnv("OUTBOUND_CCVS", vm.toString(E1));
 
         UpdateCCVConfig.CCVConfigResolution memory res =
@@ -163,6 +165,8 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
         assertFalse(res.threshold.fromEnv, "threshold not from env");
         assertFalse(res.threshold.fromLanes, "threshold not from lanes");
         assertEq(res.threshold.value, 1000, "threshold carries the current on-chain value");
+
+        vm.removeFile(_path(name));
     }
 
     // ── ladder rungs ────────────────────────────────────────────────────────────
@@ -275,7 +279,7 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
     /// Inbound-only RMW mirror of the outbound centrepiece: env-setting ONLY inboundCCVs must NOT wipe
     /// the other three arrays; the built CCVConfigArg carries the current outbound array unchanged.
     function test_RMW_EnvOnlyInbound_CarriesCurrentOtherArrays() public {
-        _localChain(8);
+        string memory name = _localChain(8);
         harness.setFakeEnv("INBOUND_CCVS", vm.toString(E1));
 
         UpdateCCVConfig.CCVConfigResolution memory res =
@@ -288,6 +292,8 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
         assertEq(args[0].outboundCCVs[0], CUR1, "outbound is the current on-chain value");
         assertEq(args[0].thresholdOutboundCCVs.length, 0, "threshold-out preserved");
         assertEq(args[0].thresholdInboundCCVs.length, 0, "threshold-in preserved");
+
+        vm.removeFile(_path(name));
     }
 
     /// Threshold rung 2: a chain-level `ccvThreshold` with no env var resolves from lanes{} (fromLanes),

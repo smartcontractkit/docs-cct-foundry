@@ -9,7 +9,10 @@
 # to its own exit code 2, so `make sync-check` is pass/fail only. CI calls the script directly.
 
 CONFIG_DIR := config/chains
-KNOWN_CHAINS := $(basename $(notdir $(wildcard $(CONFIG_DIR)/*.json)))
+# Real chain configs only: exclude the gitignored `zz-scratch-*` files the test suites write into
+# config/chains/ (they carry fake selectors and would break the sync/discover tooling that scans the
+# directory). This matches the `.gitignore` pattern; a leftover scratch file from a test run is ignored.
+KNOWN_CHAINS := $(filter-out zz-scratch-%,$(basename $(notdir $(wildcard $(CONFIG_DIR)/*.json))))
 SYNC_SCRIPT := script/config/SyncCcipConfig.s.sol
 
 .DEFAULT_GOAL := help
@@ -118,6 +121,7 @@ sync-preview: tools ## Fetch + log <CHAIN>'s ccip{} from the API without writing
 sync-all: tools ## Refresh every configured chain (non-EVM chains SKIP; failures are collected)
 	@failed=""; for f in $(CONFIG_DIR)/*.json; do \
 		name="$$(basename "$$f" .json)"; \
+		case "$$name" in zz-scratch-*) continue ;; esac; \
 		echo ">> sync $$name"; \
 		FOUNDRY_PROFILE=sync forge script $(SYNC_SCRIPT) --sig "run(string)" "$$name" || failed="$$failed $$name"; \
 		tmp="$$(mktemp)" && jq --indent 2 -S . "$$f" > "$$tmp" && mv "$$tmp" "$$f"; \
@@ -127,6 +131,7 @@ sync-all: tools ## Refresh every configured chain (non-EVM chains SKIP; failures
 
 fmt-config: tools ## Rewrite config/chains/*.json in the canonical style (jq --indent 2 -S, trailing newline)
 	@for f in $(CONFIG_DIR)/*.json; do \
+		case "$$f" in *zz-scratch-*) continue ;; esac; \
 		tmp="$$(mktemp)" && jq --indent 2 -S . "$$f" > "$$tmp" && mv "$$tmp" "$$f"; \
 	done; \
 	echo "fmt-config: canonicalized $(CONFIG_DIR)/*.json"

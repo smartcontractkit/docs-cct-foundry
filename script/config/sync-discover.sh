@@ -39,8 +39,9 @@ if [ "$http_code" != "200" ]; then
     exit 5
 fi
 
-# selector -> comma-joined local config names
+# selector -> comma-joined local config names (skip the gitignored zz-scratch-* test files)
 for f in config/chains/*.json; do
+    case "$(basename "$f")" in zz-scratch-*) continue ;; esac
     jq -r '[(.chainSelector | tostring), .name] | @tsv' "$f"
 done | awk -F'\t' '{ a[$1] = (a[$1] == "" ? $2 : a[$1] "," $2) } END { for (s in a) print s "\t" a[s] }' \
     > "$map_file"
