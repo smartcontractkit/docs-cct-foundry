@@ -6,6 +6,7 @@ import {console} from "forge-std/console.sol";
 
 import {ChainConfig} from "../../src/config/ChainConfig.sol";
 import {RegistryWriter} from "../../src/utils/RegistryWriter.sol";
+import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 import {RolesProbes} from "../../src/roles/RolesProbes.sol";
 
 /// @title VerifyRoles
@@ -41,8 +42,14 @@ contract VerifyRoles is Script {
         // chainName IS the selectorName (the config/chains basename == the project-store basename).
         token = vm.envOr("TOKEN", RegistryWriter.read(chainName, "token"));
         pool = vm.envOr("TOKEN_POOL", RegistryWriter.read(chainName, "tokenPool"));
-        require(token != address(0), "no token: set TOKEN=<addr> or deploy first (project/<selectorName>.json)");
-        require(pool != address(0), "no pool: set TOKEN_POOL=<addr> or deploy first (project/<selectorName>.json)");
+        require(
+            token != address(0),
+            string.concat("no token: set TOKEN=<addr> or deploy first (", ProjectStore.display(chainName), ")")
+        );
+        require(
+            pool != address(0),
+            string.concat("no pool: set TOKEN_POOL=<addr> or deploy first (", ProjectStore.display(chainName), ")")
+        );
     }
 
     // ---------------------------------------------------------------- token (template-dispatched)

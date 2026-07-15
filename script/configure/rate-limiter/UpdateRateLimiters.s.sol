@@ -11,6 +11,7 @@ import {PoolVersion} from "../../utils/PoolVersion.s.sol";
 import {PoolVersions} from "../../../src/PoolVersions.sol";
 import {CctActions} from "../../../src/actions/CctActions.sol";
 import {EoaExecutor} from "../../../src/base/EoaExecutor.s.sol";
+import {ProjectStore} from "../../../src/utils/ProjectStore.sol";
 
 /// @notice Updates rate limiter configuration on a TokenPool, compatible with both v1 and v2 pools.
 ///
@@ -312,9 +313,8 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
                 fastFinalityBucket
                     ? "lanes.<remote>.v2.fastFinality.{outbound,inbound} bucket(s)"
                     : "lanes.<remote> policy (capacity/rate, optional inbound{})",
-                " in project/",
-                res.configFound ? res.configName : "<local>",
-                ".json"
+                " in ",
+                ProjectStore.display(res.configFound ? res.configName : "<local>")
             )
         );
     }
@@ -375,16 +375,16 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
     /// @dev The resolution-ladder console lines: which rung supplied the buckets, and the
     ///      per-direction divergence notice (a notice, not a revert) naming both values and the
     ///      declared entry path.
-    function _logResolution(RateLimitResolution memory res, string memory destChainName) internal pure {
+    function _logResolution(RateLimitResolution memory res, string memory destChainName) internal view {
         if (res.outboundFromLanes || res.inboundFromLanes) {
             console.log(
                 string.concat(
                     "Rate limits resolved from lanes.",
                     res.laneKey,
                     res.fastFinality ? ".v2.fastFinality" : "",
-                    " in project/",
-                    res.configName,
-                    ".json (",
+                    " in ",
+                    ProjectStore.display(res.configName),
+                    " (",
                     res.outboundFromLanes ? (res.inboundFromLanes ? "outbound + inbound" : "outbound") : "inbound",
                     ")"
                 )
@@ -399,9 +399,9 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
                 string.concat(
                     "No lanes{} entry for ",
                     destChainName,
-                    " in project/",
-                    res.configName,
-                    ".json; applying the env values (declare the lane to make the policy reviewable)"
+                    " in ",
+                    ProjectStore.display(res.configName),
+                    "; applying the env values (declare the lane to make the policy reviewable)"
                 )
             );
             console.log("");
@@ -411,7 +411,7 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
     /// @dev One divergence-notice line for one direction, naming the applied env values, the
     ///      declared values, and the declared entry path. Returns the composed string (stored on the
     ///      resolution struct and printed verbatim) so tests can pin it byte-exact.
-    function _composeDivergence(RateLimitResolution memory res, bool inbound) internal pure returns (string memory) {
+    function _composeDivergence(RateLimitResolution memory res, bool inbound) internal view returns (string memory) {
         RateLimiter.Config memory applied = _appliedConfig(res.update, inbound);
         (uint256 declCapacity, uint256 declRate) =
             inbound ? (res.inboundDeclCapacity, res.inboundDeclRate) : (res.outboundDeclCapacity, res.outboundDeclRate);
@@ -430,9 +430,9 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
             vm.toString(declCapacity),
             " rate=",
             vm.toString(declRate),
-            ") in project/",
-            res.configName,
-            ".json - make doctor will WARN until reconciled"
+            ") in ",
+            ProjectStore.display(res.configName),
+            " - make doctor will WARN until reconciled"
         );
     }
 
@@ -449,7 +449,7 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
     ///      diverging: the entry path, the file, the applied values to declare, and the doctor WARN.
     ///      Returns the composed string (stored on the resolution struct and printed verbatim) so
     ///      tests can pin it byte-exact.
-    function _composeEditHint(RateLimitResolution memory res, bool inbound) internal pure returns (string memory) {
+    function _composeEditHint(RateLimitResolution memory res, bool inbound) internal view returns (string memory) {
         RateLimiter.Config memory applied = _appliedConfig(res.update, inbound);
         return string.concat(
             unicode"⚠️  Applied ",
@@ -458,9 +458,9 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
             (inbound ? res.inboundDeclared : res.outboundDeclared) ? "diverging from" : "not declared in",
             " ",
             _bucketPath(res, inbound),
-            " (project/",
-            res.configName,
-            ".json). Hand-edit the entry to capacity=",
+            " (",
+            ProjectStore.display(res.configName),
+            "). Hand-edit the entry to capacity=",
             vm.toString(uint256(applied.capacity)),
             " rate=",
             vm.toString(uint256(applied.rate)),

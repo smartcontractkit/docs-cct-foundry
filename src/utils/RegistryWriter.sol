@@ -220,7 +220,9 @@ library RegistryWriter {
             _loadMaps(selectorName);
         (aKeys, aVals) = _upsert(aKeys, aVals, role, value);
         _store(selectorName, aKeys, aVals, dKeys, dVals);
-        console.log(string.concat("Store updated: project/", selectorName, ".json (addresses.active.", role, ")"));
+        console.log(
+            string.concat("Store updated: ", ProjectStore.display(selectorName), " (addresses.active.", role, ")")
+        );
     }
 
     /// @notice Deterministic view helper: would setting (`selectorName`, `role`, `value`) REPOINT the
@@ -242,10 +244,10 @@ library RegistryWriter {
     /// be silently repointed onto a different address — e.g. deploying a second token on a chain moves
     /// `active.token` off the first fixture, hijacking the zero-export pointer every no-override script
     /// resolves. The repoint still happens; the operator is told how to pin the previous address —
-    /// **naming the store-native alternatives first** (re-adopt the intended one, or resolve the earlier
-    /// artifact from `deployments`), so a second token does not one-way-door a store-driven user into env
-    /// land. Never fires on a first set or idempotent re-set (see `wouldRepointActive`). Both write paths
-    /// that touch `active[role]` (`setActiveString`/`recordDeterministicString`) route through here.
+    /// **naming the token group first** (a second token belongs in its own group, which leaves this
+    /// store untouched), then the store-native re-adopt, then the env one-off. Never fires on a first set
+    /// or idempotent re-set (see `wouldRepointActive`). Both write paths that touch `active[role]`
+    /// (`setActiveString`/`recordDeterministicString`) route through here.
     function _warnRepoint(string memory selectorName, string memory role, string memory value) private view {
         (bool repoints, string memory previous) = wouldRepointActive(selectorName, role, value);
         if (!repoints) return;
@@ -256,7 +258,15 @@ library RegistryWriter {
         console.log(string.concat("         Scripts with no env override will now resolve ", value, "."));
         console.log(
             string.concat(
-                "         To keep the previous one active, re-adopt it: make adopt-token CHAIN=",
+                "         A second token here belongs in its own group (a grouped rerun would have left this store untouched): GROUP=<g> make adopt-token CHAIN=",
+                selectorName,
+                " TOKEN=",
+                value
+            )
+        );
+        console.log(
+            string.concat(
+                "         To keep the previous one active here, re-adopt it: make adopt-token CHAIN=",
                 selectorName,
                 " TOKEN=",
                 previous,
@@ -324,7 +334,9 @@ library RegistryWriter {
         (dKeys, dVals) = _upsert(dKeys, dVals, deploymentName, value);
         _store(selectorName, aKeys, aVals, dKeys, dVals);
         console.log(
-            string.concat("Store updated: project/", selectorName, ".json (addresses.deployments.", deploymentName, ")")
+            string.concat(
+                "Store updated: ", ProjectStore.display(selectorName), " (addresses.deployments.", deploymentName, ")"
+            )
         );
     }
 
@@ -365,9 +377,9 @@ library RegistryWriter {
         _store(selectorName, aKeys, aVals, dKeys, dVals);
         console.log(
             string.concat(
-                "Store updated: project/",
-                selectorName,
-                ".json (addresses.deployments.",
+                "Store updated: ",
+                ProjectStore.display(selectorName),
+                " (addresses.deployments.",
                 deploymentName,
                 " + addresses.active.",
                 role,

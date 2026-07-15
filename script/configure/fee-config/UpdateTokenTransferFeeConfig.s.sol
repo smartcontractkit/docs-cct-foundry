@@ -10,6 +10,7 @@ import {PoolVersion} from "../../utils/PoolVersion.s.sol";
 import {PoolVersions} from "../../../src/PoolVersions.sol";
 import {CctActions} from "../../../src/actions/CctActions.sol";
 import {EoaExecutor} from "../../../src/base/EoaExecutor.s.sol";
+import {ProjectStore} from "../../../src/utils/ProjectStore.sol";
 
 /// @notice Applies token transfer fee configuration updates to a token pool on a given destination lane.
 ///
@@ -342,7 +343,7 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
     /// @dev One per-field divergence-notice line (an env-overridden field disagreeing with its
     ///      declaration). Returns the composed string (stored on the struct and printed verbatim) so
     ///      tests can pin it byte-exact.
-    function _composeFeeNotice(FeeConfigResolution memory res, uint256 i) internal pure returns (string memory) {
+    function _composeFeeNotice(FeeConfigResolution memory res, uint256 i) internal view returns (string memory) {
         FeeFieldResolution memory f = res.fields[i];
         return string.concat(
             unicode"⚠️  ",
@@ -355,23 +356,23 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
             _feeFieldNames()[i],
             "=",
             vm.toString(f.declaredValue),
-            " in project/",
-            res.configName,
-            ".json - make doctor will WARN until reconciled"
+            " in ",
+            ProjectStore.display(res.configName),
+            " - make doctor will WARN until reconciled"
         );
     }
 
     /// @dev The resolution-ladder console lines: which rung supplied the fields, and one
     ///      divergence notice per env-overridden field that disagrees with its declaration.
-    function _logFeeResolution(FeeConfigResolution memory res) internal pure {
+    function _logFeeResolution(FeeConfigResolution memory res) internal view {
         if (res.anyFromLanes) {
             console.log(
                 string.concat(
                     "Fee config resolved from lanes.",
                     res.laneKey,
-                    ".v2.feeConfig in project/",
-                    res.configName,
-                    ".json (undeclared fields keep the current on-chain values)"
+                    ".v2.feeConfig in ",
+                    ProjectStore.display(res.configName),
+                    " (undeclared fields keep the current on-chain values)"
                 )
             );
             console.log("");
@@ -386,7 +387,7 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
                     "No fee-config env vars and no declared lanes.",
                     res.laneKey,
                     ".v2.feeConfig",
-                    res.configFound ? string.concat(" in project/", res.configName, ".json") : "",
+                    res.configFound ? string.concat(" in ", ProjectStore.display(res.configName)) : "",
                     "; applying the current on-chain values (historical default). Set the env vars, or declare the block."
                 )
             );
@@ -405,7 +406,7 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
 
     /// @dev Composes the closing hand-edit hint. Returns the string (stored on the struct and
     ///      printed verbatim) so tests can pin it byte-exact.
-    function _composeFeeEditHint(FeeConfigResolution memory res) internal pure returns (string memory) {
+    function _composeFeeEditHint(FeeConfigResolution memory res) internal view returns (string memory) {
         string[NUM_FEE_FIELDS] memory fieldNames = _feeFieldNames();
         string memory values = "";
         for (uint256 i = 0; i < NUM_FEE_FIELDS; i++) {
@@ -416,9 +417,9 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
             res.blockDeclared ? "diverging from" : "not declared in",
             " lanes.",
             res.laneKey,
-            ".v2.feeConfig (project/",
-            res.configName,
-            ".json). Hand-edit the block to the applied values: ",
+            ".v2.feeConfig (",
+            ProjectStore.display(res.configName),
+            "). Hand-edit the block to the applied values: ",
             values,
             " - make doctor CHAIN=",
             res.configName,

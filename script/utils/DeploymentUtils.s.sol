@@ -178,11 +178,19 @@ library DeploymentUtils {
     }
 
     /// @dev Saves an AdvancedPoolHooks deployment.
-    /// Output: `history/advanced-pool-hooks/{selectorName}/{timestamp}-AdvancedPoolHooks.json`
+    /// Output: `history/advanced-pool-hooks/{selectorName}/{timestamp}-{symbol}-{poolType}AdvancedPoolHooks.json`
     /// @param vm                  Forge VM cheat-code interface
     /// @param selectorName        Canonical selectorName (the ledger directory)
+    /// @param symbol              Token symbol (distinguishes co-located tokens' hooks, matching the ledger)
+    /// @param poolType            Pool type the hooks belong to
     /// @param hooksAddress        Address of the deployed AdvancedPoolHooks contract
-    function savePoolHooksDeployment(Vm vm, string memory selectorName, address hooksAddress) internal {
+    function savePoolHooksDeployment(
+        Vm vm,
+        string memory selectorName,
+        string memory symbol,
+        string memory poolType,
+        address hooksAddress
+    ) internal {
         string memory deploymentDir =
             string.concat(vm.projectRoot(), "/history/advanced-pool-hooks/", selectorName, "/");
         vm.createDir(deploymentDir, true);
@@ -191,18 +199,10 @@ library DeploymentUtils {
         string memory handle = string.concat("hooksDeployment-", vm.toString(hooksAddress));
         string memory deploymentJson = vm.serializeAddress(handle, "POOL_HOOKS", hooksAddress);
         string memory timestamp = vm.toString(block.timestamp);
-        string memory deploymentFile = string.concat(deploymentDir, timestamp, "-AdvancedPoolHooks.json");
-        vm.writeJson(deploymentJson, deploymentFile);
+        string memory fileName = string.concat(timestamp, "-", symbol, "-", poolType, "AdvancedPoolHooks.json");
+        vm.writeJson(deploymentJson, string.concat(deploymentDir, fileName));
 
-        console.log(
-            string.concat(
-                "Deployment saved: history/advanced-pool-hooks/",
-                selectorName,
-                "/",
-                timestamp,
-                "-AdvancedPoolHooks.json"
-            )
-        );
+        console.log(string.concat("Deployment saved: history/advanced-pool-hooks/", selectorName, "/", fileName));
     }
 
     /// @dev Resolves the token symbol by calling `symbol()` on the token contract, falling back to

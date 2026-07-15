@@ -185,8 +185,56 @@ concrete example `project/ethereum-testnet-sepolia.example.json`. A downstream *
 truth: track public data only (addresses + reviewed policy and authority), **never secrets** (a lint FAILs a
 secret-shaped value). See [`deployed-addresses.md`](deployed-addresses.md#tracking-rule-template-vs-fork).
 
-**Reserved namespace.** Subdirectories of `project/` are reserved for token groups (one directory per
-token group, each holding its own per-chain files) - do not place files under `project/<subdir>/`.
+**Token groups (multiple tokens in one clone).** A clone can hold N independent token groups, each in its
+own subdirectory: `project/<group>/<selectorName>.json`. `GROUP=<name>` (the make var, threaded to the
+scripts as `PROJECT_GROUP`) selects one; an unset group is the **default** group - the flat
+`project/<selectorName>.json`, byte-identical to a single-token clone. So a one-token user never sets
+`GROUP` and sees no change, and a second token goes in its own group with no effect on the first (the one
+exception is `make roles-check`: with `GROUP` unset it sweeps the default group AND every other group, see
+[`roles.md`](roles.md#token-group-scope)):
+
+```text
+project/
+  ethereum-testnet-sepolia.json        # default group (token #1)
+  avalanche-fuji.json                   # default group (token #1)
+  usdx/
+    ethereum-testnet-sepolia.json       # group "usdx" (token #2)
+    avalanche-fuji.json                 # group "usdx" (token #2)
+```
+
+The group name is validated `[a-z0-9][a-z0-9-]*` (the same shape as chain names; a bad name FAILs with a
+named error). Each group is its own **mesh universe**: the doctor's lane reciprocity reads siblings in the
+same group directory, so a lane declared in one group never satisfies another's reciprocity, and a group's
+git diff is confined to its directory. `make add-lane`, `remove-lane`, `adopt-token`, `snapshot-chain`,
+`doctor`, and `roles-check` all take `GROUP=`. Those are the config-layer make targets; the **deploys**
+have no make wrapper, so a second token's deploy is the first grouped step - a raw `forge script` that
+takes `PROJECT_GROUP=<name>` directly (the same value `GROUP=` threads to the scripts):
+
+```bash
+# token #2 goes in group "usdx"; deploys pass PROJECT_GROUP directly (no make wrapper)
+PROJECT_GROUP=usdx forge script script/deploy/DeployToken.s.sol ... --broadcast --verify
+PROJECT_GROUP=usdx forge script script/deploy/DeployBurnMintTokenPool.s.sol ... --broadcast --verify
+```
+
+**Adding a second token, end to end.** The same steps a first token takes, all under one group, with
+token #1 left untouched (omit `GROUP=`/`PROJECT_GROUP=` and you target the default group, i.e. token #1):
+
+1. Deploy the token and pool under the group (the `forge script` above), or, for an already-deployed
+   token, adopt it: `make adopt-token CHAIN=<chain> TOKEN=<addr> [TOKEN_POOL=<addr>] GROUP=usdx`. Either
+   writes `project/usdx/<chain>.json`.
+2. Declare its lanes: `make add-lane LOCAL=<chain> REMOTE=<remote> CAPACITY=<wei> RATE=<wei> BOTH=1 GROUP=usdx`.
+3. Back up its authority: `make snapshot-chain CHAIN=<chain> GROUP=usdx`.
+4. Verify: `make doctor CHAIN=<chain> GROUP=usdx` and `make roles-check CHAIN=<chain> GROUP=usdx`.
+
+Repeat per chain the token spans. `make doctor` with no `GROUP=` also lists any groups that hold the chain,
+so a routine check never silently skips a grouped token.
+
+What stays **shared** across groups: `config/chains/*.json` (chain facts - one Router/selector per
+physical chain) and the `history/` ledger. History is keyed by selectorName + token symbol + timestamp, so
+co-located tokens in one group never collide; two **same-symbol** tokens in **different** groups still share
+one `history/<category>/<selectorName>/` directory, their append-only entries separated only by timestamp
+(harmless - `history/` is a write-only diary, never read back). Give each token its own group when more than
+one token lives on a chain - it is the durable fix the doctor and the repoint warning point at.
 
 **Canonical form (differs from `config/chains`).** Each store has its own on-disk canonical, and the writers
 emit it directly so a no-op re-write is a zero-diff even on the direct `forge script` path (no `make`):

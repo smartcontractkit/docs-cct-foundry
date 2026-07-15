@@ -6,6 +6,7 @@ import {VmSafe} from "forge-std/Vm.sol";
 import {console} from "forge-std/console.sol";
 import {ChainConfig} from "../src/config/ChainConfig.sol";
 import {RegistryWriter} from "../src/utils/RegistryWriter.sol";
+import {ProjectStore} from "../src/utils/ProjectStore.sol";
 
 /// @notice Network configuration helper. Chain metadata (selectors, CCIP addresses, chain labels)
 /// lives in git-tracked JSON files under `config/chains/` and is read through `ChainConfig` —
@@ -216,9 +217,9 @@ contract HelperConfig is Script {
             role,
             " resolved from env (",
             vm.toString(envVal),
-            ") but project/",
-            selectorName,
-            ".json addresses.active.",
+            ") but ",
+            ProjectStore.display(selectorName),
+            " addresses.active.",
             role,
             " = ",
             storeVal == address(0) ? "(unset)" : vm.toString(storeVal),

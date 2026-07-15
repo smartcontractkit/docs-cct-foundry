@@ -11,6 +11,7 @@ import {PoolVersion} from "../../utils/PoolVersion.s.sol";
 import {PoolVersions} from "../../../src/PoolVersions.sol";
 import {CctActions} from "../../../src/actions/CctActions.sol";
 import {EoaExecutor} from "../../../src/base/EoaExecutor.s.sol";
+import {ProjectStore} from "../../../src/utils/ProjectStore.sol";
 
 /// @notice Applies CCV (Cross-Chain Verifier) configuration to a token pool's AdvancedPoolHooks: the
 ///         four per-lane verifier arrays and/or the pool-global additional-CCV threshold.
@@ -368,15 +369,15 @@ contract UpdateCCVConfig is EoaExecutor, LanePolicySource {
 
     // ── Console logging ─────────────────────────────────────────────────────
 
-    function _logResolution(CCVConfigResolution memory res, bool haveLane) private pure {
+    function _logResolution(CCVConfigResolution memory res, bool haveLane) private view {
         if (res.anyArrayFromLanes) {
             console.log(
                 string.concat(
                     "CCV arrays resolved from lanes.",
                     res.laneKey,
-                    ".v2.ccv in project/",
-                    res.configName,
-                    ".json (undeclared arrays keep the current on-chain values)"
+                    ".v2.ccv in ",
+                    ProjectStore.display(res.configName),
+                    " (undeclared arrays keep the current on-chain values)"
                 )
             );
         }
@@ -420,7 +421,7 @@ contract UpdateCCVConfig is EoaExecutor, LanePolicySource {
 
     // ── Notice / hint composition (byte-exact, pinned in tests) ────────────
 
-    function _composeCcvNotice(CCVConfigResolution memory res, uint256 i) private pure returns (string memory) {
+    function _composeCcvNotice(CCVConfigResolution memory res, uint256 i) private view returns (string memory) {
         return string.concat(
             unicode"⚠️  ",
             _ccvEnvNames()[i],
@@ -432,9 +433,9 @@ contract UpdateCCVConfig is EoaExecutor, LanePolicySource {
             _ccvFieldNames()[i],
             "=",
             _addrArrayToString(res.fields[i].declaredValue),
-            " in project/",
-            res.configName,
-            ".json - make doctor will WARN until reconciled"
+            " in ",
+            ProjectStore.display(res.configName),
+            " - make doctor will WARN until reconciled"
         );
     }
 
@@ -450,7 +451,7 @@ contract UpdateCCVConfig is EoaExecutor, LanePolicySource {
         );
     }
 
-    function _composeCcvEditHint(CCVConfigResolution memory res) private pure returns (string memory) {
+    function _composeCcvEditHint(CCVConfigResolution memory res) private view returns (string memory) {
         string[NUM_CCV_FIELDS] memory fieldNames = _ccvFieldNames();
         string memory values = "";
         for (uint256 i = 0; i < NUM_CCV_FIELDS; i++) {
@@ -462,9 +463,9 @@ contract UpdateCCVConfig is EoaExecutor, LanePolicySource {
             res.blockDeclared ? "diverging from" : "not declared in",
             " lanes.",
             res.laneKey,
-            ".v2.ccv (project/",
-            res.configName,
-            ".json). Hand-edit the block to the applied values: ",
+            ".v2.ccv (",
+            ProjectStore.display(res.configName),
+            "). Hand-edit the block to the applied values: ",
             values,
             " - make doctor CHAIN=",
             res.configName,

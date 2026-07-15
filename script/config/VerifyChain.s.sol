@@ -2,12 +2,13 @@
 pragma solidity 0.8.24;
 
 import {Script} from "forge-std/Script.sol";
-import {Vm} from "forge-std/Vm.sol";
+import {Vm, VmSafe} from "forge-std/Vm.sol";
 import {console} from "forge-std/console.sol";
 
 import {ChainConfig} from "../../src/config/ChainConfig.sol";
 import {CcipApiSource} from "../../src/config/CcipApiSource.sol";
 import {RegistryWriter} from "../../src/utils/RegistryWriter.sol";
+import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 import {PoolVersions} from "../../src/PoolVersions.sol";
 import {PoolVersion, IRateLimitGetterV2} from "../utils/PoolVersion.s.sol";
 import {ITokenPoolV1RateLimiter} from "../utils/RateLimiterUtils.s.sol";
@@ -242,7 +243,7 @@ contract VerifyChain is Script {
     /// whereas `vm.keyExistsJson("{}", …)` correctly returns false — so every downstream lanes/roles key
     /// probe reads an absent store as "no lanes/roles" without a raw parse revert.
     function _readProject(string memory name) private returns (string memory) {
-        string memory p = string.concat("project/", name, ".json");
+        string memory p = ProjectStore.path(name);
         if (!vm.exists(p)) return "{}";
         try probe.readFileFor(p) returns (string memory data) {
             return bytes(data).length == 0 ? "{}" : data;
@@ -259,9 +260,9 @@ contract VerifyChain is Script {
                 string.concat(
                     "schema: config/chains/",
                     name,
-                    ".json still has a lanes{} block - it belongs in project/",
-                    name,
-                    ".json. Delete .lanes here and re-declare with make add-lane"
+                    ".json still has a lanes{} block - it belongs in ",
+                    ProjectStore.display(name),
+                    ". Delete .lanes here and re-declare with make add-lane"
                 )
             );
         }
@@ -270,9 +271,9 @@ contract VerifyChain is Script {
                 string.concat(
                     "schema: config/chains/",
                     name,
-                    ".json still has a roles{} block - it belongs in project/",
-                    name,
-                    ".json. Delete .roles here and re-declare with make snapshot-chain"
+                    ".json still has a roles{} block - it belongs in ",
+                    ProjectStore.display(name),
+                    ". Delete .roles here and re-declare with make snapshot-chain"
                 )
             );
         }
@@ -284,6 +285,12 @@ contract VerifyChain is Script {
             "run with FOUNDRY_PROFILE=sync (enables ffi): FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig \"run(string)\" <name>"
         );
         console.log(string.concat("== check-chain ", name, " =="));
+        string memory grp = ProjectStore.group();
+        if (bytes(grp).length != 0) {
+            console.log(string.concat("== token group ", grp, " =="));
+        } else if (!vm.isContext(VmSafe.ForgeContext.TestGroup)) {
+            _noticeGroupedSiblings(name);
+        }
         probe = new ChainProbe();
 
         _checkTools();
@@ -571,9 +578,9 @@ contract VerifyChain is Script {
         if (token == address(0)) {
             _warn(
                 string.concat(
-                    "registry: no token in project/",
-                    name,
-                    ".json - deploy one (script/deploy/DeployToken.s.sol) or export {CHAIN}_TOKEN"
+                    "registry: no token in ",
+                    ProjectStore.display(name),
+                    " - deploy one (script/deploy/DeployToken.s.sol) or export {CHAIN}_TOKEN"
                 )
             );
         } else if (forked && token.code.length == 0) {
@@ -582,7 +589,9 @@ contract VerifyChain is Script {
             _pass(string.concat("registry: token ", vm.toString(token), forked ? " (has code)" : " (set; no fork)"));
         }
         if (pool == address(0)) {
-            _warn(string.concat("registry: no tokenPool in project/", name, ".json - deploy one before Step 3+"));
+            _warn(
+                string.concat("registry: no tokenPool in ", ProjectStore.display(name), " - deploy one before Step 3+")
+            );
         } else if (forked && pool.code.length == 0) {
             _fail(string.concat("registry: tokenPool ", vm.toString(pool), " has NO code on ", name));
         } else {
@@ -621,10 +630,10 @@ contract VerifyChain is Script {
 
     /// @dev WARN (never FAIL) when `deployments{}` holds more than one token pool while
     /// `active.tokenPool` can only point at one of them: on a multi-token chain the zero-export
-    /// resolution serves that ONE pool for every token. Surfaces the ambiguity with the targeted
-    /// override as the remedy.
+    /// resolution serves that ONE pool for every token. Names a token group as the durable fix (each
+    /// token gets its own store) and the targeted env override as the one-off.
     function _warnMultiPoolAmbiguity(string memory name) private {
-        string memory p = string.concat("project/", name, ".json");
+        string memory p = ProjectStore.path(name);
         if (!vm.exists(p)) return;
         string memory json;
         try probe.readFileFor(p) returns (string memory data) {
@@ -643,7 +652,9 @@ contract VerifyChain is Script {
                 string.concat(
                     "registry: deployments{} holds ",
                     vm.toString(pools),
-                    " token pools but active.tokenPool points at ONE - a no-override run resolves that one for every token; pass {CHAIN}_TOKEN_POOL to target a specific pool (see docs/deployed-addresses.md)"
+                    " token pools but active.tokenPool points at ONE - a no-override run resolves that one for every token. Give each token its own group (the durable fix): GROUP=<g> make adopt-token CHAIN=", // durable fix
+                    name,
+                    " TOKEN=<addr> TOKEN_POOL=<addr>; or for a one-off, pass {CHAIN}_TOKEN_POOL to target a specific pool (see docs/deployed-addresses.md)"
                 )
             );
         }
@@ -863,6 +874,74 @@ contract VerifyChain is Script {
         }
     }
 
+    /// @dev In the default (ungrouped) run, list any token groups that also hold this chain, so a
+    /// routine check does not silently skip a grouped token. Fires only when `project/<g>/<name>.json`
+    /// exists in some group directory; a single-group clone (no group dirs) prints nothing, so the
+    /// one-token output is unchanged.
+    function _noticeGroupedSiblings(string memory name) private {
+        string memory groups = _groupedSiblings(name);
+        if (bytes(groups).length != 0) {
+            console.log(
+                string.concat(
+                    "[doctor] note: ",
+                    name,
+                    " also has token group(s): ",
+                    groups,
+                    " - check each with make doctor CHAIN=",
+                    name,
+                    " GROUP=<g>"
+                )
+            );
+        }
+    }
+
+    /// @dev Comma-joined names of the token groups whose directory holds `project/<g>/<name>.json`
+    /// ("" when none). Reads the `project` directory; a group dir removed mid-scan is skipped. Scratch
+    /// (`zz-scratch-*`) and local (`local-*`) directories are skipped so a leaked scratch dir, invisible
+    /// to `git status`, never surfaces as a bogus notice.
+    function _groupedSiblings(string memory name) private view returns (string memory groups) {
+        if (!vm.exists("project")) return "";
+        Vm.DirEntry[] memory entries = vm.readDir("project");
+        for (uint256 i = 0; i < entries.length; i++) {
+            if (!entries[i].isDir) continue;
+            string memory g = _lastSegment(entries[i].path);
+            if (_hasPrefix(g, "zz-scratch-") || _hasPrefix(g, "local-")) continue;
+            if (!vm.exists(string.concat(entries[i].path, "/", name, ".json"))) continue;
+            groups = bytes(groups).length == 0 ? g : string.concat(groups, ", ", g);
+        }
+    }
+
+    /// @dev True when `s` starts with `prefix`.
+    function _hasPrefix(string memory s, string memory prefix) private pure returns (bool) {
+        bytes memory b = bytes(s);
+        bytes memory p = bytes(prefix);
+        if (p.length > b.length) return false;
+        for (uint256 i = 0; i < p.length; i++) {
+            if (b[i] != p[i]) return false;
+        }
+        return true;
+    }
+
+    /// @notice Test hook: the grouped-sibling list the ungrouped doctor notices for `name` (see
+    /// `_noticeGroupedSiblings`). Lets a test assert group detection without a full doctor run.
+    function groupedSiblingsForTest(string memory name) public view returns (string memory) {
+        return _groupedSiblings(name);
+    }
+
+    /// @dev The last "/"-separated segment of a path ("/a/b/usdx" -> "usdx").
+    function _lastSegment(string memory p) private pure returns (string memory) {
+        bytes memory b = bytes(p);
+        uint256 start = 0;
+        for (uint256 i = 0; i < b.length; i++) {
+            if (b[i] == "/") start = i + 1;
+        }
+        bytes memory out = new bytes(b.length - start);
+        for (uint256 i = 0; i < out.length; i++) {
+            out[i] = b[start + i];
+        }
+        return string(out);
+    }
+
     /// @dev "config/chains/ethereum-testnet-sepolia.json" -> "ethereum-testnet-sepolia" (empty for
     /// non-.json entries). Mirrors `SyncCcipConfig._jsonBasename`.
     function _jsonBasename(string memory filePath) private pure returns (string memory) {
@@ -1043,9 +1122,9 @@ contract VerifyChain is Script {
         if (pool == address(0)) {
             _skip(
                 string.concat(
-                    "lanes: no tokenPool in project/",
-                    name,
-                    ".json - nothing to reconcile on-chain (make adopt-token CHAIN=",
+                    "lanes: no tokenPool in ",
+                    ProjectStore.display(name),
+                    " - nothing to reconcile on-chain (make adopt-token CHAIN=",
                     name,
                     " TOKEN=<addr> TOKEN_POOL=<addr>, or deploy one: script/deploy/DeployBurnMintTokenPool.s.sol)"
                 )

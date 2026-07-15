@@ -61,7 +61,14 @@ contract SnapshotChain is Script {
 
         string memory rolesJson = (new RolesSnapshot()).build(name, configJson, projectJson);
         vm.writeJson(rolesJson, projectPath, ".roles");
-        console.log(string.concat("[snapshot] wrote .roles block for ", name, " -> project/", name, ".json"));
-        console.log(string.concat("[snapshot] reconcile any time with: make roles-check CHAIN=", name));
+        console.log(string.concat("[snapshot] wrote .roles block for ", name, " -> ", ProjectStore.display(name)));
+        string memory grp = ProjectStore.group();
+        console.log(
+            string.concat(
+                "[snapshot] reconcile any time with: make roles-check CHAIN=",
+                name,
+                bytes(grp).length != 0 ? string.concat(" GROUP=", grp) : ""
+            )
+        );
     }
 }

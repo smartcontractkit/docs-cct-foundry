@@ -6,6 +6,7 @@ import {console} from "forge-std/console.sol";
 
 import {RolesProbes} from "./RolesProbes.sol";
 import {RegistryWriter} from "../utils/RegistryWriter.sol";
+import {ProjectStore} from "../utils/ProjectStore.sol";
 
 /// @title RolesSnapshot
 /// @notice Builds the `roles{}` subtree of `project/<selectorName>.json` FROM the live chain (the active
@@ -81,8 +82,11 @@ contract RolesSnapshot {
         if (token == address(0)) token = RegistryWriter.read(name, "token");
         require(
             token != address(0),
-            "[snapshot] no token to snapshot: declare roles.token.address, set TOKEN=<addr>, or deploy first "
-            "(project/<selectorName>.json addresses.active.token)"
+            string.concat(
+                "[snapshot] no token to snapshot: declare roles.token.address, set TOKEN=<addr>, or deploy first (",
+                ProjectStore.display(name),
+                " addresses.active.token)"
+            )
         );
         if (VM.keyExistsJson(json, ".roles.pool.address")) {
             pool = VM.parseJsonAddress(json, ".roles.pool.address");
@@ -91,8 +95,11 @@ contract RolesSnapshot {
         if (pool == address(0)) pool = RegistryWriter.read(name, "tokenPool");
         require(
             pool != address(0),
-            "[snapshot] no pool to snapshot: declare roles.pool.address, set TOKEN_POOL=<addr>, or deploy first "
-            "(project/<selectorName>.json addresses.active.tokenPool)"
+            string.concat(
+                "[snapshot] no pool to snapshot: declare roles.pool.address, set TOKEN_POOL=<addr>, or deploy first (",
+                ProjectStore.display(name),
+                " addresses.active.tokenPool)"
+            )
         );
     }
 

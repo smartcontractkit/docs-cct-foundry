@@ -87,6 +87,17 @@ library ProjectScratch {
         if (VM.exists(p)) VM.removeFile(p);
     }
 
+    /// @notice Directory-shaped cleanup for a token-group subtree `project/<group>/` (revert-safe; call
+    /// from setUp()). A grouped project file lives at `project/<group>/<selectorName>.json`; the whole
+    /// `zz-scratch-*` group directory is gitignored (`project/zz-scratch-*/`), so a leaked dir from a
+    /// mid-test revert is invisible to `git status` yet would poison a later "no stray group dir"
+    /// assertion — the same HARD setUp() rule as the flat store. Removes the group directory and
+    /// everything under it.
+    function cleanGroupDir(string memory group) internal {
+        string memory d = string.concat(VM.projectRoot(), "/project/", group);
+        if (VM.exists(d)) VM.removeDir(d, true);
+    }
+
     /// @notice Directory-shaped cleanup for the append-only `history/<category>/<selectorName>/` ledger:
     /// removes the per-artifact scratch directory under EVERY category (revert-safe; call from setUp()).
     /// The ledger dirs are gitignored (`history/`), so a leaked scratch dir from a mid-test revert is

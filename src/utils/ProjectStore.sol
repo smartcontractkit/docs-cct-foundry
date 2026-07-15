@@ -5,11 +5,16 @@ import {Vm} from "forge-std/Vm.sol";
 
 /// @title ProjectStore
 /// @notice Path, skeleton, and schema helpers for the per-chain **project-state store**
-/// `project/<selectorName>.json` — the single home for a chain's project state, three subtrees
-/// (`addresses{}`, `lanes{}`, `roles{}`) plus a `schema` version, one writer each. The store keys by
-/// the canonical CCIP **selectorName**, identical to `config/chains/<selectorName>.json` and
+/// `project/[<group>/]<selectorName>.json` — the single home for a chain's project state, three
+/// subtrees (`addresses{}`, `lanes{}`, `roles{}`) plus a `schema` version, one writer each. The store
+/// keys by the canonical CCIP **selectorName**, identical to `config/chains/<selectorName>.json` and
 /// `history/<category>/<selectorName>/`, so the three files for a chain share one basename and
 /// non-EVM chains (which all report chainId `"0"`) never collide.
+///
+/// @dev **Token group (optional path segment).** `PROJECT_GROUP` (the `GROUP=` make var) selects one of
+/// N token groups in a clone: the file moves to `project/<group>/<selectorName>.json`, its own mesh
+/// universe. Unset is the default group — the flat `project/<selectorName>.json`. The name is validated
+/// `[a-z0-9][a-z0-9-]*`. All path composition goes through {group}, {path}, and {display}.
 ///
 /// @dev **Canonical form (project/ files): forge `vm.writeJson`'s deterministic output — keys
 /// serialized in SORTED order at every nesting level, 2-space indent, and NO trailing newline.**
@@ -36,9 +41,74 @@ library ProjectStore {
     string internal constant SKELETON =
         "{\"addresses\":{\"active\":{},\"deployments\":{}},\"lanes\":{},\"roles\":{},\"schema\":3}";
 
-    /// @notice `project/<selectorName>.json` under the project root.
+    /// @notice The selected token group: `PROJECT_GROUP` (empty = the flat default group), validated
+    /// `[a-z0-9][a-z0-9-]*`. Reads the env only — never `vm.setEnv` — so it is parallel-safe. Tests that
+    /// need a specific group without touching process env pass it explicitly to {pathIn}/{displayIn}.
+    function group() internal view returns (string memory) {
+        string memory g = VM.envOr("PROJECT_GROUP", string(""));
+        requireValidGroup(g);
+        return g;
+    }
+
+    /// @notice Reverts with a named error unless `g` is empty (the flat default) or matches
+    /// `[a-z0-9][a-z0-9-]*`. Rejecting `.`, `/`, and `..` also keeps path traversal off the filesystem.
+    /// `default` is reserved (it is the label for the flat/unnamed group).
+    function requireValidGroup(string memory g) internal pure {
+        bytes memory b = bytes(g);
+        if (b.length == 0) return; // unset = flat default group
+        require(
+            keccak256(b) != keccak256("default"),
+            "[project] PROJECT_GROUP 'default' is reserved for the flat (unnamed) group - choose another name"
+        );
+        bool valid = _isLowerAlnum(b[0]);
+        for (uint256 i = 1; valid && i < b.length; i++) {
+            valid = _isLowerAlnum(b[i]) || b[i] == "-";
+        }
+        require(
+            valid,
+            string.concat(
+                "[project] PROJECT_GROUP '",
+                g,
+                "' is not a valid token-group name - use [a-z0-9][a-z0-9-]* (lowercase letters, digits, and hyphens; first character not a hyphen)"
+            )
+        );
+    }
+
+    function _isLowerAlnum(bytes1 c) private pure returns (bool) {
+        return (c >= "a" && c <= "z") || (c >= "0" && c <= "9");
+    }
+
+    /// @dev The store-root-relative path for `selectorName` in group `g` (`g` empty = flat default).
+    /// Validates the group so no caller (including a direct `pathIn`/`seedIfAbsentIn` test seam) can
+    /// compose a traversal path outside `project/`.
+    function relIn(string memory g, string memory selectorName) internal pure returns (string memory) {
+        requireValidGroup(g);
+        if (bytes(g).length == 0) return string.concat("project/", selectorName, ".json");
+        return string.concat("project/", g, "/", selectorName, ".json");
+    }
+
+    /// @notice The absolute `project/[<group>/]<selectorName>.json` path in group `g` under the project
+    /// root — the in-process test seam (pass the group explicitly, no env).
+    function pathIn(string memory g, string memory selectorName) internal view returns (string memory) {
+        return string.concat(VM.projectRoot(), "/", relIn(g, selectorName));
+    }
+
+    /// @notice The user-facing (root-relative) `project/[<group>/]<selectorName>.json` string in group
+    /// `g` — for console/log messages that name the file.
+    function displayIn(string memory g, string memory selectorName) internal pure returns (string memory) {
+        return relIn(g, selectorName);
+    }
+
+    /// @notice The absolute `project/[<group>/]<selectorName>.json` path under the project root, in the
+    /// group selected by `PROJECT_GROUP` (flat default when unset).
     function path(string memory selectorName) internal view returns (string memory) {
-        return string.concat(VM.projectRoot(), "/project/", selectorName, ".json");
+        return pathIn(group(), selectorName);
+    }
+
+    /// @notice The root-relative `project/[<group>/]<selectorName>.json` for `PROJECT_GROUP` — the one
+    /// form every console/log message uses to name the file (byte-identical to the flat path when unset).
+    function display(string memory selectorName) internal view returns (string memory) {
+        return displayIn(group(), selectorName);
     }
 
     /// @notice Bootstrap `project/<selectorName>.json` with the full skeleton when it does not yet
@@ -49,10 +119,22 @@ library ProjectStore {
     /// byte-identical (never re-seeded over populated subtrees). Uses the 2-arg `vm.writeJson` create
     /// form — never `vm.writeFile` — and only when absent, so it can never clobber a sibling subtree.
     function seedIfAbsent(string memory selectorName) internal {
-        string memory p = path(selectorName);
+        seedIfAbsentIn(group(), selectorName);
+    }
+
+    /// @notice {seedIfAbsent} for an explicit group `g` — the in-process test seam (no env). Production
+    /// callers use {seedIfAbsent}, which resolves the group from `PROJECT_GROUP`.
+    function seedIfAbsentIn(string memory g, string memory selectorName) internal {
+        string memory p = pathIn(g, selectorName);
         if (VM.exists(p)) {
-            requireSchema(selectorName);
+            requireSchemaIn(g, selectorName);
             return;
+        }
+        // A grouped file needs its `project/<group>/` directory created first; the flat default writes
+        // into the committed `project/` directory.
+        if (bytes(g).length != 0) {
+            string memory dir = string.concat(VM.projectRoot(), "/project/", g);
+            if (!VM.exists(dir)) VM.createDir(dir, true);
         }
         VM.writeJson(SKELETON, p);
     }
@@ -64,7 +146,12 @@ library ProjectStore {
     /// `RegistryWriter.read*` stays tolerant (returns empty, never reverts) so an eager
     /// `HelperConfig` construction racing a parallel test's scratch file is never crashed.
     function requireSchema(string memory selectorName) internal view {
-        string memory p = path(selectorName);
+        requireSchemaIn(group(), selectorName);
+    }
+
+    /// @notice {requireSchema} for an explicit group `g` — the in-process test seam (no env).
+    function requireSchemaIn(string memory g, string memory selectorName) internal view {
+        string memory p = pathIn(g, selectorName);
         if (!VM.exists(p)) return; // absent is a seed case, not a schema error
         string memory json = VM.readFile(p);
         require(bytes(json).length != 0, string.concat("[project] ", p, " is empty - not valid JSON; fix or delete it"));

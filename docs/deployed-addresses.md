@@ -38,7 +38,7 @@ Two terms, kept distinct throughout these docs:
 | Env vars (`{CHAIN}_TOKEN`, `TOKEN`, …) | **Override (READ-ONLY)** | Win over `addresses.active.<role>` at resolution time only                                                                                                          |
 | Run-time divergence notice             | **Warner**               | When an env override differs from `active.<role>`, a broadcasting script prints both values + the exact `make adopt-token …` to reconcile                           |
 | `make doctor` TAR rung                 | **Warner**               | Compares `active.tokenPool` against the on-chain TokenAdminRegistry and WARNs on divergence                                                                         |
-| `make doctor` registry rung            | **Warner**               | WARNs when `deployments{}` holds more than one token pool while `active.tokenPool` points at one (the multi-token ambiguity), naming the `{CHAIN}_TOKEN_POOL` targeted override |
+| `make doctor` registry rung            | **Warner**               | WARNs when `deployments{}` holds more than one token pool while `active.tokenPool` points at one (the multi-token ambiguity), naming a token `GROUP=<g>` as the durable fix and the `{CHAIN}_TOKEN_POOL` override as the one-off |
 | `make doctor` roles rung               | **Warner**               | WARNs when a `roles.token/pool.address` anchor diverges from `addresses.active.<role>` (a repoint after the snapshot) - re-anchor with `make snapshot-chain`        |
 
 **Env overrides are READ-ONLY inputs: an env-driven run never writes the store.** An override changes only
@@ -126,18 +126,32 @@ gitignores `project/` (see [Tracking rule](#tracking-rule-template-vs-fork)).
 
 1. **Inline alias** - `TOKEN` / `TOKEN_POOL` / `LOCK_BOX` / `POOL_HOOKS` (chain-agnostic, highest priority)
 2. **Chain-scoped env** - `{CHAIN}_TOKEN`, `{CHAIN}_LOCK_BOX`, … (e.g. `ETHEREUM_SEPOLIA_LOCK_BOX`)
-3. **Registry** - `project/<selectorName>.json` → `addresses.active.<role>`
+3. **Registry** - `project/[<group>/]<selectorName>.json` → `addresses.active.<role>`
 4. Otherwise `address(0)`
 
 Non-EVM roles resolve through the string-typed getters (`getDeployedTokenString` /
 `getDeployedTokenPoolString`, chain-scoped env > store), because base58 does not fit an `address`.
 
-**Single-valued limit (be honest about it).** `active.<role>` holds exactly one address per role, and the
-zero-export getters read only `active` (never `deployments`). Deploy two tokens/pools for the same chain and
-`active.tokenPool` points at the **last** one deployed; the zero-export path then resolves that same pool for
-both tokens. This is a limit of the _resolution_ layer, not the _storage_ layer - both artifacts are still
-distinct entries under `deployments`. To target the earlier one, pass it explicitly via an inline alias or a
-`{CHAIN}_` env var, or read its `deployments.<name>` entry.
+**Single-valued limit, and the durable fix (token groups).** `active.<role>` holds exactly one address per
+role, and the zero-export getters read only `active` (never `deployments`). Deploy two tokens/pools for the
+same chain in **one** group and `active.tokenPool` points at the **last** one deployed; the zero-export path
+then resolves that same pool for both tokens. This is a limit of the _resolution_ layer, not the _storage_
+layer - both artifacts are still distinct entries under `deployments`.
+
+The durable fix is to give each token its own **token group**: run the second token's commands under
+`GROUP=<name>` so its state lives in `project/<name>/<selectorName>.json`, isolated from the first token's
+default-group file. The config-layer commands take `GROUP=<name>`; the second token's **deploy** is a raw
+`forge script` with no make wrapper, so it is the first grouped step and takes `PROJECT_GROUP=<name>`
+directly (e.g. `PROJECT_GROUP=<name> forge script script/deploy/DeployToken.s.sol ...`, the pool deploy
+likewise). Each group has its own single-valued `active.<role>`, so there is no contention (see
+[`config-schema.md`](config-schema.md#the-project-store---projectselectornamejson)). For a one-off against
+the earlier artifact within a group, pass it explicitly via an inline alias or a `{CHAIN}_` env var, or read
+its `deployments.<name>` entry.
+
+**Env overrides are group-agnostic.** Steps 1-2 of the ladder sit **above** the group-scoped registry, so an
+exported `{CHAIN}_TOKEN` / inline `TOKEN=` wins over **every** group's `active.<role>` at once. With two
+groups live, an override set for one group also resolves into the other - unset it between groups so a
+group-specific override never cross-contaminates.
 
 ## The doctor's TAR reconciliation rung
 
@@ -178,13 +192,6 @@ stores are governed differently by design:
 [`config-schema.md`](config-schema.md) for the per-store canonical JSON form (`project/` files carry no
 trailing newline; `config/chains` files do).
 
-## One format note (unchanged by this work)
-
-The hooks **history** filename carries no symbol or pool type - it is
-`history/advanced-pool-hooks/<selectorName>/<timestamp>-AdvancedPoolHooks.json`. The hooks **registry** key
-is finer-grained (`{symbol}_{poolType}_PoolHooks`). This asymmetry is pre-existing; the per-file history
-format is byte-for-byte the pre-move format, only the directory is re-keyed by selectorName.
-
 ## Related
 
 - [`config-schema.md`](config-schema.md) - the project store schema (all three subtrees) and the
@@ -193,5 +200,3 @@ format is byte-for-byte the pre-move format, only the directory is re-keyed by s
   tooling.
 - [README → Project store](../README.md#project-store--projectselectornamejson-the-default)
   and [README → Sharing addresses with your team](../README.md#sharing-addresses-with-your-team).
-  </content>
-  </invoke>

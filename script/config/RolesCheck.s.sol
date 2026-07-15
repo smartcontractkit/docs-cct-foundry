@@ -33,9 +33,14 @@ contract RolesCheck is Script {
         ProjectStore.requireSchema(name); // named error on a wrong-schema/corrupt project file
         string memory projectPath = ProjectStore.path(name);
         if (!vm.exists(projectPath) || !vm.keyExistsJson(vm.readFile(projectPath), ".roles.token")) {
+            string memory grp = ProjectStore.group();
             console.log(
                 string.concat(
-                    "[roles-check] NO_ROLES_DECLARED for ", name, " - bootstrap with: make snapshot-chain CHAIN=", name
+                    "[roles-check] NO_ROLES_DECLARED for ",
+                    name,
+                    " - bootstrap with: make snapshot-chain CHAIN=",
+                    name,
+                    bytes(grp).length != 0 ? string.concat(" GROUP=", grp) : ""
                 )
             );
             return;

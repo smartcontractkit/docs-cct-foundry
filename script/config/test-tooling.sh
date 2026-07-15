@@ -33,6 +33,16 @@ SEPOLIA_SELECTOR="16015286601757825753"
 FUJI_CHAIN="avalanche-testnet-fuji"
 FUJI_FILE="config/chains/${FUJI_CHAIN}.json"
 FUJI_SELECTOR="14767482510784806043"
+# Token groups: PROJECT_GROUP moves a chain's project file to
+# project/<group>/<selectorName>.json. The env-driven group() is exercised here (a real GROUP=<g> make
+# subprocess) since the in-process forge seam cannot set PROJECT_GROUP. Two gitignored scratch group
+# DIRECTORIES (project/zz-scratch-*/), the two roles-check group dirs (project/zz-tt-ga, project/zz-tt-gb), and a
+# non-EVM scratch chain for the base58 adopt path — all listed in cleanup() FIRST so a mid-test revert
+# never strands a group dir (invisible to git status, would poison a later group scan).
+GRP_X="zz-scratch-grp-x"
+GRP_Y="zz-scratch-grp-y"
+SVM_CHAIN="zz-scratch-svm-grp"
+SVM_FILE="config/chains/${SVM_CHAIN}.json"
 pass=0
 fail=0
 declare -a failures=()
@@ -40,7 +50,9 @@ server_pid=""
 server_dir=""
 
 cleanup() {
-    rm -f "$TMP_FILE" "$TMP_FILE_B" "$FUJI_FILE" "$PROJECT_FILE" "$PROJECT_FILE_B"
+    rm -f "$TMP_FILE" "$TMP_FILE_B" "$FUJI_FILE" "$PROJECT_FILE" "$PROJECT_FILE_B" "$SVM_FILE"
+    # Glob both scratch group-dir classes so a mid-test revert never strands one (invisible to git status).
+    rm -rf project/zz-scratch-*/ project/zz-tt-*/ "project/$GRP_X" "project/$GRP_Y" "project/$SVM_CHAIN.json"
     [ -n "$server_pid" ] && kill "$server_pid" 2> /dev/null
     [ -n "$server_dir" ] && rm -rf "$server_dir"
 }
@@ -372,6 +384,28 @@ cp config/chains/ethereum-testnet-sepolia.json "$TMP_FILE"
 run_case "fixture sync-check: clean against the fixture server" zero "CLEAN" -- \
     env CCIP_API_BASE="http://127.0.0.1:$port" bash script/config/sync-check.sh "$TMP_CHAIN"
 rm -f "$TMP_FILE"
+
+# 13b. group isolation of sync: `make sync` refreshes only config/chains/<chain>.json (chain facts) and
+#      NEVER touches any group's project file. Plant a project/<group>/<chain>.json, run the fixture
+#      sync, and assert the group file is byte-identical (the project-untouched shasum gate, extended to
+#      project/*/*.json).
+cp config/chains/ethereum-testnet-sepolia.json "$TMP_FILE"
+mkdir -p "project/$GRP_X"
+printf '{"addresses":{"active":{"token":"0x1111111111111111111111111111111111111111"},"deployments":{}},"lanes":{},"roles":{},"schema":3}' > "project/$GRP_X/$TMP_CHAIN.json"
+grp_before="$(shasum "project/$GRP_X/$TMP_CHAIN.json")"
+CCIP_API_BASE="http://127.0.0.1:$port" FOUNDRY_PROFILE=sync \
+    forge script script/config/SyncCcipConfig.s.sol --sig "run(string)" "$TMP_CHAIN" > /dev/null 2>&1
+grp_after="$(shasum "project/$GRP_X/$TMP_CHAIN.json")"
+if [ "$grp_before" = "$grp_after" ]; then
+    pass=$((pass + 1))
+    echo "[PASS] sync leaves project/$GRP_X/$TMP_CHAIN.json byte-identical (sync never touches a group's project file)"
+else
+    fail=$((fail + 1))
+    failures+=("sync group-file isolation")
+    echo "[FAIL] sync mutated the group project file project/$GRP_X/$TMP_CHAIN.json"
+fi
+rm -f "$TMP_FILE"
+rm -rf "project/$GRP_X"
 
 # ---------------------------------------------------------------- check-chain doctor
 
@@ -762,6 +796,255 @@ else
     echo "[PASS] adopt-token on an unknown chain is refused with the add-chain hint"
 fi
 
+# ---------------------------------------------------------------- token groups
+#
+# The ENV path the in-process forge seam (test/config/TokenGroups.t.sol) cannot drive: a real
+# `GROUP=<g> make` subprocess owns its own PROJECT_GROUP, so these cases prove the env-driven group()
+# end to end - grouped first-touch seed, cross-group byte isolation, per-group reciprocity, repoint-warn
+# extinction, name validation, the base58 adopt path, roles-check group iteration, and doctor scoping.
+
+if offline_enabled; then
+    # Two scratch EVM chains (sepolia copies with distinct selectors) reused across the group cases.
+    seed_group_pair() {
+        rm -f "$TMP_FILE" "$TMP_FILE_B" "$PROJECT_FILE" "$PROJECT_FILE_B"
+        rm -rf "project/$GRP_X" "project/$GRP_Y"
+        python3 -c "
+import json
+d = json.load(open('config/chains/ethereum-testnet-sepolia.json'))
+for name, cid, sel in [('$TMP_CHAIN','990001','9900010000000000001'),
+                       ('$TMP_CHAIN_B','990002','9900020000000000002')]:
+    d2 = dict(d); d2['name'] = name; d2['chainId'] = cid; d2['chainSelector'] = sel
+    d2['chainNameIdentifier'] = name.upper().replace('-', '_'); d2['rpcEnv'] = d2['chainNameIdentifier'] + '_RPC_URL'
+    json.dump(d2, open('config/chains/%s.json' % name, 'w'), indent=2, sort_keys=True)
+"
+    }
+
+    # G1. first-touch GROUP= add-lane seeds project/<group>/<local>.json (exit 0, canonical: schema 3,
+    #     NO trailing newline) with the flat project/<local>.json UNTOUCHED (absent). Then a GROUP-less
+    #     add-lane of the same pair produces a flat file BYTE-IDENTICAL to the grouped one - proving the
+    #     group is a pure path segment, the data unchanged (the flat-default byte-equivalence guarantee).
+    seed_group_pair
+    GROUP_FILE_X="project/$GRP_X/$TMP_CHAIN.json"
+    out="$(make add-lane LOCAL="$TMP_CHAIN" REMOTE="$TMP_CHAIN_B" CAPACITY=1000 RATE=10 GROUP="$GRP_X" 2>&1)"
+    status=$?
+    if [ $status -eq 0 ] &&
+        echo "$out" | grep -q "wrote lane $TMP_CHAIN -> $TMP_CHAIN_B" &&
+        [ -f "$GROUP_FILE_X" ] && [ ! -f "$PROJECT_FILE" ] &&
+        [ "$(jq -r '.schema' "$GROUP_FILE_X")" = "3" ] &&
+        [ "$(tail -c1 "$GROUP_FILE_X" | xxd -p)" != "0a" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] group add-lane first-touch seeds project/$GRP_X/$TMP_CHAIN.json (canonical), flat file untouched"
+    else
+        fail=$((fail + 1))
+        failures+=("group first-touch seed")
+        echo "[FAIL] group first-touch seed (exit=$status, grouped=$([ -f "$GROUP_FILE_X" ] && echo yes) flat=$([ -f "$PROJECT_FILE" ] && echo present))"
+        echo "$out" | tail -6 | sed 's/^/       | /'
+    fi
+    make add-lane LOCAL="$TMP_CHAIN" REMOTE="$TMP_CHAIN_B" CAPACITY=1000 RATE=10 > /dev/null 2>&1 # GROUP-less flat
+    if cmp -s "$PROJECT_FILE" "$GROUP_FILE_X"; then
+        pass=$((pass + 1))
+        echo "[PASS] flat-default byte-equivalence: flat project file == grouped file (group is a pure path segment)"
+    else
+        fail=$((fail + 1))
+        failures+=("flat-vs-grouped byte-equivalence")
+        echo "[FAIL] flat project file differs from the grouped file (group changed the data, not just the path)"
+    fi
+
+    # G2. cross-group byte isolation: with GRP_X populated, an add-lane under GRP_Y writes only the GRP_Y
+    #     file; GRP_X's file is byte-identical (shasum unchanged). Separate mesh universes.
+    before="$(shasum "$GROUP_FILE_X")"
+    make add-lane LOCAL="$TMP_CHAIN" REMOTE="$TMP_CHAIN_B" CAPACITY=5 RATE=5 GROUP="$GRP_Y" > /dev/null 2>&1
+    after="$(shasum "$GROUP_FILE_X")"
+    if [ "$before" = "$after" ] && [ -f "project/$GRP_Y/$TMP_CHAIN.json" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] cross-group isolation: writing group $GRP_Y left group $GRP_X byte-identical"
+    else
+        fail=$((fail + 1))
+        failures+=("cross-group isolation")
+        echo "[FAIL] cross-group isolation: group $GRP_X changed when group $GRP_Y was written"
+    fi
+
+    # G3. per-group reciprocity: a one-sided lane in GRP_X FAILs the doctor (naming both chains); adding
+    #     the reciprocal in a DIFFERENT group (GRP_Y) does NOT satisfy it - reciprocity is per-group.
+    seed_group_pair
+    make add-lane LOCAL="$TMP_CHAIN" REMOTE="$TMP_CHAIN_B" CAPACITY=1000 RATE=10 GROUP="$GRP_X" > /dev/null 2>&1
+    make add-lane LOCAL="$TMP_CHAIN_B" REMOTE="$TMP_CHAIN" CAPACITY=1000 RATE=10 GROUP="$GRP_Y" > /dev/null 2>&1 # reciprocal in the WRONG group
+    run_case "doctor per-group reciprocity FAILs a lane reciprocated only in another group" nonzero \
+        "one-sided lane $TMP_CHAIN -> $TMP_CHAIN_B" -- \
+        env FOUNDRY_PROFILE=sync PROJECT_GROUP="$GRP_X" \
+        forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN"
+
+    # G4. verdict equivalence: the SAME store content flat vs in a group yields identical FAIL/WARN
+    #     tallies (the group changes only the file location, never the doctor's verdict).
+    seed_group_pair
+    make add-lane LOCAL="$TMP_CHAIN" REMOTE="$TMP_CHAIN_B" CAPACITY=1000 RATE=10 BOTH=1 > /dev/null 2>&1            # flat, reciprocated
+    make add-lane LOCAL="$TMP_CHAIN" REMOTE="$TMP_CHAIN_B" CAPACITY=1000 RATE=10 BOTH=1 GROUP="$GRP_X" > /dev/null 2>&1 # same, grouped
+    flat_verdict="$(FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN" 2>&1 | grep -oE "[0-9]+ FAIL, [0-9]+ WARN" | tail -1)"
+    grp_out="$(FOUNDRY_PROFILE=sync PROJECT_GROUP="$GRP_X" forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN" 2>&1)"
+    grp_verdict="$(echo "$grp_out" | grep -oE "[0-9]+ FAIL, [0-9]+ WARN" | tail -1)"
+    # Non-vacuous: the grouped run must have read the GROUPED file (not silently the flat one), so the
+    # tally match is between two runs that genuinely resolved different paths.
+    if [ -n "$flat_verdict" ] && [ "$flat_verdict" = "$grp_verdict" ] && echo "$grp_out" | grep -q "project/$GRP_X/$TMP_CHAIN.json"; then
+        pass=$((pass + 1))
+        echo "[PASS] doctor verdict equivalence flat vs grouped ($flat_verdict) - same tree, same tallies, grouped read its own file"
+    else
+        fail=$((fail + 1))
+        failures+=("doctor verdict equivalence")
+        echo "[FAIL] doctor verdict flat='$flat_verdict' != grouped='$grp_verdict'"
+    fi
+
+    # G5. doctor group-scoping: each run reads ONLY its own group's project file. A CORRUPT
+    #     (wrong-schema) sibling file in GRP_Y does NOT poison the GRP_X run (still 0 FAIL - the project
+    #     store is an OPTIONAL, tolerant read), and the GRP_X run names its OWN group path, never the
+    #     sibling's. The GRP_Y run in turn names GRP_Y's path - the scoping is real, not accidental.
+    mkdir -p "project/$GRP_Y"
+    printf '{"addresses":{"active":{},"deployments":{}},"lanes":{},"roles":{},"schema":999}' > "project/$GRP_Y/$TMP_CHAIN.json"
+    out="$(FOUNDRY_PROFILE=sync PROJECT_GROUP="$GRP_X" forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN" 2>&1)"
+    status=$?
+    if [ $status -eq 0 ] && echo "$out" | grep -q "0 FAIL" &&
+        echo "$out" | grep -q "project/$GRP_X/$TMP_CHAIN.json" &&
+        ! echo "$out" | grep -q "project/$GRP_Y/"; then
+        pass=$((pass + 1))
+        echo "[PASS] doctor GROUP=$GRP_X scoped to its own file, unpoisoned by the corrupt sibling group"
+    else
+        fail=$((fail + 1))
+        failures+=("doctor group scoping (GRP_X)")
+        echo "[FAIL] doctor GROUP=$GRP_X scoping (exit=$status; read the sibling group or FAILed)"
+        echo "$out" | tail -6 | sed 's/^/       | /'
+    fi
+    run_case "doctor GROUP=$GRP_Y reads its OWN group file (scoping is real)" zero \
+        "project/$GRP_Y/$TMP_CHAIN.json" -- \
+        env FOUNDRY_PROFILE=sync PROJECT_GROUP="$GRP_Y" \
+        forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN"
+
+    # G5b. the UNGROUPED doctor NOTICES a chain that also lives in a (visible, non-scratch) token group,
+    #      so a routine no-GROUP check does not silently skip it; the grouped run itself prints no notice.
+    #      A zz-scratch-* group would be skipped (leaked-scratch class), so a zz-tt-* group is used.
+    mkdir -p project/zz-tt-ga
+    printf '{"addresses":{"active":{},"deployments":{}},"lanes":{},"roles":{},"schema":3}' > "project/zz-tt-ga/$TMP_CHAIN.json"
+    ungrouped="$(FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN" 2>&1)"
+    grouped="$(FOUNDRY_PROFILE=sync PROJECT_GROUP=zz-tt-ga forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN" 2>&1)"
+    if echo "$ungrouped" | grep -q "also has token group(s): zz-tt-ga" &&
+        ! echo "$grouped" | grep -q "also has token group(s)"; then
+        pass=$((pass + 1))
+        echo "[PASS] ungrouped doctor notices the grouped sibling; the grouped run does not"
+    else
+        fail=$((fail + 1))
+        failures+=("doctor grouped-sibling notice")
+        echo "[FAIL] doctor grouped-sibling notice (ungrouped missing it, or grouped printed it)"
+        echo "$ungrouped" | grep -i "token group" | sed 's/^/       | /'
+    fi
+    rm -rf project/zz-tt-ga
+
+    # G6. invalid PROJECT_GROUP on a READ path is a NAMED error, nonzero - never a silent seed. (The
+    #     GROUP= make var routes to PROJECT_GROUP; a name with a space breaks make word-splitting before
+    #     validation, so the invalid names here are single shell words that reach the validator.)
+    for badg in "Bad" "a_b" "-x" "a/b" ".." "."; do
+        run_case "make doctor GROUP=$badg is refused with the named group-validation error" nonzero \
+            "is not a valid token-group name" -- \
+            make doctor CHAIN="$TMP_CHAIN" GROUP="$badg"
+    done
+
+    # G7. non-EVM base58 adopt per group + repoint-warn EXTINCTION. A scratch SVM chain: adopt token1
+    #     flat, then adopt a DIFFERENT token under GROUP=$GRP_Y - the grouped adopt writes
+    #     project/$GRP_Y/<svm>.json with the base58 value, fires NO repoint warning, and leaves the flat
+    #     file byte-identical. A second flat adopt (same store) DOES fire the repoint warning naming the
+    #     token-group remedy - the exact contrast the group feature exists for.
+    rm -f "$SVM_FILE" "project/$SVM_CHAIN.json"
+    rm -rf "project/$GRP_Y"
+    python3 -c "
+import json
+d = json.load(open('config/chains/solana-devnet.json'))
+d['name'] = '$SVM_CHAIN'; d['chainNameIdentifier'] = 'ZZ_SCRATCH_SVM_GRP'
+d['rpcEnv'] = 'ZZ_SCRATCH_SVM_GRP_RPC_URL'; d['chainSelector'] = '9932100000000000009'
+json.dump(d, open('$SVM_FILE', 'w'), indent=2, sort_keys=True)
+"
+    T1_B58="BPympxtoS3GZmNcGiTxqsH6kyRgKiS9QFjfviSLaqxRE"
+    T2_B58="ALh3xpZtujrfYZSiURBEHpeBFnzZEH37nY4BA4EHiiB5"
+    make adopt-token CHAIN="$SVM_CHAIN" TOKEN_B58="$T1_B58" > /dev/null 2>&1 # flat token1
+    flat_before="$(shasum "project/$SVM_CHAIN.json")"
+    out="$(make adopt-token CHAIN="$SVM_CHAIN" TOKEN_B58="$T2_B58" GROUP="$GRP_Y" 2>&1)"
+    flat_after="$(shasum "project/$SVM_CHAIN.json")"
+    grp_token="$(jq -r '.addresses.active.token' "project/$GRP_Y/$SVM_CHAIN.json" 2> /dev/null)"
+    if ! echo "$out" | grep -qi "repointed" &&
+        [ "$flat_before" = "$flat_after" ] &&
+        [ "$grp_token" = "$T2_B58" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] base58 adopt under GROUP=$GRP_Y: no repoint warn, base58 stored in the group, flat file untouched"
+    else
+        fail=$((fail + 1))
+        failures+=("group base58 adopt / repoint extinction")
+        echo "[FAIL] group base58 adopt (repoint-warn fired, flat mutated, or base58 not stored: grp_token=$grp_token)"
+        echo "$out" | tail -6 | sed 's/^/       | /'
+    fi
+    run_case "flat second adopt fires the repoint warning naming the token-group remedy" zero \
+        "belongs in its own group" -- \
+        make adopt-token CHAIN="$SVM_CHAIN" TOKEN_B58="$T2_B58"
+
+    # G8. roles-check iterates every token group, labelling each result line [group: <g>]; with no chain
+    #     declaring roles{} in any group it stays CLEAN. Two empty group dirs (zz-tt-ga, zz-tt-gb) are scanned
+    #     alongside the default group - the group-iteration structure, offline (no chain reconciled).
+    rm -rf project/zz-tt-ga project/zz-tt-gb
+    mkdir -p project/zz-tt-ga project/zz-tt-gb
+    out="$(make roles-check-all 2>&1)"
+    status=$?
+    if [ $status -eq 0 ] &&
+        echo "$out" | grep -q "\[group: default\]" &&
+        echo "$out" | grep -q "\[group: zz-tt-ga\]" &&
+        echo "$out" | grep -q "\[group: zz-tt-gb\]" &&
+        echo "$out" | grep -q "roles-check: CLEAN"; then
+        pass=$((pass + 1))
+        echo "[PASS] roles-check iterates groups (default + zz-tt-ga + zz-tt-gb) with per-line [group: <g>] labels"
+    else
+        fail=$((fail + 1))
+        failures+=("roles-check group iteration")
+        echo "[FAIL] roles-check group iteration (exit=$status, missing a [group: <g>] label or CLEAN)"
+        echo "$out" | tail -8 | sed 's/^/       | /'
+    fi
+    # G8b. zero-groups: with no group dirs, only the default group is scanned (no [group: zz-tt-ga] label).
+    rm -rf project/zz-tt-ga project/zz-tt-gb
+    out="$(make roles-check-all 2>&1)"
+    if echo "$out" | grep -q "\[group: default\]" && ! echo "$out" | grep -q "\[group: zz-tt-ga\]"; then
+        pass=$((pass + 1))
+        echo "[PASS] roles-check zero-groups: only the default group is scanned (no group dirs present)"
+    else
+        fail=$((fail + 1))
+        failures+=("roles-check zero-groups")
+        echo "[FAIL] roles-check zero-groups: an unexpected group was scanned"
+    fi
+    # G8c. explicit GROUP scopes to ONLY that group (never the default or a sibling).
+    rm -rf project/zz-tt-ga project/zz-tt-gb
+    mkdir -p project/zz-tt-ga project/zz-tt-gb
+    out="$(make roles-check GROUP=zz-tt-ga 2>&1)"
+    if echo "$out" | grep -q "\[group: zz-tt-ga\]" &&
+        ! echo "$out" | grep -q "\[group: default\]" &&
+        ! echo "$out" | grep -q "\[group: zz-tt-gb\]"; then
+        pass=$((pass + 1))
+        echo "[PASS] roles-check GROUP=zz-tt-ga scopes to that group only (no default/sibling scan)"
+    else
+        fail=$((fail + 1))
+        failures+=("roles-check explicit-group scoping")
+        echo "[FAIL] roles-check GROUP=zz-tt-ga scoping (scanned default or a sibling)"
+        echo "$out" | tail -8 | sed 's/^/       | /'
+    fi
+    # G8d. an unknown explicit group fails LOUDLY (never a false CLEAN exit 0 on a typo).
+    out="$(make roles-check GROUP=zz-tt-nope 2>&1)"
+    status=$?
+    if [ $status -ne 0 ] && echo "$out" | grep -q "unknown token group"; then
+        pass=$((pass + 1))
+        echo "[PASS] roles-check GROUP=<unknown> fails loudly (no false CLEAN)"
+    else
+        fail=$((fail + 1))
+        failures+=("roles-check unknown-group guard")
+        echo "[FAIL] roles-check unknown group did not fail loudly (exit=$status)"
+        echo "$out" | tail -6 | sed 's/^/       | /'
+    fi
+    rm -rf project/zz-tt-ga project/zz-tt-gb
+
+    rm -f "$TMP_FILE" "$TMP_FILE_B" "$SVM_FILE" "project/$SVM_CHAIN.json"
+    rm -rf "project/$GRP_X" "project/$GRP_Y" project/zz-tt-ga project/zz-tt-gb
+fi
+
 # ---------------------------------------------------------------- committed-tree gates (offline)
 #
 # The project store and the deploy ledger hold local, throwaway, sometimes secret-bearing state, so only
@@ -856,6 +1139,36 @@ if offline_enabled; then
         failures+=("stale-string sweep")
         echo "[FAIL] stale-string sweep: relocated paths still referenced:"
         echo "$stale_hits" | sed 's/^/       | /'
+    fi
+
+    # E1b. Project-path composition gate: a project-file path fragment (`"...project/"` followed by a
+    #      chain-name var) must be built ONLY by ProjectStore. Group support makes the path optionally
+    #      `project/<group>/<name>.json`, so every path/display string goes through ProjectStore.path()/
+    #      display(); a raw `"project/" + name` would be blind to the group. ProjectStore is the one
+    #      sanctioned composer.
+    inline_hits="$(grep -rnE 'project/"' --include='*.sol' src script 2>/dev/null | grep -v 'src/utils/ProjectStore.sol' || true)"
+    if [ -z "$inline_hits" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] project-path gate: no inline project/<name> composition outside ProjectStore"
+    else
+        fail=$((fail + 1))
+        failures+=("project-path composition gate")
+        echo "[FAIL] project-path gate: compose via ProjectStore.path()/display() instead of inline:"
+        echo "$inline_hits" | sed 's/^/       | /'
+    fi
+
+    # E1c. Group-seam gate: no test may `vm.setEnv("PROJECT_GROUP")`. It is process-global and forge runs
+    #      suites in parallel, so a group must be driven through the `*In(group, ...)` seam (in-process) or
+    #      a real subprocess env (shell/live tier), never vm.setEnv - the parallel-safety invariant.
+    setenv_hits="$(grep -rn 'setEnv("PROJECT_GROUP"' --include='*.sol' test 2>/dev/null || true)"
+    if [ -z "$setenv_hits" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] group-seam gate: no vm.setEnv(PROJECT_GROUP) in test/ (parallel-safe)"
+    else
+        fail=$((fail + 1))
+        failures+=("group-seam vm.setEnv gate")
+        echo "[FAIL] group-seam gate: a test sets PROJECT_GROUP via vm.setEnv (use the *In seam or a subprocess env):"
+        echo "$setenv_hits" | sed 's/^/       | /'
     fi
 
     # E2/H4. Config purity: a committed config/chains/*.json is pure API + chain facts — no `lanes`,

@@ -86,8 +86,8 @@ never read and never a FAIL.
 
 | Command                            | Reads                        | Writes                                                      | Exit contract                                                 |
 | ---------------------------------- | ---------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------- |
-| `make roles-check CHAIN=<name>`    | live chain + the declaration | **nothing**                                                 | `0` clean / `1` drift (names the field) / `2` RPC unavailable |
-| `make snapshot-chain CHAIN=<name>` | live chain                   | **only** the `.roles` subtree of that chain's project store | writes the declaration; canonicalizes the file                |
+| `make roles-check CHAIN=<name> [GROUP=<g>]`    | live chain + the declaration | **nothing**                                      | `0` clean / `1` drift (names the field) / `2` RPC unavailable |
+| `make snapshot-chain CHAIN=<name> [GROUP=<g>]` | live chain                   | **only** the `.roles` subtree of that chain's project store | writes the declaration; canonicalizes the file    |
 
 - **`make roles-check` is READ-ONLY.** It reads the live chain, compares to the declaration, prints one
   aligned `[PASS]`/`[FAIL]`/`[WARN]`/`[SKIP]` line per field, and exits `0`/`1`/`2`. It **never** writes
@@ -122,6 +122,22 @@ A failed scan (an RPC that caps the `eth_getLogs` range) degrades to candidates 
 `complete: false` - never a silently partial "complete" list. **`complete: true` is a point-in-time
 proof, not a live invariant:** a grant made _after_ `scannedFromBlock`..snapshot is not reflected until
 you re-snapshot (or run `roles-check` with `SCAN_FROM_BLOCK`, see the additive-detection note below).
+
+## Token-group scope
+
+A clone can hold several token groups, each in its own project-store directory (see
+[`config-schema.md`](./config-schema.md#the-project-store---projectselectornamejson)). `GROUP=<g>` scopes an
+authority command to one group's store (`project/<g>/<selectorName>.json`); unset is the flat default group,
+with one deliberate exception for the read check:
+
+- **`make snapshot-chain CHAIN=<name> GROUP=<g>`** and **`make doctor CHAIN=<name> GROUP=<g>`** each act on
+  the one named group (unset = the default group).
+- **`make roles-check GROUP=<g>`** scopes to that one group. With **`GROUP` unset it does not stop at the
+  default group** - it reconciles the default group AND every `project/<group>/` subdirectory, prefixing
+  each result line with `[group: <g>]` (the default group is labelled `[group: default]`), so a grouped
+  token is never silently skipped.
+- **`make roles-check-all`** sweeps every chain that declares `roles{}` across all token groups, under the
+  same exit contract as `roles-check`.
 
 ## The drift-response runbook
 

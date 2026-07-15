@@ -102,8 +102,8 @@ library DeploymentRecorder {
         address tokenAddress,
         string memory poolType
     ) internal {
-        DeploymentUtils.savePoolHooksDeployment(vm, selectorName, hooksAddress);
         string memory symbol = DeploymentUtils.getSymbol(vm, tokenAddress);
+        DeploymentUtils.savePoolHooksDeployment(vm, selectorName, symbol, poolType, hooksAddress);
         RegistryWriter.record(selectorName, "poolHooks", hooksName(symbol, poolType), hooksAddress);
     }
 

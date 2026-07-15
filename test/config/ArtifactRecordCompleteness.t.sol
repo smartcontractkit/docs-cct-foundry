@@ -157,9 +157,10 @@ contract ArtifactRecordCompletenessTest is Test {
         address hooks = address(0x40c5000000000000000000000000000000000005);
         string memory name = DeploymentRecorder.hooksName("ACE-T", "BurnMint");
 
-        DeploymentUtils.savePoolHooksDeployment(vm, SEL_HOOKS, hooks);
-        string memory file =
-            string.concat(_histDir("advanced-pool-hooks", SEL_HOOKS), vm.toString(T1), "-AdvancedPoolHooks.json");
+        DeploymentUtils.savePoolHooksDeployment(vm, SEL_HOOKS, "ACE-T", "BurnMint", hooks);
+        string memory file = string.concat(
+            _histDir("advanced-pool-hooks", SEL_HOOKS), vm.toString(T1), "-ACE-T-BurnMintAdvancedPoolHooks.json"
+        );
         assertTrue(vm.exists(file), "poolHooks history file written");
         string memory body = vm.readFile(file);
         assertEq(vm.parseJsonAddress(body, ".POOL_HOOKS"), hooks, "POOL_HOOKS key");

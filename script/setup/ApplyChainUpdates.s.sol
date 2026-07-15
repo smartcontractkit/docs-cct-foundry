@@ -11,6 +11,7 @@ import {PoolVersion} from "../utils/PoolVersion.s.sol";
 import {PoolVersions} from "../../src/PoolVersions.sol";
 import {CctActions, ITokenPoolV150} from "../../src/actions/CctActions.sol";
 import {EoaExecutor} from "../../src/base/EoaExecutor.s.sol";
+import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 
 /// @notice Configures cross-chain lanes on the source TokenPool by calling applyChainUpdates.
 /// Sets the remote pool(s), remote token, and optional rate limiter configs per destination chain.
@@ -827,7 +828,7 @@ contract ApplyChainUpdates is EoaExecutor {
     ///      `LanePolicySource._localProjectJson` — the duplication is deliberate (see the contract
     ///      natspec); keep the two BYTE-mirrored.
     function _localProjectJson(string memory name) internal view returns (string memory) {
-        string memory p = string.concat(vm.projectRoot(), "/project/", name, ".json");
+        string memory p = ProjectStore.path(name);
         if (!vm.exists(p)) return "{}";
         string memory data = vm.readFile(p);
         return bytes(data).length == 0 ? "{}" : data;
@@ -955,15 +956,15 @@ contract ApplyChainUpdates is EoaExecutor {
     /// @dev The resolution-ladder console lines: which rung supplied the buckets, and the
     ///      per-direction divergence notice (a notice, not a revert) naming both values and the
     ///      lane entry.
-    function _logRateLimitResolution(RateLimitResolution memory res, string memory destChainName) internal pure {
+    function _logRateLimitResolution(RateLimitResolution memory res, string memory destChainName) internal view {
         if (res.outboundFromLanes || res.inboundFromLanes) {
             console.log(
                 string.concat(
                     "  Rate limits resolved from lanes.",
                     res.lane.key,
-                    " in project/",
-                    res.configName,
-                    ".json (",
+                    " in ",
+                    ProjectStore.display(res.configName),
+                    " (",
                     res.outboundFromLanes ? (res.inboundFromLanes ? "outbound + inbound" : "outbound") : "inbound",
                     ")"
                 )
@@ -974,7 +975,7 @@ contract ApplyChainUpdates is EoaExecutor {
                 string.concat(
                     "  No rate-limit env vars and no lanes{} entry for ",
                     destChainName,
-                    res.configFound ? string.concat(" in project/", res.configName, ".json") : "",
+                    res.configFound ? string.concat(" in ", ProjectStore.display(res.configName)) : "",
                     "; rate limiting disabled (default). Set the env vars, or declare the lane: make add-lane"
                 )
             );
@@ -995,7 +996,7 @@ contract ApplyChainUpdates is EoaExecutor {
         uint256 declaredCapacity,
         uint256 declaredRate,
         RateLimitResolution memory res
-    ) internal pure returns (string memory) {
+    ) internal view returns (string memory) {
         return string.concat(
             unicode"  ⚠️  ",
             direction,
@@ -1011,9 +1012,9 @@ contract ApplyChainUpdates is EoaExecutor {
             vm.toString(declaredCapacity),
             " rate=",
             vm.toString(declaredRate),
-            ") in project/",
-            res.configName,
-            ".json - make doctor will WARN until reconciled"
+            ") in ",
+            ProjectStore.display(res.configName),
+            " - make doctor will WARN until reconciled"
         );
     }
 
@@ -1021,25 +1022,25 @@ contract ApplyChainUpdates is EoaExecutor {
     ///      this hint plus the doctor WARN close the loop through a reviewed edit by design. Note
     ///      `make add-lane` skips an EXISTING entry (duplicate = byte-identical no-op), so the
     ///      divergence variant names the hand edit first.
-    function _logAddLaneHint(RateLimitResolution memory res) internal pure {
+    function _logAddLaneHint(RateLimitResolution memory res) internal view {
         if (!res.addLaneHint) return;
         if (res.lane.found) {
             console.log(
                 string.concat(
                     unicode"⚠️  Applied rate limits diverge from declared lanes.",
                     res.lane.key,
-                    " in project/",
-                    res.configName,
-                    ".json. Reconcile the declaration: edit the entry to the applied values, or remove it and run: ",
+                    " in ",
+                    ProjectStore.display(res.configName),
+                    ". Reconcile the declaration: edit the entry to the applied values, or remove it and run: ",
                     res.addLaneCommand
                 )
             );
         } else {
             console.log(
                 string.concat(
-                    unicode"⚠️  This lane is not declared in lanes{} (project/",
-                    res.configName,
-                    ".json). Declare it: ",
+                    unicode"⚠️  This lane is not declared in lanes{} (",
+                    ProjectStore.display(res.configName),
+                    "). Declare it: ",
                     res.addLaneCommand
                 )
             );

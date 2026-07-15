@@ -41,7 +41,13 @@ project/*.json
 !project/ethereum-testnet-sepolia.example.json
 project/zz-scratch-*.json
 project/local-*.json
+# Token-group subdirectories (project/<group>/<selectorName>.json) - same policy as the flat files
+project/*/*.json
 
 # Scratch files written (and removed) by tests - never commit a leak
 config/chains/zz-scratch-*.json
 history/**/zz-scratch-*
+project/zz-scratch-*/
+# Visible test group dirs (zz-tt-*): NOT skipped by the group-sweeping tools, so tests can assert
+# discovery/notice on them; still gitignored + removed by the test cleanup.
+project/zz-tt-*/

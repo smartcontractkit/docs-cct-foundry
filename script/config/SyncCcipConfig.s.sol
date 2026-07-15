@@ -685,9 +685,9 @@ contract SyncCcipConfig is Script {
                         local,
                         " -> ",
                         remote,
-                        " already exists - no-op (edit project/",
-                        local,
-                        ".json to change policy)"
+                        " already exists - no-op (edit ",
+                        ProjectStore.display(local),
+                        " to change policy)"
                     )
                 );
             } else {
@@ -930,9 +930,9 @@ contract SyncCcipConfig is Script {
         if (bytes(RegistryWriter.readString(remote, "tokenPool")).length == 0) {
             console.log(
                 string.concat(
-                    "[add-lane] WARN: no tokenPool in project/",
-                    remote,
-                    ".json (addresses.active.tokenPool) - deploy one (script/deploy/DeployBurnMintTokenPool.s.sol or DeployLockReleaseTokenPool.s.sol), or for a non-EVM remote declare it (make adopt-token), before executing transfers over this lane"
+                    "[add-lane] WARN: no tokenPool in ",
+                    ProjectStore.display(remote),
+                    " (addresses.active.tokenPool) - deploy one (script/deploy/DeployBurnMintTokenPool.s.sol or DeployLockReleaseTokenPool.s.sol), or for a non-EVM remote declare it (make adopt-token), before executing transfers over this lane"
                 )
             );
         }
@@ -969,9 +969,9 @@ contract SyncCcipConfig is Script {
                     local,
                     " -> ",
                     remote,
-                    " is not declared - no-op (project/",
-                    local,
-                    ".json unchanged)"
+                    " is not declared - no-op (",
+                    ProjectStore.display(local),
+                    " unchanged)"
                 )
             );
             return;
@@ -987,7 +987,7 @@ contract SyncCcipConfig is Script {
         }
         vm.writeJson(lanesJson, projectPath, ".lanes");
         console.log(
-            string.concat("[remove-lane] removed lane ", local, " -> ", remote, " from project/", local, ".json")
+            string.concat("[remove-lane] removed lane ", local, " -> ", remote, " from ", ProjectStore.display(local))
         );
         console.log(
             string.concat(

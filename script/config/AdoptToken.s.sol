@@ -9,6 +9,7 @@ import {IOwner} from "@chainlink/contracts-ccip/contracts/interfaces/IOwner.sol"
 import {PoolVersion} from "../utils/PoolVersion.s.sol";
 import {DeploymentUtils} from "../utils/DeploymentUtils.s.sol";
 import {RegistryWriter} from "../../src/utils/RegistryWriter.sol";
+import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 
 /// @notice Adopts an externally deployed token (and optionally its pool) into the address registry,
 /// so contracts this repo did NOT deploy resolve exactly like the ones it did (the zero-export
@@ -67,7 +68,7 @@ contract AdoptToken is Script {
         recordAdoption(plan);
 
         console.log("");
-        console.log(string.concat(unicode"✅ Adopted into project/", name, ".json"));
+        console.log(string.concat(unicode"✅ Adopted into ", ProjectStore.display(name)));
         console.log("Next steps:");
         if (bytes(plan.adminPath).length > 0) {
             console.log(
@@ -198,7 +199,7 @@ contract AdoptToken is Script {
         if (bytes(poolBase58).length != 0) {
             RegistryWriter.recordDeterministicString(name, "tokenPool", string.concat(name, "_tokenPool"), poolBase58);
         }
-        console.log(string.concat(unicode"✅ Declared non-EVM artifacts into project/", name, ".json"));
+        console.log(string.concat(unicode"✅ Declared non-EVM artifacts into ", ProjectStore.display(name)));
         console.log("  These base58 remotes now feed applyChainUpdates from the store (no env var needed).");
     }
 
