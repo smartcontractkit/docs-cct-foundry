@@ -67,7 +67,8 @@ library SafeTxHash {
     /// @notice The full `safeTxHash`: `keccak256(0x1901 || domainSeparator || structHash)`. Must equal
     ///         the Safe's on-chain `getTransactionHash` for the same inputs.
     function compute(uint256 chainId, address safe, SafeTx memory t) internal pure returns (bytes32 result) {
-        bytes memory encoded = abi.encodePacked(bytes1(0x19), bytes1(0x01), domainSeparator(chainId, safe), structHash(t));
+        bytes memory encoded =
+            abi.encodePacked(bytes1(0x19), bytes1(0x01), domainSeparator(chainId, safe), structHash(t));
         assembly {
             result := keccak256(add(encoded, 0x20), mload(encoded))
         }

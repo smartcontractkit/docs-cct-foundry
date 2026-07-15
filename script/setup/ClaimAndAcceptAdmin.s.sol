@@ -21,8 +21,8 @@ import {EoaExecutor} from "../../src/base/EoaExecutor.s.sol";
 ///
 /// Environment Variables:
 ///   TOKEN / <CHAIN>_TOKEN   (required) the token to register
-///   CCIP_ADMIN_ADDRESS      (optional) expected current admin; defaults to the script broadcaster.
-///                           MUST be the Safe address when running with MODE=safe.
+///   CCIP_ADMIN_ADDRESS      (optional) expected current admin; defaults to the executing account
+///                           (the Safe in safe mode, the broadcaster otherwise).
 contract ClaimAndAcceptAdmin is EoaExecutor {
     HelperConfig public helperConfig;
 
@@ -71,9 +71,8 @@ contract ClaimAndAcceptAdmin is EoaExecutor {
             }
         }
 
-        // The account that must execute the pair (defaults to the EOA broadcaster; the Safe when
-        // running in Safe mode).
-        address ccipAdminAddress = vm.envOr("CCIP_ADMIN_ADDRESS", broadcaster());
+        // The account that must execute the pair: the Safe in safe mode, the broadcaster otherwise.
+        address ccipAdminAddress = vm.envOr("CCIP_ADMIN_ADDRESS", executingAccount());
 
         console.log("Registration Pair Parameters:");
         console.log(string.concat("  Token:                        ", vm.toString(tokenAddress)));

@@ -59,8 +59,8 @@ contract ClaimAdmin is EoaExecutor {
             }
         }
 
-        // Get CCIP admin address from environment variable (defaults to the EOA broadcasting the transaction)
-        address ccipAdminAddress = vm.envOr("CCIP_ADMIN_ADDRESS", broadcaster());
+        // The account that must execute the claim: the Safe in safe mode, the broadcaster otherwise.
+        address ccipAdminAddress = vm.envOr("CCIP_ADMIN_ADDRESS", executingAccount());
 
         console.log("Claim Admin Parameters:");
         console.log(string.concat("  Token:                        ", vm.toString(tokenAddress)));
