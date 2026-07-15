@@ -37,6 +37,7 @@ see [its section](#the-deployed-address-registry---addresseschainidjson-schema-v
 | ------------------------------------------------ | -------------------- | ------------------------------------------------------------ |
 | `ccip{}` + the API-served identity/metadata fields (`displayName`, `chainFamily`, `environment`, `explorerUrl`, `nativeCurrencySymbol`) | the CCIP REST API | the **API sync** (`make add-chain` / `sync` / `sync-all`) - never by hand |
 | `lanes{}` (which remotes this pool connects to, at what outbound rate limits) | the token owner (policy) | **`make add-lane`** / **`make remove-lane`** or a reviewed hand edit - **never the API sync** |
+| `roles{}` (the privileged-authority surface: who holds token/pool/TAR/lockbox/hooks roles + optional `governance{}`) | the project's security owner (declared intent) | **`make snapshot-chain`** (backfill FROM chain) or a reviewed hand edit - **never the API sync**; `make roles-check` only READS it |
 | hand-authored keys the API serves nothing for (`chainNameIdentifier`, `rpcEnv`, `confirmations`, `ccipBnM`) | repo maintainers | a **reviewed hand edit** in a pull request |
 | immutable join keys (`name`, `chainSelector`, `chainId`) | the chain-selectors registry | seeded at `add-chain`, then **guard-validated** by the sync (never rewritten) |
 | `addresses/<chainId>.json` (separate, **gitignored**) | the deployer         | the **deploy scripts** — one `DeploymentRecorder` call → ledger + `RegistryWriter`, on `--broadcast` |
@@ -49,9 +50,11 @@ untouched, and the join keys are validated, not overwritten. `make add-lane` mir
 from the other side: it writes **only** the `.lanes` subtree (`vm.writeJson(lanes, path, ".lanes")`) and
 never touches an API-served field. **The rule of thumb: if a field exists on `GET /v2/chains/{selector}`,
 the sync sources it from the API; you never hand-type it. If a field is policy — which remotes, at what
-rate limits — the owner writes it, and the sync never will.** The general config-as-data model also has a
-**roles** subtree (the privileged-role surface, governance-written); that one is **not present in this
-repo yet** - but the one-writer principle is the same.
+rate limits — the owner writes it, and the sync never will.** The same one-writer discipline governs the
+**`roles{}`** subtree (the privileged-authority surface): its sole writer is **`make snapshot-chain`**
+(`SnapshotChain.s.sol` → `vm.writeJson(roles, path, ".roles")`, preserve-and-replace on that subtree
+only), and `make roles-check` never writes — see [The `roles{}` subtree](#the-roles-subtree---declared-authority-not-api-fact)
+below and the operational runbook in [`docs/roles.md`](./roles.md).
 
 ## EVM chain file - every field
 
@@ -260,6 +263,122 @@ are exempt from reciprocity: they are destination-only in this repo and carry no
 registry-resolved pool with live rate limits (and any declared `inbound`/`v2` blocks) matching the
 declared values, and every on-chain supported selector must be declared back - all WARN-only, since
 live drift can be a deliberate emergency throttle.
+
+### The `roles{}` subtree - declared authority, not API fact
+
+`roles{}` declares **who holds every privileged role** across the token, its pool, the
+TokenAdminRegistry, and (when present) the lockbox and hooks - the authority surface a security owner
+intends. It is the durable, git-versioned record of "who controls this deployment," reconciled against
+the live chain by `make roles-check` and `make doctor`'s roles rung. Its sole writer is **`make
+snapshot-chain CHAIN=<name>`** (backfill FROM chain, preserve-and-replace on the `.roles` subtree only,
+the same discipline as `.ccip`/`.lanes`); the API sync never touches it, and `roles-check` only reads
+it. The full operational model - declared-intent vs live, the read-only-vs-writer split, the
+drift-response decision tree, and the honest-coverage caveat - lives in [`docs/roles.md`](./roles.md);
+this section is the field reference.
+
+Every governance-critical single-holder slot (`token.defaultAdmin`, `token.ccipAdmin`, `pool.owner`,
+`pool.rateLimitAdmin`, `pool.feeAdmin`, `tokenAdminRegistry.administrator`, `lockbox.owner`,
+`hooks.owner`) is verified by a **direct getter point-read** - a plain `eth_call`, reliable on any RPC,
+no `eth_getLogs`. Multi-holder role lists (`minters`, `burners`, `defaultAdmins`, `burnMintRoleAdmins`)
+carry an honest **`complete` marker**: `true` only when the token enumerates its holders or a
+`snapshot-chain SCAN_FROM_BLOCK=<n>` event scan proved the list; `false` (candidate seed) otherwise, and
+the auditor WARNs so a partial list is never read as full.
+
+The token block **dispatches on a declared `type`**, because the admin model differs per template - the
+engine never assumes one:
+
+| `type`       | Template                    | Top-level admin field(s)                         | Notes                                                                 |
+| ------------ | --------------------------- | ------------------------------------------------ | --------------------------------------------------------------------- |
+| `crosschain` | `CrossChainToken`           | `defaultAdmin` (+ `pendingDefaultAdmin`)         | OZ `AccessControlDefaultAdminRules`; single-holder, two-step transfer. Has the separate `burnMintRoleAdmins` list (the `BURN_MINT_ADMIN_ROLE` that admins mint/burn - a slot a naive sweep forgets). |
+| `burnmint`   | `BurnMintERC20`             | `defaultAdmins` (list)                           | plain OZ `AccessControl`; multi-holder `DEFAULT_ADMIN_ROLE` admins mint/burn directly. |
+| `factory`    | `FactoryBurnMintERC20`      | `owner`                                          | `Ownable`; enumerable `getMinters()`/`getBurners()` sets.             |
+| `byo`        | unknown / externally deployed | whichever of `owner` / `defaultAdmins` answers | only the universal admin-registration points are probed; every other token-internal list stays `complete:false` (a clean check does NOT prove a BYO token's mint/burn rights are safe). |
+
+```jsonc
+"roles": {
+  // ── token authority (template-dispatched on `type`) ──────────────────────────
+  "token": {
+    "address": "0xa1f7882a...",             // the token this block describes (the snapshot/audit anchor)
+    "type": "crosschain",                    // crosschain | burnmint | factory | byo — selects the admin model
+    "ccipAdmin": "0xGov...",                 // getCCIPAdmin() — the TAR registration authority (one-step, owner-gated)
+    "defaultAdmin": "0xGov...",              // crosschain only: defaultAdmin() (single-holder, two-step)
+    "pendingDefaultAdmin": "0x0",            // crosschain only: a non-zero value means a transfer is IN FLIGHT
+    // "owner": "0xGov...",                  // factory/byo instead of defaultAdmin
+    // "defaultAdmins": { "holders": ["0x.."], "complete": false }, // burnmint/byo multi-holder admin list
+    "burnMintRoleAdmins": {                  // crosschain only: BURN_MINT_ADMIN_ROLE holders (admin of mint/burn)
+      "holders": ["0xGov..."], "complete": false
+    },
+    "minters": { "holders": ["0xPool..."], "complete": false }, // MINTER_ROLE holders (pool + any EOAs)
+    "burners": { "holders": ["0xPool..."], "complete": false }  // BURNER_ROLE holders
+  },
+
+  // ── TokenAdminRegistry (the cutover authority; the TAR CONTRACT owner is out of scope) ──
+  "tokenAdminRegistry": {
+    "registry": "0x95F29FEE...",             // the TAR the token is REGISTERED in (may differ from the directory TAR)
+    "administrator": "0xGov...",             // getTokenConfig(token).administrator — the onlyTokenAdmin authority
+    "pendingAdministrator": "0x0"            // a non-zero value means a two-step admin transfer is IN FLIGHT
+  },
+
+  // ── pool authority (dual-generation: feeAdmin/hooks are 2.0.0-only) ──────────
+  "pool": {
+    "address": "0x4CAc9C8c...",              // the pool this block describes (the snapshot/audit anchor)
+    "owner": "0xGov...",                     // Ownable2Step owner (config authority)
+    "rateLimitAdmin": "0xSafe...",           // the fast-throttle authority (v2: inside getDynamicConfig)
+    "feeAdmin": "0xGov...",                  // 2.0.0 only: inside getDynamicConfig
+    "hooks": "0xHooks..."                    // 2.0.0 only: getAdvancedPoolHooks() (0x0 when unwired)
+  },
+
+  // ── OPTIONAL blocks: declared-only-if-present (omit for a burnmint chain with no lockbox/hooks) ──
+  "lockbox": {                               // v2 LockRelease only (the v2 replacement for the v1 rebalancer)
+    "address": "0xLockbox...", "owner": "0xGov...",
+    "authorizedCallers": ["0xPool..."]       // enumerable → full two-sided set compare
+  },
+  "hooks": {                                 // the CCV/allowlist authority (security-critical)
+    "address": "0xHooks...", "owner": "0xGov...", "policyEngine": "0xPolicy...",
+    "allowlistEnabled": false,               // immutable (set at deploy)
+    "allowlist": [], "authorizedCallers": ["0xPool..."]
+  },
+  // "rebalancer": "0xGov...",               // v1 LockRelease only (v2 uses the lockbox above)
+
+  // ── OPTIONAL governance{} — three shapes: safe-only, timelock-only, or both. ──
+  //    Absent = EOA-only chain (a valid SKIP, never a FAIL). ──────────────────
+  "governance": {
+    "safe": { "address": "0xSafe...", "threshold": 2, "owners": ["0x..","0x..","0x.."] },
+    "timelock": {                            // pure declarations (proposers/etc.) are not enumerable on-chain
+      "address": "0xTL...", "minDelay": 172800,
+      "proposers": ["0xSafe..."], "cancellers": ["0xSafe..."], "executors": ["0x0"],
+      "adminRenounced": true
+    }
+  }
+}
+```
+
+Semantics the auditor enforces (all in `src/roles/RolesAuditor.sol`, mounted as the doctor's roles rung
+and run standalone by `make roles-check`):
+
+- **Type mismatch is a FAIL** - a declared `type` that contradicts the probed surface (e.g. `factory`
+  declared for a token that answers `defaultAdmin()`) FAILs and the dependent token rungs are skipped
+  to avoid cascade noise. `byo` never asserts a template; it only point-checks the universal admin
+  points it declares.
+- **Enumerable sets get a two-sided compare** (lockbox/hooks `authorizedCallers`, hooks `allowlist`,
+  safe `owners`, factory-token minters/burners) - this detects BOTH a revoked holder AND a rogue
+  additive grant. **Non-enumerable lists** (`crosschain`/`burnmint` mint/burn/admin) point-check each
+  declared holder (revoke always detected) and **WARN that additive grants are unverified** - even when
+  `complete:true`, because that completeness was proven at snapshot time, not now (never a silent CLEAN).
+  Passing `SCAN_FROM_BLOCK=<n>` to `make roles-check` opts into an event-scan two-sided compare that
+  turns an undeclared additive grant into a hard FAIL. A scanned list records `scannedFromBlock` next to
+  `complete` as provenance (the block the completeness was proven from).
+- **Absent optional block → SKIP, never FAIL** - `governance{}` on an EOA chain, `lockbox`/`hooks`/
+  `rebalancer` where the pool has none. `governance{}` supports three shapes; a timelock-only shape
+  with an EOA proposer is valid.
+- **The TAR CONTRACT `owner`** (the registry-module authority) is the network operator's (Chainlink's),
+  **deliberately out of scope** - never read, never a FAIL. `RegistryModuleOwnerCustom` has no
+  privileged slot to declare (self-service registration).
+- **Cross-consistency WARNs (never FAILs, they are conventions):** a declared safe that is not the
+  pool's `rateLimitAdmin` (the fast-emergency-throttle convention); a timelock declared without the
+  safe among its proposers.
+- **Subtree isolation** - `snapshot-chain` writes only `.roles`, so a roles refresh never disturbs an
+  API-served, `lanes{}`, or hand-authored field.
 
 ## Non-EVM (Solana) chain file
 

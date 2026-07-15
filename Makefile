@@ -16,7 +16,7 @@ KNOWN_CHAINS := $(filter-out zz-scratch-%,$(basename $(notdir $(wildcard $(CONFI
 SYNC_SCRIPT := script/config/SyncCcipConfig.s.sol
 
 .DEFAULT_GOAL := help
-.PHONY: adopt-token help tools discover add-chain add-lane remove-lane sync sync-preview sync-all sync-check doctor fmt-config
+.PHONY: adopt-token help tools discover add-chain add-lane remove-lane sync sync-preview sync-all sync-check doctor fmt-config snapshot-chain roles-check roles-check-all
 
 # Recipe-time guard: the CHAIN's config file must exist (helpful list + add-chain hint on a miss).
 define require-chain-config
@@ -143,3 +143,22 @@ doctor: tools ## Layered verification of one chain's config (CHAIN= required)
 	$(if $(CHAIN),,$(error CHAIN is required: make doctor CHAIN=<name>))
 	$(require-chain-config)
 	FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$(CHAIN)"
+
+# ---------------------------------------------------------------- authority durable store (roles{})
+# The `roles{}` subtree is the DECLARED authority surface, versioned in git. `snapshot-chain` is the
+# ONLY writer (backfill FROM chain); `roles-check` is READ-ONLY (reconcile declared vs live). Same
+# exit-remap note as sync-check: the 0/1/2 contract lives in `script/config/roles-check.sh`; CI calls
+# the script directly, `make roles-check` is pass/fail only.
+
+snapshot-chain: tools ## Backfill the declared roles{} authority block FROM chain (CHAIN= required; opt: TOKEN= TOKEN_POOL= TAR= SCAN_FROM_BLOCK=)
+	$(if $(CHAIN),,$(error CHAIN is required: make snapshot-chain CHAIN=<name>))
+	$(require-chain-config)
+	FOUNDRY_PROFILE=sync forge script script/config/SnapshotChain.s.sol --sig "run(string)" "$(CHAIN)"
+	$(canon-chain-config)
+	@echo "review the roles{} diff (roles{} = declared authority), then reconcile: make roles-check CHAIN=$(CHAIN)"
+
+roles-check: tools ## READ-ONLY reconcile of a chain's declared roles{} vs the live chain (CHAIN= optional; pass/fail only - CI uses the script for 0/1/2)
+	@bash script/config/roles-check.sh $(CHAIN)
+
+roles-check-all: tools ## READ-ONLY reconcile of every chain that declares roles{} (exit contract = script/config/roles-check.sh)
+	@bash script/config/roles-check.sh

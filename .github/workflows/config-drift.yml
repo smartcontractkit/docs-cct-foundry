@@ -1,9 +1,13 @@
 name: CCIP Config Drift
 
-# Scheduled read-only drift check: compares every config/chains/<name>.json ccip{} block
-# field-by-field against the live CCIP API (script/config/sync-check.sh). Exit contract:
-# 0 clean / 1 drift (fail visibly) / 2 API unreachable (warn-and-pass — flake is not drift).
-# Not a pull_request gate: this surfaces upstream CCIP address rotations, not PR regressions.
+# Scheduled read-only drift check. Two jobs:
+#   1. sync-check   — compares every ccip{} block against the live CCIP API (sync-check.sh).
+#                     Exit contract: 0 clean / 1 drift (fail visibly) / 2 API unreachable (warn-pass).
+#   2. roles-check  — reconciles every declared roles{} authority surface against the live chain
+#                     (roles-check.sh). NON-BLOCKING: drift surfaces as a ::warning:: annotation to
+#                     act on, never a red build, because a scheduled authority-drift signal is
+#                     informational and the RPC secrets it needs may not be configured on every fork.
+# Not a pull_request gate: this surfaces on-chain rotations/authority moves, not PR regressions.
 
 on:
   schedule:
@@ -40,3 +44,38 @@ jobs:
             exit 0
           fi
           exit $code
+
+  roles-check:
+    name: roles-check vs the live chains (non-blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1.9.0
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      - run: npm ci
+      # The reconcile is all live point-reads, so it needs each chain's RPC URL. Wire the RPC env
+      # vars (the chains' rpcEnv names) as repository secrets; a chain whose RPC is unset SKIPs
+      # gracefully (roles-check.sh exit 2). Non-blocking either way: this step never fails the build.
+      - name: roles-check all chains that declare roles{}
+        env:
+          ETHEREUM_SEPOLIA_RPC_URL: ${{ secrets.ETHEREUM_SEPOLIA_RPC_URL }}
+        run: |
+          set +e
+          out="$(bash script/config/roles-check.sh 2>&1)"
+          code=$?
+          echo "$out"
+          if [ "$code" -eq 1 ]; then
+            echo "::warning::roles-check found authority drift - a declared role no longer matches the live chain; investigate (docs/roles.md drift runbook)"
+          elif [ "$code" -eq 2 ]; then
+            echo "::warning::roles-check: an RPC was unavailable - authority drift could not be determined (flake/missing secret, not drift)"
+          elif echo "$out" | grep -q "checked nothing"; then
+            # A green run that reconciled zero chains is not reassurance - surface it so an all-SKIP
+            # (no chain declares roles{}, or every RPC secret is missing) never reads as "all clear".
+            echo "::warning::roles-check passed but reconciled ZERO chains (none declares roles{} or RPC secrets are unset) - this green checked nothing"
+          fi
+          exit 0

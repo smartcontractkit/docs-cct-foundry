@@ -20,6 +20,7 @@ docs/*
 # Safe Transaction Builder batches (run artifacts, kept local); keep the example
 batches/*
 !batches/example.transfer-ownership.11155111.json
+!docs/roles.md
 
 # Dotenv file
 .env

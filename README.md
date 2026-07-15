@@ -1525,7 +1525,9 @@ make adopt-token CHAIN=<name> TOKEN=<addr> [TOKEN_POOL=<addr>]        # adopt ex
 make sync-preview CHAIN=<name>                        # fetch + log a chain's ccip{}, no write
 make sync CHAIN=<name> / make sync-all               # rewrite API-served fields (ccip{} + identity/metadata) from the API
 make sync-check [CHAIN=<name>]                        # read-only drift check (CI: bash script/config/sync-check.sh for 0/1/2)
-make doctor CHAIN=<name>                              # layered [PASS]/[FAIL]/[WARN]/[SKIP] check of one chain
+make snapshot-chain CHAIN=<name>                      # backfill the roles{} authority block FROM chain (only writer of roles{})
+make roles-check [CHAIN=<name>]                       # read-only authority reconcile (CI: bash script/config/roles-check.sh for 0/1/2)
+make doctor CHAIN=<name>                              # layered [PASS]/[FAIL]/[WARN]/[SKIP] check of one chain (incl. the roles rung)
 make fmt-config                                       # restore the canonical config format after a raw forge run
 ```
 
@@ -1538,6 +1540,34 @@ make fmt-config                                       # restore the canonical co
 The declaration is also **consumed**: [Step 5](#step-5-apply-chain-updates-configure-cross-chain-routes) run with no rate-limit env vars applies the declared `lanes{}` policy directly (declare once, apply from the declaration), while the rate-limit env vars remain the explicit override for incident response. An env-override apply that leaves the declaration missing or diverging prints the exact `make add-lane` command to bring it in line, and the doctor WARNs until it is — applies never write `lanes{}` back.
 
 The tooling is tested twice over: `forge test` pins the API->config transform against a committed real API response (`test/fixtures/ccip-api/`) and proves the `lanes{}` subtree contracts (`test/config/LaneConfig.t.sol`: a lane survives a `ccip` sync, `add-lane` touches no other subtree, a one-sided lane fails the mesh rung from either side; the inbound block is written and nested policy blocks survive rewrites; `test/config/VerifyChainLaneReconcile.t.sol` proves the on-chain lanes rung per state, including the 1.5.0 version-dispatch path; `test/setup/ApplyChainUpdatesLaneSource.t.sol` proves the env > `lanes{}` rate-limit resolution ladder and the `make add-lane` remediation hint states), and `bash script/config/test-tooling.sh` is a re-runnable failure-path suite (unknown chain, overwrite refusal, invalid names, `SELECTOR MISMATCH`, `SELECTOR NAME MISMATCH`, `NOT_FOUND`, API-down, non-EVM skip, the sync-check exit contract, an offline end-to-end sync against a local fixture server, the Makefile golden-path guards, the add-lane preflights and guards, the mesh-reciprocity doctor verdicts, and the canonical-format + zero-diff guarantees).
+
+### Authority durable store — the `roles{}` subtree
+
+Where `ccip{}` is API fact and `lanes{}` is owner policy, **`roles{}` is declared authority**: who
+holds every privileged role across the token, its pool, the TokenAdminRegistry, and (when present) the
+lockbox and hooks. It is the git-versioned record of *who controls this deployment*, and it is
+reconciled against the live chain — the same declare-once-then-reconcile model as `lanes{}`, with the
+same one-writer discipline. Full field reference: [`docs/config-schema.md`](docs/config-schema.md#the-roles-subtree---declared-authority-not-api-fact); the operational runbook (mental model, drift decision tree, honest-coverage caveat): [`docs/roles.md`](docs/roles.md).
+
+```bash
+make snapshot-chain CHAIN=<name>   # ONLY writer: backfill roles{} FROM chain (opt: TOKEN= TOKEN_POOL= TAR= SCAN_FROM_BLOCK=)
+make roles-check CHAIN=<name>      # READ-ONLY reconcile of declared roles{} vs the live chain (never writes)
+make doctor CHAIN=<name>           # includes a roles rung that mounts the same reconcile
+```
+
+`make snapshot-chain` is the **only** writer (backfill from chain, preserve-and-replace on the `.roles`
+subtree only); `make roles-check` and the doctor's roles rung only READ. The check exits `0` clean /
+`1` drift (naming the exact field) / `2` RPC unavailable — the `0/1/2` contract lives in
+`script/config/roles-check.sh` (CI calls it directly; `make roles-check` is pass/fail only, the same
+pattern as `sync-check`). A scheduled non-blocking `roles-check` job in
+`.github/workflows/config-drift.yml` surfaces authority drift weekly. The token block **dispatches on a
+declared `type`** — `crosschain` / `burnmint` / `factory` / `byo` — because the admin model differs per
+template (including `crosschain`'s separate `BURN_MINT_ADMIN_ROLE`, the slot a naive sweep forgets).
+Governance-critical single-holder slots are verified by direct getter reads (reliable on any RPC, no
+`eth_getLogs`); multi-holder lists carry an honest `complete` marker and a clean check on a `byo` token
+does **not** prove its mint/burn rights are safe (see the honest-coverage caveat in `docs/roles.md`).
+The `VerifyRoles` reader (`script/governance/VerifyRoles.s.sol`) prints the current holder of every
+slot for an at-a-glance audit.
 
 ### Deployed-address registry — `addresses/<chainId>.json` (the default)
 

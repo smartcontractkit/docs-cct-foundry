@@ -15,6 +15,7 @@ import {RateLimiter} from "@chainlink/contracts-ccip/contracts/libraries/RateLim
 import {IPoolV2} from "@chainlink/contracts-ccip/contracts/interfaces/IPoolV2.sol";
 import {AdvancedPoolHooks} from "@chainlink/contracts-ccip/contracts/pools/AdvancedPoolHooks.sol";
 import {TokenAdminRegistry} from "@chainlink/contracts-ccip/contracts/tokenAdminRegistry/TokenAdminRegistry.sol";
+import {RolesAuditor} from "../../src/roles/RolesAuditor.sol";
 
 /// @dev The chain-membership read surface shared by every cataloged TokenPool version: both
 /// `isSupportedChain(uint64)` and `getSupportedChains()` exist unchanged from 1.5.0 through 2.0.0
@@ -267,6 +268,7 @@ contract VerifyChain is Script {
             _checkRegistryAndExtras(name, json);
             _checkMesh(name, json);
             _checkLanesOnChain(name, json);
+            _checkRoles(name, json, rpcOk);
         } else {
             // Non-EVM chains have no EVM-shaped ccip{} to sync, so the API/RPC/on-chain/registry
             // rungs are skipped — but the selectorName IS validatable for every family (chainId is a
@@ -816,6 +818,50 @@ contract VerifyChain is Script {
     /// like the TAR rung (SKIP with no fork), pool-gated like the registry rung (SKIP when no pool is
     /// recorded), and WARN-only: live drift may be a deliberate emergency throttle, and an on-chain
     /// lane added out-of-band is an operator decision to surface, not a config error to block on.
+    /// @dev The ROLES rung: mounts the read-only `RolesAuditor` (PR 3.5). It reconciles the declared
+    /// `roles{}` authority surface against the live chain, folding the auditor's [PASS]/[FAIL]/[WARN]/
+    /// [SKIP] tallies into the doctor's own. A chain with no `roles{}` block SKIPs (bootstrap it with
+    /// `make snapshot-chain`); a chain with no RPC SKIPs (the reconcile is all live point-reads).
+    /// `make roles-check` runs the same auditor standalone through the 0/1/2 exit wrapper.
+    function _checkRoles(string memory name, string memory json, bool rpcOk) private {
+        if (!vm.keyExistsJson(json, ".roles")) {
+            _skip(string.concat("roles: no roles{} declared - bootstrap with make snapshot-chain CHAIN=", name));
+            return;
+        }
+        if (!rpcOk || !forked) {
+            _skip("roles: authority reconciliation needs an RPC (no fork) - declared roles{} not checked against chain");
+            return;
+        }
+        // Mirror every other rung in this file: a revert inside the auditor (a typo'd token.type, a
+        // malformed declared address, a copied "0xGov..." placeholder) must degrade to a WARN, never
+        // abort the whole doctor. RolesAuditor.auditJson is external, so the try/catch catches it.
+        try (new RolesAuditor()).auditJson(name, json) returns (RolesAuditor.Result memory rr) {
+            // Roll the auditor tallies into the doctor verdict: a FAIL is a doctor FAIL. WARNs are
+            // surfaced but NOT folded into the verdict, so routine complete:false honesty WARNs never
+            // inflate the doctor's WARN count (the auditor already printed each WARN line).
+            for (uint256 i = 0; i < rr.fails; i++) {
+                fails++;
+            }
+            if (rr.fails == 0) {
+                _pass(
+                    string.concat(
+                        "roles: declared roles{} reconciles clean (",
+                        vm.toString(rr.passes),
+                        " check(s) passed, ",
+                        vm.toString(rr.warns),
+                        " WARN, ",
+                        vm.toString(rr.skips),
+                        " SKIP)"
+                    )
+                );
+            }
+        } catch Error(string memory reason) {
+            _warn(string.concat("roles: could not reconcile (", reason, ") - fix the roles{} declaration"));
+        } catch {
+            _warn("roles: could not reconcile (malformed roles{} - a declared address/value failed to parse)");
+        }
+    }
+
     function _checkLanesOnChain(string memory name, string memory json) private {
         if (!forked) {
             _skip("lanes: on-chain reconciliation needs an RPC (no fork) - declared lanes not checked against the pool");
