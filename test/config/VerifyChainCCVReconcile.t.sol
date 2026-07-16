@@ -72,6 +72,14 @@ contract VerifyChainCCVReconcileTest is LaneReconcileScratch {
     address internal constant A2 = address(0xA002);
 
     function setUp() public {
+        _clean();
+    }
+
+    /// @dev Sweeps this suite's scratch fixtures from setUp(): the revert-safe guarantee (a failed
+    /// test leaves its fixtures for inspection until the next run). Each test additionally removes
+    /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
+    /// run leaves no residue.
+    function _clean() private {
         string[] memory names = new string[](6);
         for (uint256 n = 1; n <= 6; n++) {
             names[n - 1] = string.concat("zz-scratch-ccvchk-", vm.toString(n));
@@ -122,7 +130,7 @@ contract VerifyChainCCVReconcileTest is LaneReconcileScratch {
         assertEq(fails, 0, "CCV reconcile must never FAIL");
         assertEq(warns, 0, "a reordered but equal CCV set must not WARN");
 
-        vm.removeFile(_path(name));
+        _cleanupScratchOne(name);
     }
 
     /// WARN: the declared CCV set differs from on-chain.
@@ -140,7 +148,7 @@ contract VerifyChainCCVReconcileTest is LaneReconcileScratch {
         assertEq(fails, 0, "CCV drift is a WARN, never a FAIL");
         assertEq(warns, 1, "CCV outbound drift must emit exactly one WARN");
 
-        vm.removeFile(_path(name));
+        _cleanupScratchOne(name);
     }
 
     /// WARN: a v2.ccv block against a 2.0.0 pool with NO hooks wired (address(0)).
@@ -155,7 +163,7 @@ contract VerifyChainCCVReconcileTest is LaneReconcileScratch {
         assertEq(fails, 0, "no-hooks CCV is a WARN, never a FAIL");
         assertEq(warns, 1, "a v2.ccv block with no hooks must emit exactly one WARN");
 
-        vm.removeFile(_path(name));
+        _cleanupScratchOne(name);
     }
 
     /// WARN: a chain-level ccvThreshold that differs from the pool's on-chain threshold.
@@ -171,7 +179,7 @@ contract VerifyChainCCVReconcileTest is LaneReconcileScratch {
         assertEq(fails, 0, "threshold drift is a WARN, never a FAIL");
         assertEq(warns, 1, "a diverging ccvThreshold must emit exactly one WARN");
 
-        vm.removeFile(_path(name));
+        _cleanupScratchOne(name);
     }
 
     /// WARN: a chain-level ccvThreshold declared against a PRE-2.0.0 pool. The threshold surface
@@ -187,6 +195,6 @@ contract VerifyChainCCVReconcileTest is LaneReconcileScratch {
         assertEq(fails, 0, "a ccvThreshold on a pre-2.0.0 pool is a WARN, never a FAIL");
         assertEq(warns, 1, "a ccvThreshold on a pre-2.0.0 pool must emit exactly one WARN");
 
-        vm.removeFile(_path(name));
+        _cleanupScratchOne(name);
     }
 }

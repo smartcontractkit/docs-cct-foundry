@@ -48,6 +48,7 @@ contract StringStoreNonEvmTest is Test {
     string internal constant SEL_SVM_A = "zz-scratch-nonevm-svma";
     string internal constant SEL_SVM_B = "zz-scratch-nonevm-svmb";
     string internal constant SEL_ADOPT = "zz-scratch-nonevm-adopt";
+    string internal constant SEL_SVM_RES = "zz-scratch-nonevm-svmres";
     string internal constant SEL_LOCAL = "local-31337";
 
     uint64 internal constant SEL_A_SELECTOR = 8_893_100_000_000_000_001;
@@ -58,12 +59,21 @@ contract StringStoreNonEvmTest is Test {
     uint64 internal constant SEL_NEG33_SELECTOR = 8_893_100_000_000_000_006;
     uint64 internal constant SEL_NEGALPHA_SELECTOR = 8_893_100_000_000_000_007;
     uint64 internal constant SEL_NEGHEX_SELECTOR = 8_893_100_000_000_000_008;
+    uint64 internal constant SEL_RES_SELECTOR = 8_893_100_000_000_000_009;
 
     StringWriteHarness internal harness;
 
     function setUp() public {
         harness = new StringWriteHarness();
-        string[11] memory sels = [
+        _clean();
+    }
+
+    /// @dev Sweeps this suite's scratch fixtures from setUp(): the revert-safe guarantee (a failed
+    /// test leaves its fixtures for inspection until the next run). Each test additionally removes
+    /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
+    /// run leaves no residue.
+    function _clean() private {
+        string[12] memory sels = [
             SEL_HEX,
             SEL_SVM,
             SEL_NEG31,
@@ -74,6 +84,7 @@ contract StringStoreNonEvmTest is Test {
             SEL_SVM_A,
             SEL_SVM_B,
             SEL_ADOPT,
+            SEL_SVM_RES,
             SEL_LOCAL
         ];
         for (uint256 i = 0; i < sels.length; i++) {
@@ -97,6 +108,7 @@ contract StringStoreNonEvmTest is Test {
         RegistryWriter.recordDeterministic(SEL_HEX, "token", "T_Token", a);
         assertEq(RegistryWriter.read(SEL_HEX, "token"), a, "hex active.token round-trip");
         assertEq(RegistryWriter.readDeployment(SEL_HEX, "T_Token"), a, "hex deployment round-trip");
+        ProjectScratch.clean(SEL_HEX);
     }
 
     // Base58 (SVM): recordDeterministicString round-trips through readString; the EVM getter read()
@@ -109,6 +121,7 @@ contract StringStoreNonEvmTest is Test {
         assertEq(
             RegistryWriter.readDeploymentString(SEL_SVM, "P_pool"), SVM_POOL, "base58 deployment string round-trip"
         );
+        ProjectScratch.clean(SEL_SVM);
     }
 
     // ---------------------------------------------------------------- family-validation NEGATIVES
@@ -117,18 +130,21 @@ contract StringStoreNonEvmTest is Test {
         ProjectScratch.seedConfig(SEL_NEG31, "svm", 0, SEL_NEG31_SELECTOR);
         vm.expectRevert(_svmRevert(B58_DECODES_31, SEL_NEG31));
         harness.writeString(SEL_NEG31, "tokenPool", "P", B58_DECODES_31);
+        ProjectScratch.clean(SEL_NEG31);
     }
 
     function test_Neg_Base58Decodes33Bytes_NamedRevert() public {
         ProjectScratch.seedConfig(SEL_NEG33, "svm", 0, SEL_NEG33_SELECTOR);
         vm.expectRevert(_svmRevert(B58_DECODES_33, SEL_NEG33));
         harness.writeString(SEL_NEG33, "tokenPool", "P", B58_DECODES_33);
+        ProjectScratch.clean(SEL_NEG33);
     }
 
     function test_Neg_InvalidBase58Alphabet_NamedRevert() public {
         ProjectScratch.seedConfig(SEL_NEGALPHA, "svm", 0, SEL_NEGALPHA_SELECTOR);
         vm.expectRevert(_svmRevert(B58_BAD_ALPHABET, SEL_NEGALPHA));
         harness.writeString(SEL_NEGALPHA, "tokenPool", "P", B58_BAD_ALPHABET);
+        ProjectScratch.clean(SEL_NEGALPHA);
     }
 
     // hex-on-svm: an EVM "0x…" address on an SVM chain fails base58 validation ('0' + 'x' are not the
@@ -137,6 +153,7 @@ contract StringStoreNonEvmTest is Test {
         ProjectScratch.seedConfig(SEL_NEGHEX, "svm", 0, SEL_NEGHEX_SELECTOR);
         vm.expectRevert(_svmRevert(EVM_HEX, SEL_NEGHEX));
         harness.writeString(SEL_NEGHEX, "tokenPool", "P", EVM_HEX);
+        ProjectScratch.clean(SEL_NEGHEX);
     }
 
     // base58-on-evm: a base58 pubkey on an EVM chain fails EVM validation (no "0x" + 40 hex) with the
@@ -148,6 +165,7 @@ contract StringStoreNonEvmTest is Test {
             )
         );
         harness.writeString(SEL_EVM_NEG, "tokenPool", "P", SVM_POOL);
+        ProjectScratch.clean(SEL_EVM_NEG);
     }
 
     // ---------------------------------------------------------------- chainId-0 refusal + distinct files
@@ -174,15 +192,22 @@ contract StringStoreNonEvmTest is Test {
         assertFalse(
             vm.exists(string.concat(vm.projectRoot(), "/project/0.json")), "project/0.json must NEVER be created"
         );
+        ProjectScratch.clean(SEL_SVM_A);
+        ProjectScratch.clean(SEL_SVM_B);
     }
 
     // The store is basename-agnostic: a `local-<chainId>` anvil selectorName is a valid, isolated store
     // key (gitignored via project/local-*.json), so local dev chains never collide.
+    // Deliberate exception to the "tests write only zz-scratch-* project names" rule: the assertion IS
+    // the exact `local-31337` basename, so the real name stays — guarded by the setUp() sweep plus the
+    // scoped end-of-test clean below (no bundled chain is named `local-*`, so a leak can only shadow a
+    // real anvil session's own scratch, never a public chain's project state).
     function test_LocalChainIdBasename_IsolatedStoreKey() public {
         address a = address(0xabCd567890aBcdef1234567890AbcDef12345678);
         RegistryWriter.recordDeterministic(SEL_LOCAL, "token", "L_Token", a);
         assertEq(ProjectStore.path(SEL_LOCAL), string.concat(vm.projectRoot(), "/project/local-31337.json"), "path");
         assertEq(RegistryWriter.read(SEL_LOCAL, "token"), a, "local-<chainId> basename round-trips");
+        ProjectScratch.clean(SEL_LOCAL);
     }
 
     // ---------------------------------------------------------------- store-resolved feeds applyChainUpdates
@@ -195,18 +220,19 @@ contract StringStoreNonEvmTest is Test {
     function test_StoreResolvedSvmRemote_FeedsApplyChainUpdatesEncoding() public {
         // Precondition: no DEST_TOKEN_POOL override, so the store is the resolution source.
         if (bytes(vm.envOr("DEST_TOKEN_POOL", string(""))).length != 0) vm.skip(true);
-        ProjectScratch.seedConfig(SEL_SVM, "svm", 0, SEL_SVM_SELECTOR);
-        RegistryWriter.recordDeterministicString(SEL_SVM, "tokenPool", "P_pool", SVM_POOL);
+        ProjectScratch.seedConfig(SEL_SVM_RES, "svm", 0, SEL_RES_SELECTOR);
+        RegistryWriter.recordDeterministicString(SEL_SVM_RES, "tokenPool", "P_pool", SVM_POOL);
 
         // HelperConfig discovers the svm scratch chain and caches its base58 artifact (store, no env).
         HelperConfig hc = new HelperConfig();
-        string memory resolved = hc.getDeployedTokenPoolString(SEL_SVM);
+        string memory resolved = hc.getDeployedTokenPoolString(SEL_SVM_RES);
         assertEq(resolved, SVM_POOL, "store-resolved base58 remote (no env)");
 
         // The exact ApplyChainUpdates encoding of the store-resolved remote is 32 raw bytes.
         bytes memory encoded = ChainHandlers.prepareChainAddressData(resolved, ChainHandlers.ChainFamily.SVM);
         assertEq(encoded.length, 32, "SVM remote encodes to exactly 32 bytes for applyChainUpdates");
         assertEq(keccak256(encoded), keccak256(_pythonDecodedSvmPool()), "encoded bytes != independent base58 decode");
+        ProjectScratch.clean(SEL_SVM_RES);
     }
 
     /// @dev The independent (Python) base58 decode of SVM_POOL (ALh3xpZtujrfYZSiURBEHpeBFnzZEH37nY4BA4EHiiB5),
@@ -224,6 +250,7 @@ contract StringStoreNonEvmTest is Test {
         new AdoptToken().runNonEvm(SEL_ADOPT, SVM_TOKEN, SVM_POOL);
         assertEq(RegistryWriter.readString(SEL_ADOPT, "token"), SVM_TOKEN, "runNonEvm declared the base58 token");
         assertEq(RegistryWriter.readString(SEL_ADOPT, "tokenPool"), SVM_POOL, "runNonEvm declared the base58 pool");
+        ProjectScratch.clean(SEL_ADOPT);
     }
 
     // runNonEvm REFUSES an EVM chain (points at the address-typed run path).

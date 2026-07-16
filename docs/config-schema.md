@@ -149,6 +149,17 @@ chain-level `ccvThreshold`) moved with the subtree to the project store - see
 > `chainNameIdentifier` and `rpcEnv` it generated** in its next-steps output. Override at generation
 > time with the `CHAIN_NAME_IDENTIFIER` / `RPC_ENV` env vars; these keys are hand-authored thereafter
 > (the sync never rewrites them).
+>
+> **Digit-leading identifiers are not valid shell names.** The bundled `0g-testnet-galileo-1` carries
+> `chainNameIdentifier: 0G_GALILEO_TESTNET`, so its `<ID>_*` override vars (`0G_GALILEO_TESTNET_TOKEN`,
+> `0G_GALILEO_TESTNET_TOKEN_POOL`, ...) are digit-leading: `export 0G_...=` is refused by the shell, and
+> forge's `.env` autoload silently stops parsing the file at a digit-leading key (every later `.env`
+> line is then ignored too). Its `rpcEnv` is already the hand-curated shell-safe `ZERO_G_TESTNET_RPC_URL`
+> and belongs in `.env` as usual. Do not put `0G_...=` lines in `.env`; pass such vars inline via `env`:
+> `env '0G_GALILEO_TESTNET_TOKEN=0x...' forge script ...`. The deeper fix - a shell-safe
+> `chainNameIdentifier` alias (e.g. `ZERO_G_GALILEO_TESTNET`) for the bundled chain - is a breaking
+> rename and out of scope here; for a NEW chain pick one up front via `CHAIN_NAME_IDENTIFIER=` at
+> `add-chain` time.
 
 > **Big integers are quoted STRINGS.** `chainSelector` (uint64) and `chainId` exceed JSON's safe integer
 > range (2^53), so they are stored as quoted decimals and read with `vm.parseJsonUint`, which parses

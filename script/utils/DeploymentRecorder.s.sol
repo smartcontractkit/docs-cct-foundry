@@ -2,6 +2,7 @@
 pragma solidity 0.8.24;
 
 import {Vm} from "forge-std/Vm.sol";
+import {VmSafe} from "forge-std/Vm.sol";
 import {DeploymentUtils} from "./DeploymentUtils.s.sol";
 import {RegistryWriter} from "../../src/utils/RegistryWriter.sol";
 
@@ -11,11 +12,16 @@ import {RegistryWriter} from "../../src/utils/RegistryWriter.sol";
 /// `history/<category>/<selectorName>/` AND (b) upserts the address into the `addresses{}` sub-store of
 /// `project/<selectorName>.json` via `RegistryWriter` (`deployments[name]` + `active[role]`). Routing
 /// both writes through one call keeps the two stores from drifting. Both stores key by the canonical
-/// **selectorName**; the ledger file BODY keys by `chainNameIdentifier`, so each call passes both.
+/// **selectorName**. The token, pool, and lock-box ledger file bodies key by `chainNameIdentifier`
+/// (those calls pass both); the hooks ledger names its file by symbol + poolType and carries a fixed
+/// `POOL_HOOKS` body key, so `recordPoolHooks` takes no `chainNameIdentifier`.
 ///
 /// @dev The registry half is context-aware (via `RegistryWriter.record`): it no-ops under `forge test`
 /// and on a dry-run `forge script`, and writes only on `--broadcast`/`--resume`. The ledger half
-/// (`DeploymentUtils.save*`) always writes. The `deployments` key is composed here from the same symbol
+/// (`DeploymentUtils.save*`) writes on every SCRIPT run (dry-run included) but no-ops under
+/// `forge test` - the fork fixtures run the real deploy scripts, and an unguarded ledger write strands
+/// timestamped `history/<cat>/ethereum-testnet-sepolia/` files on every test run (the CI residue gate
+/// catches it). Ledger behavior itself is tested through `DeploymentUtils.save*` directly. The `deployments` key is composed here from the same symbol
 /// the ledger file is named with (`DeploymentUtils.getSymbol`), so the key and the filename agree.
 ///
 /// Keying:
@@ -39,7 +45,9 @@ library DeploymentRecorder {
         string memory symbol,
         address tokenAddress
     ) internal {
-        DeploymentUtils.saveTokenDeployment(vm, selectorName, chainNameIdentifier, symbol, tokenAddress);
+        if (!vm.isContext(VmSafe.ForgeContext.TestGroup)) {
+            DeploymentUtils.saveTokenDeployment(vm, selectorName, chainNameIdentifier, symbol, tokenAddress);
+        }
         RegistryWriter.record(selectorName, "token", tokenName(symbol), tokenAddress);
     }
 
@@ -53,9 +61,11 @@ library DeploymentRecorder {
         address tokenAddress,
         string memory poolType
     ) internal {
-        DeploymentUtils.saveTokenPoolDeployment(
-            vm, selectorName, chainNameIdentifier, tokenPoolAddress, tokenAddress, poolType
-        );
+        if (!vm.isContext(VmSafe.ForgeContext.TestGroup)) {
+            DeploymentUtils.saveTokenPoolDeployment(
+                vm, selectorName, chainNameIdentifier, tokenPoolAddress, tokenAddress, poolType
+            );
+        }
         string memory symbol = DeploymentUtils.getSymbol(vm, tokenAddress);
         RegistryWriter.record(selectorName, "tokenPool", poolName(symbol, poolType), tokenPoolAddress);
     }
@@ -71,9 +81,11 @@ library DeploymentRecorder {
         address lockBox,
         string memory poolType
     ) internal {
-        DeploymentUtils.saveLockReleaseTokenPoolDeployment(
-            vm, selectorName, chainNameIdentifier, tokenPoolAddress, tokenAddress, lockBox, poolType
-        );
+        if (!vm.isContext(VmSafe.ForgeContext.TestGroup)) {
+            DeploymentUtils.saveLockReleaseTokenPoolDeployment(
+                vm, selectorName, chainNameIdentifier, tokenPoolAddress, tokenAddress, lockBox, poolType
+            );
+        }
         string memory symbol = DeploymentUtils.getSymbol(vm, tokenAddress);
         RegistryWriter.record(selectorName, "tokenPool", poolName(symbol, poolType), tokenPoolAddress);
     }
@@ -86,7 +98,9 @@ library DeploymentRecorder {
         address lockBoxAddress,
         address tokenAddress
     ) internal {
-        DeploymentUtils.saveLockBoxDeployment(vm, selectorName, chainNameIdentifier, lockBoxAddress, tokenAddress);
+        if (!vm.isContext(VmSafe.ForgeContext.TestGroup)) {
+            DeploymentUtils.saveLockBoxDeployment(vm, selectorName, chainNameIdentifier, lockBoxAddress, tokenAddress);
+        }
         string memory symbol = DeploymentUtils.getSymbol(vm, tokenAddress);
         RegistryWriter.record(selectorName, "lockBox", lockBoxName(symbol), lockBoxAddress);
     }
@@ -102,7 +116,9 @@ library DeploymentRecorder {
         string memory poolType
     ) internal {
         string memory symbol = DeploymentUtils.getSymbol(vm, tokenAddress);
-        DeploymentUtils.savePoolHooksDeployment(vm, selectorName, symbol, poolType, hooksAddress);
+        if (!vm.isContext(VmSafe.ForgeContext.TestGroup)) {
+            DeploymentUtils.savePoolHooksDeployment(vm, selectorName, symbol, poolType, hooksAddress);
+        }
         RegistryWriter.record(selectorName, "poolHooks", hooksName(symbol, poolType), hooksAddress);
     }
 

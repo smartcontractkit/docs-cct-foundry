@@ -20,6 +20,18 @@ contract DynamicChainDiscoveryTest is Test {
     string internal constant SCRATCH_NAME = "zz-scratch-dynamic";
     string internal constant SCRATCH_IDENTIFIER = "ZZ_SCRATCH_DYNAMIC";
 
+    function setUp() public {
+        _clean();
+    }
+
+    /// @dev Removes the scratch chain config. The setUp() call is the revert-safe guarantee (a failed
+    /// test leaves the file for inspection until the next run); the end-of-test call keeps a green
+    /// run residue-free.
+    function _clean() private {
+        string memory path = string.concat(vm.projectRoot(), "/config/chains/", SCRATCH_NAME, ".json");
+        if (vm.exists(path)) vm.removeFile(path);
+    }
+
     /// @dev Writes the scratch `config/chains/<SCRATCH_NAME>.json` in the exact shape
     /// `make add-chain` generates, returning its absolute path so the test can remove it.
     function _writeScratchChain() internal returns (string memory path) {
@@ -63,7 +75,7 @@ contract DynamicChainDiscoveryTest is Test {
     }
 
     function test_NewChainConfigFile_ResolvesEverywhereWithoutSolidityChange() public {
-        string memory path = _writeScratchChain();
+        _writeScratchChain();
         HelperConfig helperConfig = new HelperConfig();
 
         // getNetworkConfig(chainId) — the directory-scan fallback resolves every field
@@ -99,8 +111,7 @@ contract DynamicChainDiscoveryTest is Test {
         }
         assertTrue(foundScratch, "scratch chain enumerated");
         assertTrue(foundSepolia, "committed chains still enumerated");
-
-        vm.removeFile(path);
+        _clean();
     }
 
     function test_UnknownChain_StillFailsExactlyAsBefore() public {

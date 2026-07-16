@@ -30,6 +30,14 @@ contract ProjectCanonicalTest is Test {
     address internal constant MIXED = address(0xabCDeF0123456789AbcdEf0123456789aBCDEF01);
 
     function setUp() public {
+        _clean();
+    }
+
+    /// @dev Sweeps this suite's scratch fixtures from setUp(): the revert-safe guarantee (a failed
+    /// test leaves its fixtures for inspection until the next run). Each test additionally removes
+    /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
+    /// run leaves no residue.
+    function _clean() private {
         ProjectScratch.clean(SEL_BYTE);
         ProjectScratch.clean(SEL_JQ);
         ProjectScratch.clean(SEL_NOOP);
@@ -61,6 +69,7 @@ contract ProjectCanonicalTest is Test {
         );
         assertEq(got, expected, "writer output is not the 2-space sorted no-trailing-newline canonical form");
         assertTrue(bytes(got)[bytes(got).length - 1] != 0x0a, "canonical project file must have NO trailing newline");
+        ProjectScratch.clean(SEL_BYTE);
     }
 
     /// @dev The acceptance-listed equivalence: writer output == `jq --indent 2 -S .` with the trailing
@@ -68,6 +77,9 @@ contract ProjectCanonicalTest is Test {
     /// here we compare `readFile` (no trailing NL) to `jq` stdout with any trailing "\n" trimmed. ffi is
     /// off in the default profile, so a jq/ffi-unavailable run SKIPs with a NAMED reason.
     function test_WriterOutput_MatchesJqSortedIndent2_FfiGated() public {
+        // Probe ffi availability BEFORE any write: a mid-body vm.skip strands the scratch file
+        // (a plain `forge test` has ffi off, and the CI residue gate catches the leak).
+        _skipUnlessFfi();
         RegistryWriter.recordDeterministic(SEL_JQ, "token", "SYM_Token", TOKEN);
         RegistryWriter.recordDeterministic(SEL_JQ, "tokenPool", "SYM_BurnMintTokenPool_2.0.0", POOL);
         string memory path = ProjectStore.path(SEL_JQ);
@@ -92,11 +104,26 @@ contract ProjectCanonicalTest is Test {
             emit log_string("SKIP: ffi/jq unavailable (default profile has ffi off) - jq golden not run");
             vm.skip(true);
         }
+        ProjectScratch.clean(SEL_JQ);
     }
 
     /// @dev External wrapper so the ffi call can be `try`-caught (an internal ffi revert is not catchable).
     function runFfi(string[] calldata cmd) external returns (bytes memory) {
         return vm.ffi(cmd);
+    }
+
+    /// @dev Named SKIP unless ffi is available - probed with a trivial command so the caller can gate
+    /// BEFORE writing any fixture (a post-write vm.skip leaks the fixture past the end-of-test clean).
+    function _skipUnlessFfi() internal {
+        // `jq --version` probes BOTH gates at once: ffi off reverts, and so does a missing jq.
+        string[] memory probe = new string[](2);
+        probe[0] = "jq";
+        probe[1] = "--version";
+        try this.runFfi(probe) {}
+        catch {
+            emit log_string("SKIP: ffi/jq unavailable (default profile has ffi off) - jq golden not run");
+            vm.skip(true);
+        }
     }
 
     /// @dev No-op re-write byte-identity (the shasum idiom, no `make`): recording the SAME entries a
@@ -114,6 +141,7 @@ contract ProjectCanonicalTest is Test {
             before,
             "a no-op re-write mutated the file (must be byte-identical - zero git diff)"
         );
+        ProjectScratch.clean(SEL_NOOP);
     }
 
     /// @dev Edge keys stay canonical: a mixed-case (EIP-55) hex value is emitted VERBATIM (not
@@ -142,6 +170,7 @@ contract ProjectCanonicalTest is Test {
         assertTrue(_contains(got, '"roles": {}'), "empty roles subtree must serialize as {}");
         assertEq(vm.parseJsonUint(got, ".schema"), ProjectStore.SCHEMA, "schema 3 stamped");
         assertTrue(bytes(got)[bytes(got).length - 1] != 0x0a, "no trailing newline");
+        ProjectScratch.clean(SEL_EDGE);
     }
 
     /// @dev The committed example ships in the exact canonical form: schema-3, no trailing newline, and
@@ -177,6 +206,7 @@ contract ProjectCanonicalTest is Test {
         } catch {
             emit log_string("SKIP: ffi/jq unavailable - committed-example jq golden not run");
         }
+        ProjectScratch.clean(SEL_EXAMPLE);
     }
 
     function _trimTrailingNewline(string memory s) internal pure returns (string memory) {

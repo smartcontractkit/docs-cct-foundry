@@ -26,12 +26,26 @@ contract VerifyChainAnchorDriftTest is Test {
     string internal constant SEL_DRIFT = "zz-scratch-anchordrift-drift";
 
     function setUp() public {
-        // Cleanup before every test, never at the end of a happy path a failing assertion would skip.
+        _clean();
+    }
+
+    /// @dev Sweeps this suite's scratch fixtures from setUp(): the revert-safe guarantee (a failed
+    /// test leaves its fixtures for inspection until the next run). Each test additionally removes
+    /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
+    /// run leaves no residue.
+    function _clean() private {
         string[4] memory sels = [SEL_MATCH, SEL_NOACTIVE, SEL_NOANCHOR, SEL_DRIFT];
         for (uint256 i = 0; i < sels.length; i++) {
             string memory p = ProjectStore.path(sels[i]);
             if (vm.exists(p)) vm.removeFile(p);
         }
+    }
+
+    /// @dev Per-name variant for end-of-test cleanup (a test removes ONLY the file it owns; suite
+    /// siblings run in parallel).
+    function _clean(string memory sel) private {
+        string memory p = ProjectStore.path(sel);
+        if (vm.exists(p)) vm.removeFile(p);
     }
 
     /// @dev Writes a schema-3 project store for `name` with the given `active{}` and `roles{}` bodies
@@ -72,6 +86,7 @@ contract VerifyChainAnchorDriftTest is Test {
         (uint256 fails, uint256 warns) = new VerifyChain().warnAnchorDriftForTest(SEL_MATCH);
         assertEq(fails, 0, "anchor drift is WARN-only, never FAIL");
         assertEq(warns, 0, "matching anchors must be silent");
+        _clean(SEL_MATCH);
     }
 
     // ------------------------------------------------------------ clean: no active pointer → silent
@@ -84,6 +99,7 @@ contract VerifyChainAnchorDriftTest is Test {
         (uint256 fails, uint256 warns) = new VerifyChain().warnAnchorDriftForTest(SEL_NOACTIVE);
         assertEq(fails, 0, "no-active-pointer must never FAIL");
         assertEq(warns, 0, "an anchor with no active pointer to compare against is silent");
+        _clean(SEL_NOACTIVE);
     }
 
     // ------------------------------------------------------------ clean: anchor absent → silent
@@ -95,6 +111,7 @@ contract VerifyChainAnchorDriftTest is Test {
         (uint256 fails, uint256 warns) = new VerifyChain().warnAnchorDriftForTest(SEL_NOANCHOR);
         assertEq(fails, 0, "an absent anchor must never FAIL");
         assertEq(warns, 0, "no declared anchor means nothing to reconcile - silent");
+        _clean(SEL_NOANCHOR);
     }
 
     // ------------------------------------------------------------ induced: anchor != active → 1 WARN
@@ -110,5 +127,6 @@ contract VerifyChainAnchorDriftTest is Test {
         (uint256 fails, uint256 warns) = new VerifyChain().warnAnchorDriftForTest(SEL_DRIFT);
         assertEq(fails, 0, "a drifted anchor must never FAIL (WARN-only)");
         assertEq(warns, 1, "a token anchor diverging from active.token must emit exactly one WARN");
+        _clean(SEL_DRIFT);
     }
 }

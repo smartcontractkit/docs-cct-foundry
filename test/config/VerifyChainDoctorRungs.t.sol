@@ -30,6 +30,14 @@ contract VerifyChainDoctorRungsTest is Test {
     string internal constant SEL_EQ_COMPACT = "zz-scratch-doctor-eqcompact";
 
     function setUp() public {
+        _clean();
+    }
+
+    /// @dev Sweeps this suite's scratch fixtures from setUp(): the revert-safe guarantee (a failed
+    /// test leaves its fixtures for inspection until the next run). Each test additionally removes
+    /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
+    /// run leaves no residue.
+    function _clean() private {
         string[4] memory sels = [SEL_CLEAN, SEL_MISSING, SEL_NOBNM, SEL_EQ_CANON];
         for (uint256 i = 0; i < sels.length; i++) {
             _clean(sels[i]);
@@ -117,6 +125,7 @@ contract VerifyChainDoctorRungsTest is Test {
         (bool isEvm, uint256 fails,) = new VerifyChain().checkSchemaForTest(SEL_CLEAN);
         assertTrue(isEvm, "synth config is EVM");
         assertEq(fails, 0, "a complete synth config (no ccipBnM) must PASS the schema rung");
+        _clean(SEL_CLEAN);
     }
 
     // ------------------------------------------------------------ schema rung: induced FAIL
@@ -130,6 +139,7 @@ contract VerifyChainDoctorRungsTest is Test {
         _writeConfig(SEL_MISSING, 889_100_002, 8_891_000_020_000_000_001, "rpcEnv");
         (, uint256 fails,) = new VerifyChain().checkSchemaForTest(SEL_MISSING);
         assertGt(fails, 0, "a config missing a required key must FAIL the schema rung (naming the key)");
+        _clean(SEL_MISSING);
     }
 
     // ------------------------------------------------------------ schema rung: ccipBnM non-regression
@@ -142,6 +152,7 @@ contract VerifyChainDoctorRungsTest is Test {
         assertFalse(vm.keyExistsJson(json, ".ccipBnM"), "precondition: config carries NO ccipBnM key");
         (, uint256 fails,) = new VerifyChain().checkSchemaForTest(SEL_NOBNM);
         assertEq(fails, 0, "a config without ccipBnM must PASS the schema rung");
+        _clean(SEL_NOBNM);
     }
 
     // ------------------------------------------------------------ whole-doctor verdict equivalence
@@ -165,6 +176,8 @@ contract VerifyChainDoctorRungsTest is Test {
         assertEq(wA, wB, "WARN tally must be identical across the two representations of the same tree");
         // And the equivalent healthy tree is actually healthy (0 FAIL), not equally-broken.
         assertEq(fA, 0, "the equivalent healthy new-layout tree must have ZERO doctor FAILs");
+        _clean(SEL_EQ_CANON);
+        _clean(SEL_EQ_COMPACT);
     }
 
     /// @dev The offline doctor tally: schema + stray-state (both read the CONFIG) + mesh (reads the

@@ -652,9 +652,9 @@ contract VerifyChain is Script {
                 string.concat(
                     "registry: deployments{} holds ",
                     vm.toString(pools),
-                    " token pools but active.tokenPool points at ONE - a no-override run resolves that one for every token. Give each token its own group (the durable fix): GROUP=<g> make adopt-token CHAIN=", // durable fix
+                    " token pools but active.tokenPool points at ONE - a no-override run resolves that one for every token. Give each token its own group (the durable fix): make adopt-token CHAIN=", // durable fix
                     name,
-                    " TOKEN=<addr> TOKEN_POOL=<addr>; or for a one-off, pass {CHAIN}_TOKEN_POOL to target a specific pool (see docs/deployed-addresses.md)"
+                    " TOKEN=<addr> TOKEN_POOL=<addr> GROUP=<g>; or for a one-off, pass {CHAIN}_TOKEN_POOL to target a specific pool (see docs/deployed-addresses.md)"
                 )
             );
         }

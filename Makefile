@@ -23,13 +23,13 @@ SYNC_SCRIPT := script/config/SyncCcipConfig.s.sol
 GROUP_DIR := $(if $(GROUP),$(GROUP)/,)
 
 .DEFAULT_GOAL := help
-.PHONY: adopt-token help tools discover add-chain add-lane remove-lane sync sync-preview sync-all sync-check doctor fmt-config snapshot-chain roles-check roles-check-all
+.PHONY: adopt-token help tools discover add-chain add-lane remove-lane sync sync-preview sync-all sync-check doctor fmt-config clean-scratch snapshot-chain roles-check roles-check-all
 
 # Recipe-time guard: the CHAIN's config file must exist (helpful list + add-chain hint on a miss).
 define require-chain-config
 	@test -f "$(CONFIG_DIR)/$(CHAIN).json" || { \
 		echo "unknown chain '$(CHAIN)' - known chains: $(KNOWN_CHAINS)"; \
-		echo "New chain? make add-chain CHAIN=<local-short-name> SELECTOR=<from 'make discover'>"; \
+		echo "New chain? make add-chain CHAIN=<selectorName> SELECTOR=<selector> (both from the 'make discover' API NAME + SELECTOR columns)"; \
 		exit 1; }
 endef
 
@@ -53,7 +53,7 @@ endef
 
 help: ## List the available targets
 	@echo "Chain-config tooling golden path (raw commands: README.md > Chain config tooling):"
-	@awk 'BEGIN {FS = ":.*## "} /^[a-z][a-z-]*:.*## / {printf "  %-14s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*## "} /^[a-z][a-z-]*:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 tools: ## Check the required tools are installed (forge, curl, jq)
 	@command -v forge > /dev/null || { echo "missing: forge - install Foundry: https://book.getfoundry.sh/getting-started/installation"; exit 2; }
@@ -65,7 +65,7 @@ discover: tools ## List the CCIP API testnet catalog vs local configs (FILTER=<t
 	@FILTER="$(FILTER)" bash script/config/sync-discover.sh
 
 add-chain: tools ## Generate config/chains/<CHAIN>.json from the live API (CHAIN= and SELECTOR= required)
-	$(if $(CHAIN),,$(error CHAIN is required: make add-chain CHAIN=<local-short-name> SELECTOR=<selector>))
+	$(if $(CHAIN),,$(error CHAIN is required: make add-chain CHAIN=<selectorName> SELECTOR=<selector> - both from the make discover API NAME + SELECTOR columns))
 	$(if $(SELECTOR),,$(error SELECTOR is required - find it with: make discover FILTER=<term>))
 	FOUNDRY_PROFILE=sync forge script $(SYNC_SCRIPT) --sig "init(string,uint256)" "$(CHAIN)" "$(SELECTOR)"
 	$(canon-chain-config)
@@ -84,7 +84,7 @@ endif
 	@for c in "$(LOCAL)" "$(REMOTE)"; do \
 		test -f "$(CONFIG_DIR)/$$c.json" || { \
 			echo "unknown chain '$$c' - known chains: $(KNOWN_CHAINS)"; \
-			echo "New chain? make add-chain CHAIN=<local-short-name> SELECTOR=<from 'make discover'>"; \
+			echo "New chain? make add-chain CHAIN=<selectorName> SELECTOR=<selector> (both from the 'make discover' API NAME + SELECTOR columns)"; \
 			exit 1; }; \
 	done
 ifdef INBOUND_CAPACITY
@@ -160,6 +160,13 @@ fmt-config: tools ## Repair canonical JSON: config/chains/*.json (jq -S + traili
 		tmp="$$(mktemp)" && jq --indent 2 -S . "$$f" > "$$tmp" && printf '%s' "$$(cat "$$tmp")" > "$$f" && rm -f "$$tmp"; \
 	done; \
 	echo "fmt-config: canonicalized $(CONFIG_DIR)/*.json and project files (all groups)"
+
+# Explicit patterns only - NEVER `git clean -X` here: the user's REAL project/history state is
+# gitignored by design, so an ignore-based sweep would delete live project files along with scratch.
+clean-scratch: ## Remove gitignored test-scratch fixtures (zz-scratch-*, zz-tt-*, local-*) from config/chains/, project/ and history/
+	@rm -f $(CONFIG_DIR)/zz-scratch-*.json project/zz-scratch-*.json project/local-*.json
+	@rm -rf project/zz-scratch-*/ project/zz-tt-*/ history/*/zz-scratch-*
+	@echo "clean-scratch: removed test-scratch fixtures from $(CONFIG_DIR)/, project/ and history/"
 
 sync-check: tools ## Read-only drift check (CHAIN= optional; pass/fail only - CI uses the script for 0/1/2)
 	@bash script/config/sync-check.sh $(CHAIN)

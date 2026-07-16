@@ -60,8 +60,15 @@ contract ApplyChainUpdatesLaneSourceTest is LaneReconcileScratch {
     LaneSourceHarness internal harness;
 
     function setUp() public {
-        // Delete leftover scratch files from a prior aborted run: cleanup happens before every
-        // test, never at the end of a happy path a failing assertion would skip.
+        _clean();
+        harness = new LaneSourceHarness();
+    }
+
+    /// @dev Sweeps this suite's scratch fixtures from setUp(): the revert-safe guarantee (a failed
+    /// test leaves its fixtures for inspection until the next run). Each test additionally removes
+    /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
+    /// run leaves no residue.
+    function _clean() private {
         string[] memory names = new string[](17);
         for (uint256 n = 1; n <= 14; n++) {
             names[n - 1] = string.concat("zz-scratch-lanesrc-l", vm.toString(n));
@@ -70,7 +77,6 @@ contract ApplyChainUpdatesLaneSourceTest is LaneReconcileScratch {
         names[15] = "zz-scratch-lanesrc-r6";
         names[16] = "zz-scratch-lanesrc-r12";
         _cleanupScratch(names);
-        harness = new LaneSourceHarness();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -144,7 +150,7 @@ contract ApplyChainUpdatesLaneSourceTest is LaneReconcileScratch {
         assertTrue(res.addLaneHint, "env apply with an undeclared lane must hint");
         assertEq(res.addLaneCommand, _expectedCommand(local, "zz-scratch-lanesrc-r1"), "hint command");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
         vm.removeFile(_path("zz-scratch-lanesrc-r1"));
     }
 
@@ -163,7 +169,7 @@ contract ApplyChainUpdatesLaneSourceTest is LaneReconcileScratch {
         assertFalse(res.outboundDiverges, "agreeing env values must not flag divergence");
         assertFalse(res.addLaneHint, "an agreeing declaration needs no hint");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // Env set, lanes{} entry DIVERGES: env wins (buckets == env), divergence detected, and the
@@ -186,7 +192,7 @@ contract ApplyChainUpdatesLaneSourceTest is LaneReconcileScratch {
             res.addLaneCommand, _expectedCommand(local, "zz-scratch-lanesrc-remote3"), "hint carries applied values"
         );
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // ENABLED=false alone is an env override too (incident response: explicitly disable): env wins
@@ -204,7 +210,7 @@ contract ApplyChainUpdatesLaneSourceTest is LaneReconcileScratch {
         assertTrue(res.outboundDiverges, "disabled override vs enabled declaration must diverge");
         assertTrue(res.addLaneHint, "divergence must hint");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // CAPACITY alone: isEnabled defaults to true and the unset RATE reads 0 — the exact historical
@@ -219,7 +225,7 @@ contract ApplyChainUpdatesLaneSourceTest is LaneReconcileScratch {
         _assertBucket(res.inbound, false, 0, 0);
         assertTrue(res.outboundFromEnv, "CAPACITY alone must select the env rung");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // Env inbound enabled and no lane entry: the hint includes the INBOUND pair.
@@ -245,7 +251,7 @@ contract ApplyChainUpdatesLaneSourceTest is LaneReconcileScratch {
             "hint must carry the applied inbound pair"
         );
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
         vm.removeFile(_path("zz-scratch-lanesrc-r12"));
     }
 
@@ -283,7 +289,7 @@ contract ApplyChainUpdatesLaneSourceTest is LaneReconcileScratch {
         assertFalse(res.outboundDiverges, "nothing to diverge without an env override");
         assertFalse(res.addLaneHint, "a lanes{}-sourced apply is already consistent");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // Lane entry with an inbound{} block: both buckets from lanes{}. No hint (state d).
@@ -309,7 +315,7 @@ contract ApplyChainUpdatesLaneSourceTest is LaneReconcileScratch {
         assertTrue(res.inboundFromLanes, "declared inbound{} must drive the inbound bucket");
         assertFalse(res.addLaneHint, "a lanes{}-sourced apply is already consistent");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // A declared 0/0 bucket is declared-disabled (enabled iff capacity or rate non-zero — the same
@@ -324,7 +330,7 @@ contract ApplyChainUpdatesLaneSourceTest is LaneReconcileScratch {
         _assertBucket(res.outbound, false, 0, 0);
         assertTrue(res.outboundFromLanes, "declared-disabled still comes from lanes{}");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // Mixed: outbound env override agreeing with the declaration, inbound resolved from the
@@ -353,7 +359,7 @@ contract ApplyChainUpdatesLaneSourceTest is LaneReconcileScratch {
         assertFalse(res.outboundDiverges, "agreeing override must not diverge");
         assertFalse(res.addLaneHint, "nothing diverges, no hint");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -374,7 +380,7 @@ contract ApplyChainUpdatesLaneSourceTest is LaneReconcileScratch {
         assertTrue(res.configFound, "local config still discovered");
         assertFalse(res.addLaneHint, "no env-driven apply, no hint");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -397,7 +403,7 @@ contract ApplyChainUpdatesLaneSourceTest is LaneReconcileScratch {
         assertEq(res.lane.key, "zz-scratch-lanesrc-r6", "wrong lane key matched");
         _assertBucket(res.outbound, true, LANE_CAPACITY, LANE_RATE);
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
         vm.removeFile(_path("zz-scratch-lanesrc-r6"));
     }
 
@@ -413,6 +419,6 @@ contract ApplyChainUpdatesLaneSourceTest is LaneReconcileScratch {
         assertEq(res.lane.key, "zz-scratch-lanesrc-ghost8", "wrong lane key matched");
         _assertBucket(res.outbound, true, LANE_CAPACITY, LANE_RATE);
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 }

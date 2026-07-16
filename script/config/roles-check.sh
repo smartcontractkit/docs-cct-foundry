@@ -17,8 +17,26 @@ set -uo pipefail
 
 cd "$(dirname "$0")/../.."
 
-# shellcheck disable=SC1091
-[ -f ./.env ] && { set -a && source ./.env && set +a; }
+# .env fills gaps only — a var already set by the caller wins (callers inject e.g. a chain RPC
+# override; plain source-after-inject would clobber it with the .env value).
+if [ -f ./.env ]; then
+    declare -a _preset_keys=() _preset_vals=()
+    while IFS= read -r _line; do
+        case "$_line" in '' | \#*) continue ;; esac
+        _line="${_line#export }"
+        _k="${_line%%=*}"
+        case "$_k" in *[!A-Za-z0-9_]* | '') continue ;; esac
+        if [ -n "${!_k+x}" ]; then
+            _preset_keys+=("$_k")
+            _preset_vals+=("${!_k}")
+        fi
+    done < ./.env
+    # shellcheck disable=SC1091
+    set -a && source ./.env && set +a
+    for _i in "${!_preset_keys[@]}"; do
+        export "${_preset_keys[$_i]}=${_preset_vals[$_i]}"
+    done
+fi
 
 # project store path for (group, chain); empty group = the flat default group.
 group_file() { if [ -z "$1" ]; then echo "project/$2.json"; else echo "project/$1/$2.json"; fi; }
@@ -105,7 +123,7 @@ for i in "${!pair_chain[@]}"; do
     # default profile already grants the fs read it uses. PROJECT_GROUP selects the group's project store.
     out="$(PROJECT_GROUP="$g" forge script script/config/RolesCheck.s.sol --sig "run(string)" "$name" 2>&1)"
     status=$?
-    echo "$out" | grep -q "NO_ROLES_DECLARED" || reconciled=$((reconciled + 1))
+    grep -q "NO_ROLES_DECLARED" <<< "$out" || reconciled=$((reconciled + 1))
     matched="$(echo "$out" | grep -E "\[PASS\]|\[FAIL\]|\[WARN\]|\[SKIP\]|CLEAN|ROLES_DRIFT|RPC_UNAVAILABLE|NO_ROLES_DECLARED|unknown chain" || true)"
     if [ -n "$matched" ]; then
         echo "$matched" | sed "s/^/[group: $label] /"
@@ -114,7 +132,7 @@ for i in "${!pair_chain[@]}"; do
         echo "$out" | tail -n 5 | sed "s/^/[group: $label] /"
     fi
     if [ $status -ne 0 ]; then
-        if echo "$out" | grep -q "RPC_UNAVAILABLE"; then
+        if grep -q "RPC_UNAVAILABLE" <<< "$out"; then
             unreachable=1
             flaked+=("$label/$name")
         else

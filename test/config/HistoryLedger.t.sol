@@ -43,6 +43,14 @@ contract HistoryLedgerTest is Test {
     string internal constant CNI = "ETHEREUM_SEPOLIA";
 
     function setUp() public {
+        _clean();
+    }
+
+    /// @dev Sweeps this suite's scratch fixtures from setUp(): the revert-safe guarantee (a failed
+    /// test leaves its fixtures for inspection until the next run). Each test additionally removes
+    /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
+    /// run leaves no residue.
+    function _clean() private {
         string[4] memory sels = [SEL_GOLDEN, SEL_SVM, SEL_APPEND, SEL_POOL];
         for (uint256 i = 0; i < sels.length; i++) {
             ProjectScratch.cleanHistory(sels[i]);
@@ -73,6 +81,7 @@ contract HistoryLedgerTest is Test {
         assertTrue(bytes(got)[bytes(got).length - 1] != 0x0a, "ledger body must have NO trailing newline");
         // The body carries the address only — NO timestamp leaks into content (clock is filename-only).
         assertFalse(_contains(got, vm.toString(T1)), "the timestamp must NOT appear in the body (filename-only)");
+        ProjectScratch.cleanHistory(SEL_GOLDEN);
     }
 
     /// @dev The two-address token-pool artifact: both `<CNI>_TOKEN_POOL` and `<CNI>_TOKEN` keys resolve;
@@ -92,6 +101,7 @@ contract HistoryLedgerTest is Test {
         assertEq(vm.parseJsonAddress(got, string.concat(".", CNI, "_TOKEN_POOL")), POOL, "pool key resolves");
         assertEq(vm.parseJsonAddress(got, string.concat(".", CNI, "_TOKEN")), token, "token key resolves");
         assertTrue(bytes(got)[bytes(got).length - 1] != 0x0a, "pool ledger body must have NO trailing newline");
+        ProjectScratch.cleanHistory(SEL_POOL);
     }
 
     // ------------------------------------------------------------ (2) selectorName keying, no 0/ dir
@@ -116,6 +126,7 @@ contract HistoryLedgerTest is Test {
                 string.concat("history/", categories[i], "/0/ must NEVER be created (dirs key by selectorName)")
             );
         }
+        ProjectScratch.cleanHistory(SEL_SVM);
     }
 
     // ------------------------------------------------------------ (3) append-only
@@ -147,6 +158,7 @@ contract HistoryLedgerTest is Test {
             2,
             "exactly two append-only files"
         );
+        ProjectScratch.cleanHistory(SEL_APPEND);
     }
 
     function _contains(string memory haystack, string memory needle) internal pure returns (bool) {

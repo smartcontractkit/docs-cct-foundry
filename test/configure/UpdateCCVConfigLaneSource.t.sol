@@ -95,12 +95,20 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
     CCVConfigLaneSourceHarness internal harness;
 
     function setUp() public {
+        _clean();
+        harness = new CCVConfigLaneSourceHarness();
+    }
+
+    /// @dev Sweeps this suite's scratch fixtures from setUp(): the revert-safe guarantee (a failed
+    /// test leaves its fixtures for inspection until the next run). Each test additionally removes
+    /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
+    /// run leaves no residue.
+    function _clean() private {
         string[] memory names = new string[](9);
         for (uint256 n = 1; n <= 9; n++) {
             names[n - 1] = string.concat("zz-scratch-ccvsrc-l", vm.toString(n));
         }
         _cleanupScratch(names);
-        harness = new CCVConfigLaneSourceHarness();
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -151,7 +159,7 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
         assertEq(args[0].thresholdOutboundCCVs.length, 0, "threshold-out preserved");
         assertEq(args[0].thresholdInboundCCVs.length, 0, "threshold-in preserved");
 
-        vm.removeFile(_path(name));
+        _cleanupScratchOne(name);
     }
 
     /// Changing only the CCV arrays leaves the pool-global threshold untouched (not written to 0).
@@ -166,7 +174,7 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
         assertFalse(res.threshold.fromLanes, "threshold not from lanes");
         assertEq(res.threshold.value, 1000, "threshold carries the current on-chain value");
 
-        vm.removeFile(_path(name));
+        _cleanupScratchOne(name);
     }
 
     // ── ladder rungs ────────────────────────────────────────────────────────────
@@ -193,7 +201,7 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
         assertEq(res.fields[2].value[0], LANE2, "inbound is the declared value");
         assertFalse(res.editHint, "lanes-sourced apply does not hint");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     /// Env override diverging (as a SET) from the declaration fires the notice + hand-edit hint,
@@ -240,7 +248,7 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
             "composed diverging edit hint"
         );
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     /// Env-driven apply against a lane whose `v2.ccv` block is UNDECLARED fires the "not declared in"
@@ -273,7 +281,7 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
             "composed not-declared edit hint"
         );
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     /// Inbound-only RMW mirror of the outbound centrepiece: env-setting ONLY inboundCCVs must NOT wipe
@@ -293,7 +301,7 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
         assertEq(args[0].thresholdOutboundCCVs.length, 0, "threshold-out preserved");
         assertEq(args[0].thresholdInboundCCVs.length, 0, "threshold-in preserved");
 
-        vm.removeFile(_path(name));
+        _cleanupScratchOne(name);
     }
 
     /// Threshold rung 2: a chain-level `ccvThreshold` with no env var resolves from lanes{} (fromLanes),
@@ -309,7 +317,7 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
         assertEq(res.threshold.value, 750, "threshold is the declared value");
         assertFalse(res.thresholdHint, "a lanes-sourced threshold does not hint");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     /// Env that agrees with the declaration as a SET (same members, different order) does not diverge.
@@ -327,7 +335,7 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
 
         assertFalse(res.fields[0].diverges, "same set in a different order is not drift");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     function test_Threshold_EnvDivergesFromDeclared_Hint() public {
@@ -364,7 +372,7 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
             "composed threshold edit hint"
         );
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // ── semantic-rule named requires ────────────────────────────────────────────

@@ -15,6 +15,7 @@ jobs:
   build:
     name: forge build
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -30,6 +31,7 @@ jobs:
   fmt:
     name: forge fmt
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: foundry-rs/foundry-toolchain@b00af27efadbc7b4ca8b82abbd903b17cc874d2a # v1.9.0
@@ -40,6 +42,7 @@ jobs:
   lint:
     name: forge lint
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -57,6 +60,7 @@ jobs:
   test:
     name: forge test
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -68,6 +72,16 @@ jobs:
           version: ${{ env.FOUNDRY_VERSION }}
       - run: npm ci
       - run: forge test -vv
+      # A green suite must strand NOTHING in the stores, whatever the filename - tracked, untracked,
+      # or gitignored (a fresh checkout starts with these paths clean, so any entry is test residue).
+      - name: no test residue (any filename)
+        run: |
+          residue="$(git status --porcelain --ignored -- config/chains project history)"
+          if [ -n "$residue" ]; then
+            echo "$residue"
+            echo "test residue: a green forge test must leave the store inventory unchanged"
+            exit 1
+          fi
 
   # The offline partition of the chain-config tooling suite: guards, make-arg preflights, the
   # local-fixture-server sync, the canonical-format checks, and the committed-tree gates (git
@@ -77,6 +91,7 @@ jobs:
   tooling-offline:
     name: config-tooling (offline)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5

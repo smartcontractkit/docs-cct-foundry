@@ -60,6 +60,6 @@ done | awk -F'\t' '{ a[$1] = (a[$1] == "" ? $2 : a[$1] "," $2) } END { for (s in
 } | column -t -s "$(printf '\t')"
 
 echo ""
-echo "onboard one: make add-chain CHAIN=<local-short-name> SELECTOR=<selector>   (FILTER=<term> narrows this list)"
+echo "onboard one: make add-chain CHAIN=<selectorName> SELECTOR=<selector>   (CHAIN = the API NAME column, verbatim; FILTER=<term> narrows this list)"
 echo "        raw: FOUNDRY_PROFILE=sync forge script script/config/SyncCcipConfig.s.sol" \
-    "--sig \"init(string,uint256)\" <local-short-name> <selector>"
+    "--sig \"init(string,uint256)\" <selectorName> <selector>"

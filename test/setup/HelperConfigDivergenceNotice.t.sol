@@ -38,11 +38,15 @@ contract HelperConfigDivergenceNoticeTest is Test {
     HelperConfig internal helper;
 
     function setUp() public {
-        _cleanBiFixture();
+        _clean();
         helper = new HelperConfig();
     }
 
-    function _cleanBiFixture() internal {
+    /// @dev Sweeps this suite's scratch fixtures from setUp(): the revert-safe guarantee (a failed
+    /// test leaves its fixtures for inspection until the next run). Each test additionally removes
+    /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
+    /// run leaves no residue.
+    function _clean() private {
         string memory cfg = string.concat(vm.projectRoot(), "/config/chains/", BI_SEL, ".json");
         if (vm.exists(cfg)) vm.removeFile(cfg);
         string memory proj = ProjectStore.path(BI_SEL);
@@ -161,8 +165,7 @@ contract HelperConfigDivergenceNoticeTest is Test {
             before,
             "resolving under an env override must leave the project store byte-identical (read-only)"
         );
-
-        _cleanBiFixture();
+        _clean();
     }
 
     /// @dev A discovery-safe EVM chain config (every key `ChainConfig.tryLoad` reads) with the UNIQUE

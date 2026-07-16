@@ -80,6 +80,14 @@ contract RegistryGuardTest is Test {
 
     function setUp() public {
         harness = new GuardHarness();
+        _clean();
+    }
+
+    /// @dev Sweeps this suite's scratch fixtures from setUp(): the revert-safe guarantee (a failed
+    /// test leaves its fixtures for inspection until the next run). Each test additionally removes
+    /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
+    /// run leaves no residue.
+    function _clean() private {
         string[8] memory sels =
             [SEL_CROSSPOOL, SEL_TWOVER, SEL_REDEPLOY, SEL_HOOKS, SEL_ONECALL, SEL_CTXA, SEL_CTXB, SEL_ENVFORCE];
         for (uint256 i = 0; i < sels.length; i++) {
@@ -101,6 +109,7 @@ contract RegistryGuardTest is Test {
         assertEq(harness.readDeployment(sel, lrName), POOL_LOCKRELEASE, "LockRelease pool resolvable");
         // active.tokenPool mirrors the most-recently-recorded pool.
         assertEq(harness.read(sel, "tokenPool"), POOL_LOCKRELEASE, "active.tokenPool is newest");
+        ProjectScratch.clean(SEL_CROSSPOOL);
     }
 
     // (2) DATA LAYER holds two versioned entries: because the deployments key carries the pool type +
@@ -124,6 +133,7 @@ contract RegistryGuardTest is Test {
         assertEq(harness.readDeployment(sel, oldName), POOL_V161, "1.6.1-keyed entry still resolvable");
         assertEq(harness.readDeployment(sel, newName), POOL_V200, "2.0.0-keyed entry resolvable");
         assertEq(harness.read(sel, "tokenPool"), POOL_V200, "active.tokenPool is the newest write");
+        ProjectScratch.clean(SEL_TWOVER);
     }
 
     // (3) Same-name redeploy is guarded; forcing drops the entry and re-records; siblings survive.
@@ -148,6 +158,7 @@ contract RegistryGuardTest is Test {
         assertEq(harness.readDeployment(sel, name), POOL_V200, "replacement recorded under same name");
         assertEq(harness.readDeployment(sel, sibling), POOL_LOCKRELEASE, "sibling deployment survived");
         assertEq(harness.read(sel, "lockBox"), POOL_LOCKRELEASE, "sibling active pointer survived");
+        ProjectScratch.clean(SEL_REDEPLOY);
     }
 
     // (4) Hooks replacement: new hooks for the same pool are guarded; FORCE_REDEPLOY replaces; the old
@@ -169,6 +180,7 @@ contract RegistryGuardTest is Test {
         harness.recordDeterministic(sel, "poolHooks", name, HOOKS_B);
         assertEq(harness.readDeployment(sel, name), HOOKS_B, "hooks replaced in registry");
         assertEq(harness.read(sel, "poolHooks"), HOOKS_B, "active.poolHooks is the replacement");
+        ProjectScratch.clean(SEL_HOOKS);
     }
 
     // (5) One call writes BOTH stores: a single deterministic record upserts the named deployment AND
@@ -182,6 +194,7 @@ contract RegistryGuardTest is Test {
 
         assertEq(harness.readDeployment(sel, name), POOL_BURNMINT, "deployments entry written");
         assertEq(harness.read(sel, "tokenPool"), POOL_BURNMINT, "active pointer written by the same call");
+        ProjectScratch.clean(SEL_ONECALL);
     }
 
     // (6) Context-awareness preserved: under `forge test` (TestGroup) the context-aware wrappers are
@@ -203,6 +216,8 @@ contract RegistryGuardTest is Test {
         assertFalse(
             vm.exists(ProjectScratch.projectPath(fresh)), "context-aware record must not write under forge test"
         );
+        ProjectScratch.clean(SEL_CTXA);
+        ProjectScratch.clean(SEL_CTXB);
     }
 
     // The env wrapper honors FORCE_REDEPLOY=true (the exact path the deploy scripts call).
@@ -215,6 +230,7 @@ contract RegistryGuardTest is Test {
         harness.recordDeterministic(sel, "tokenPool", name, POOL_V200);
         assertEq(harness.readDeployment(sel, name), POOL_V200, "replacement registered");
         vm.setEnv("FORCE_REDEPLOY", "false");
+        ProjectScratch.clean(SEL_ENVFORCE);
     }
 
     // The committed example project file parses with the schema-3 reader (schema smoke).

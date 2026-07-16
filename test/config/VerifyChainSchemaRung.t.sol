@@ -24,6 +24,14 @@ contract VerifyChainSchemaRungTest is Test {
     string internal constant SEL_NOPROJECT = "zz-scratch-schema-noproject";
 
     function setUp() public {
+        _clean();
+    }
+
+    /// @dev Sweeps this suite's scratch fixtures from setUp(): the revert-safe guarantee (a failed
+    /// test leaves its fixtures for inspection until the next run). Each test additionally removes
+    /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
+    /// run leaves no residue.
+    function _clean() private {
         string[4] memory sels = [SEL_CLEAN, SEL_STRAY_LANES, SEL_STRAY_ROLES, SEL_NOPROJECT];
         for (uint256 i = 0; i < sels.length; i++) {
             _clean(sels[i]);
@@ -84,6 +92,7 @@ contract VerifyChainSchemaRungTest is Test {
         (uint256 fails, uint256 warns) = new VerifyChain().checkNoStrayProjectStateForTest(SEL_CLEAN);
         assertEq(fails, 0, "a pure API config must not FAIL the stray-state diagnostic");
         assertEq(warns, 0, "a pure API config must not WARN the stray-state diagnostic");
+        _clean(SEL_CLEAN);
     }
 
     // (2) Stale config still carrying lanes{}: a NAMED FAIL pointing at project/<name>.json.
@@ -96,6 +105,7 @@ contract VerifyChainSchemaRungTest is Test {
         );
         (uint256 fails,) = new VerifyChain().checkNoStrayProjectStateForTest(SEL_STRAY_LANES);
         assertEq(fails, 1, "a config still carrying lanes{} must FAIL the stray-state diagnostic exactly once");
+        _clean(SEL_STRAY_LANES);
     }
 
     // (3) Stale config still carrying roles{}: a NAMED FAIL pointing at project/<name>.json.
@@ -103,6 +113,7 @@ contract VerifyChainSchemaRungTest is Test {
         _writeConfig(SEL_STRAY_ROLES, 889000301, 8890003010000000001, ',"roles":{"token":{"type":"crosschain"}}');
         (uint256 fails,) = new VerifyChain().checkNoStrayProjectStateForTest(SEL_STRAY_ROLES);
         assertEq(fails, 1, "a config still carrying roles{} must FAIL the stray-state diagnostic exactly once");
+        _clean(SEL_STRAY_ROLES);
     }
 
     // (4) No-project SKIP: the mesh (lanes) rung on a chain that has a config but NO project file cleanly
@@ -114,5 +125,6 @@ contract VerifyChainSchemaRungTest is Test {
         (uint256 fails, uint256 warns) = new VerifyChain().checkMeshForTest(SEL_NOPROJECT);
         assertEq(fails, 0, "a chain with no project file must not FAIL the mesh rung (absent = no lanes)");
         assertEq(warns, 0, "a chain with no project file must not WARN the mesh rung");
+        _clean(SEL_NOPROJECT);
     }
 }

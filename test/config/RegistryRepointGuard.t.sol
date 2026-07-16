@@ -58,6 +58,14 @@ contract RegistryRepointGuardTest is Test {
     /// clean slate even if a prior run leaked a file, and no test relies on end-of-test deletion.
     function setUp() public {
         harness = new RepointHarness();
+        _clean();
+    }
+
+    /// @dev Sweeps this suite's scratch fixtures from setUp(): the revert-safe guarantee (a failed
+    /// test leaves its fixtures for inspection until the next run). Each test additionally removes
+    /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
+    /// run leaves no residue.
+    function _clean() private {
         ProjectScratch.clean(SEL_FIRST_SET);
         ProjectScratch.clean(SEL_SAME_ADDR);
         ProjectScratch.clean(SEL_REPOINT);
@@ -76,6 +84,7 @@ contract RegistryRepointGuardTest is Test {
         (bool repoints, address previous) = harness.wouldRepointActive(SEL_SAME_ADDR, "token", ADDR_OLD);
         assertFalse(repoints, "re-setting the same address is not a repoint");
         assertEq(previous, ADDR_OLD, "previous is the unchanged address");
+        ProjectScratch.clean(SEL_SAME_ADDR);
     }
 
     // (3) Overwrite a DIFFERENT non-zero address -> repoints=true, previous is the old address. The
@@ -89,5 +98,6 @@ contract RegistryRepointGuardTest is Test {
         // Warning is advisory only: the repoint is NOT blocked.
         harness.setActive(SEL_REPOINT, "token", ADDR_NEW);
         assertEq(harness.read(SEL_REPOINT, "token"), ADDR_NEW, "repoint still applied (warn-only)");
+        ProjectScratch.clean(SEL_REPOINT);
     }
 }

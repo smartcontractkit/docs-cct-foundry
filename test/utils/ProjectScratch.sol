@@ -10,10 +10,18 @@ import {Vm} from "forge-std/Vm.sol";
 /// `RegistryWriter._validateForFamily` resolves. Both patterns are gitignored
 /// (`project/zz-scratch-*.json`, `config/chains/zz-scratch-*.json`), so a leak from a mid-test revert is
 /// invisible to `git status` and would deterministically brick a later `forge test` — hence the HARD
-/// rule that every suite calls `clean` in `setUp()` (revert-safe, before the body), NEVER at end-of-test.
+/// rule that every suite sweeps ALL its basenames via `clean` in `setUp()` (revert-safe, before the
+/// body). A test may ADDITIONALLY remove the fixtures it exclusively owns as its last step (green-path
+/// hygiene, so a green run leaves no residue); it must never sweep suite-wide at end-of-test — forge
+/// runs a suite's tests in parallel, and a broad end sweep deletes a running sibling's files.
 ///
 /// Basenames MUST be unique per test (`zz-scratch-<suite>-<test>`): `ProjectStore.seedIfAbsent` +
 /// forge's parallel suites race silently on a shared basename.
+///
+/// Test write targets must NEVER use a bundled chain's real selectorName — a stranded fake would be
+/// silently resolved by that chain's zero-export ladder on a later script run. Use the
+/// `zz-scratch-*` / `zz-tt-*` / `local-*` prefixes; the CI "no test residue (any filename)"
+/// inventory gate enforces the no-residue invariant.
 library ProjectScratch {
     /// @dev Well-known cheatcode address (forge-std pattern) so a library can reach `vm`.
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
@@ -30,10 +38,12 @@ library ProjectScratch {
     /// It MUST carry every field `HelperConfig`'s construction-time scan (`ChainConfig.tryLoad` →
     /// `_parse`) reads — a minimal `{chainFamily}` stub would revert that scan (`parseJsonUint
     /// ".chainSelector"`) and crash EVERY parallel `HelperConfig` construction, not just this suite's.
-    /// EVM scratch tests do NOT need this: `RegistryWriter._family` defaults to EVM when the config is
-    /// absent, so family-validation passes with no config file (and no discovery pollution). Use this
-    /// ONLY for the non-EVM (svm) case, where the family MUST be declared. `chainId` is "0" for svm.
-    /// `chainSelector`/`chainId` must be unique (outside any real chain) to avoid a discovery collision.
+    /// EVM scratch tests that only exercise the store need no config (`RegistryWriter._family`
+    /// defaults to EVM when the config is absent); seed an EVM config only when the test resolves the
+    /// chain THROUGH `HelperConfig` (chainId → selectorName / `{CHAIN}_` env rungs). `chainId` is "0"
+    /// for svm. `chainSelector`/`chainId` must be unique (outside any real chain) to avoid a discovery
+    /// collision. `chainNameIdentifier` derives from the selectorName (uppercase, `-` → `_`) so each
+    /// scratch chain gets a distinct `{CHAIN}_` env prefix.
     function seedConfig(string memory selectorName, string memory family, uint256 chainId, uint64 chainSelector)
         internal
     {
@@ -56,7 +66,9 @@ library ProjectScratch {
             family,
             '","chainId":"',
             VM.toString(chainId),
-            '","chainNameIdentifier":"ZZ_SCRATCH",',
+            '","chainNameIdentifier":"',
+            identifierFor(selectorName),
+            '",',
             '"chainSelector":"',
             VM.toString(chainSelector),
             '","confirmations":1,',
@@ -69,6 +81,25 @@ library ProjectScratch {
             '"rpcEnv":"ZZ_SCRATCH_RPC_URL"}'
         );
         VM.writeFile(configPath(selectorName), json);
+    }
+
+    /// @notice The `{CHAIN}_` env prefix for a scratch selectorName: uppercase, `-` → `_` (the same
+    /// derivation `sync-discover.sh` applies to real chains).
+    function identifierFor(string memory selectorName) internal pure returns (string memory) {
+        // Copy first: `bytes(<string memory>)` ALIASES the caller's buffer, so an in-place
+        // transform would silently uppercase the caller's selectorName too.
+        bytes memory src = bytes(selectorName);
+        bytes memory b = new bytes(src.length);
+        for (uint256 i = 0; i < src.length; i++) {
+            if (src[i] == "-") {
+                b[i] = "_";
+            } else if (src[i] >= "a" && src[i] <= "z") {
+                b[i] = bytes1(uint8(src[i]) - 32);
+            } else {
+                b[i] = src[i];
+            }
+        }
+        return string(b);
     }
 
     /// @notice Remove BOTH the scratch project file and the scratch config file (for a `zz-scratch-*`

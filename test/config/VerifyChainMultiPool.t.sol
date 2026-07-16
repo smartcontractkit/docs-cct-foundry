@@ -20,12 +20,26 @@ contract VerifyChainMultiPoolTest is Test {
     string internal constant SEL_MIXED = "zz-scratch-multipool-mixed";
 
     function setUp() public {
-        // Cleanup before every test, never at the end of a happy path a failing assertion would skip.
+        _clean();
+    }
+
+    /// @dev Sweeps this suite's scratch fixtures from setUp(): the revert-safe guarantee (a failed
+    /// test leaves its fixtures for inspection until the next run). Each test additionally removes
+    /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
+    /// run leaves no residue.
+    function _clean() private {
         string[4] memory sels = [SEL_NONE, SEL_ONE, SEL_TWO, SEL_MIXED];
         for (uint256 i = 0; i < sels.length; i++) {
             string memory p = ProjectStore.path(sels[i]);
             if (vm.exists(p)) vm.removeFile(p);
         }
+    }
+
+    /// @dev Per-name variant for end-of-test cleanup (a test removes ONLY the file it owns; suite
+    /// siblings run in parallel).
+    function _clean(string memory sel) private {
+        string memory p = ProjectStore.path(sel);
+        if (vm.exists(p)) vm.removeFile(p);
     }
 
     /// @dev Writes a schema-3 project store for `name` whose `deployments{}` body is the given
@@ -48,6 +62,7 @@ contract VerifyChainMultiPoolTest is Test {
         (uint256 fails, uint256 warns) = new VerifyChain().warnMultiPoolAmbiguityForTest(SEL_NONE);
         assertEq(fails, 0, "multi-pool ambiguity is WARN-only, never FAIL");
         assertEq(warns, 0, "no pool deployed must be silent");
+        _clean(SEL_NONE);
     }
 
     /// @dev Exactly one pool: `active.tokenPool` is unambiguous, silent. This is the common case and
@@ -57,6 +72,7 @@ contract VerifyChainMultiPoolTest is Test {
         (uint256 fails, uint256 warns) = new VerifyChain().warnMultiPoolAmbiguityForTest(SEL_ONE);
         assertEq(fails, 0, "a single pool must never FAIL");
         assertEq(warns, 0, "a single pool is unambiguous - silent");
+        _clean(SEL_ONE);
     }
 
     // ------------------------------------------------------------ induced: two pools → 1 WARN
@@ -74,6 +90,7 @@ contract VerifyChainMultiPoolTest is Test {
         (uint256 fails, uint256 warns) = new VerifyChain().warnMultiPoolAmbiguityForTest(SEL_TWO);
         assertEq(fails, 0, "two pools must never FAIL (WARN-only)");
         assertEq(warns, 1, "two pools with one active.tokenPool must emit exactly one WARN");
+        _clean(SEL_TWO);
     }
 
     // ------------------------------------------------------------ non-pool artifacts don't count
@@ -91,5 +108,6 @@ contract VerifyChainMultiPoolTest is Test {
         (uint256 fails, uint256 warns) = new VerifyChain().warnMultiPoolAmbiguityForTest(SEL_MIXED);
         assertEq(fails, 0, "mixed artifacts must never FAIL");
         assertEq(warns, 0, "token/lockBox/hooks entries are not pools - a single pool stays silent");
+        _clean(SEL_MIXED);
     }
 }

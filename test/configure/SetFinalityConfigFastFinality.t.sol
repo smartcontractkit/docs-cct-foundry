@@ -40,12 +40,20 @@ contract SetFinalityConfigFastFinalityTest is LaneReconcileScratch {
     FinalityRlDivergenceHarness internal harness;
 
     function setUp() public {
+        _clean();
+        harness = new FinalityRlDivergenceHarness();
+    }
+
+    /// @dev Sweeps this suite's scratch fixtures from setUp(): the revert-safe guarantee (a failed
+    /// test leaves its fixtures for inspection until the next run). Each test additionally removes
+    /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
+    /// run leaves no residue.
+    function _clean() private {
         string[] memory names = new string[](6);
         for (uint256 n = 1; n <= 6; n++) {
             names[n - 1] = string.concat("zz-scratch-ffdiv-l", vm.toString(n));
         }
         _cleanupScratch(names);
-        harness = new FinalityRlDivergenceHarness();
     }
 
     function _localChain(uint256 n) internal returns (string memory name) {
@@ -125,7 +133,7 @@ contract SetFinalityConfigFastFinalityTest is LaneReconcileScratch {
             "composed fast-finality edit hint"
         );
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // Env-applied outbound bucket AGREES with the declared v2.fastFinality.outbound: silent.
@@ -147,7 +155,7 @@ contract SetFinalityConfigFastFinalityTest is LaneReconcileScratch {
         assertEq(res.outboundNotice, "", "no notice");
         assertEq(res.outboundHint, "", "no hint");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // No v2.fastFinality block declared (core-only lane): silent — the core fields never count as a
@@ -165,7 +173,7 @@ contract SetFinalityConfigFastFinalityTest is LaneReconcileScratch {
         assertFalse(res.outboundDiverges, "nothing declared, nothing to diverge from");
         assertFalse(res.editHint, "no hint");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // No lanes{} entry at all: silent (nothing to reconcile against).
@@ -180,7 +188,7 @@ contract SetFinalityConfigFastFinalityTest is LaneReconcileScratch {
         assertFalse(res.outboundDiverges, "no declaration, no divergence");
         assertFalse(res.editHint, "no hint");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // A direction that was NOT env-applied does not diverge, even against a disagreeing declaration:
@@ -202,6 +210,6 @@ contract SetFinalityConfigFastFinalityTest is LaneReconcileScratch {
         assertFalse(res.outboundDiverges, "an un-applied direction never diverges");
         assertFalse(res.editHint, "no hint");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 }

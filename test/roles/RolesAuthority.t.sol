@@ -55,8 +55,13 @@ contract RolesAuthorityTest is BaseForkTest {
         auditor = new RolesAuditor();
         (fixtureToken, fixturePool) = deployTokenAndPoolFixture();
         baseJson = vm.readFile("config/chains/ethereum-testnet-sepolia.json");
-        // Revert-safe hygiene: remove any leftover poisoned project file from a prior run so the
-        // no-leak test always starts clean (a gitignored leak is invisible to `git status`).
+        _clean();
+    }
+
+    /// @dev Revert-safe hygiene: removes any leftover poisoned project file so the no-leak test
+    /// always starts clean (a gitignored leak is invisible to `git status`). The setUp() call is the
+    /// guarantee; the end-of-test call keeps a green run residue-free.
+    function _clean() private {
         string memory poisonPath = ProjectStore.path(NOLEAK_SEL);
         if (vm.exists(poisonPath)) vm.removeFile(poisonPath);
     }
@@ -285,5 +290,6 @@ contract RolesAuthorityTest is BaseForkTest {
         // though a poisoned real project file sits on disk for the same selectorName.
         RolesAuditor.Result memory r = auditor.auditJson(NOLEAK_SEL, _wrap(roles));
         assertEq(r.fails, 0, "explicit-declaration audit must ignore the poisoned on-disk project file");
+        _clean();
     }
 }

@@ -11,9 +11,10 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 /// file containing the deployed contract address(es), and prints the saved path to the console.
 ///
 /// @dev The append-only ledger lives under **`history/<category>/<selectorName>/…`**, keyed by the
-/// canonical **selectorName** directory. The per-artifact FILE FORMAT keys the JSON body by
-/// `chainNameIdentifier` (e.g. `ETHEREUM_SEPOLIA_TOKEN`), so callers pass BOTH the selectorName (the
-/// directory) and the chainNameIdentifier (the body). Each deploy writes a NEW timestamped file —
+/// canonical **selectorName** directory. The token, pool, and lock-box file bodies key by
+/// `chainNameIdentifier` (e.g. `ETHEREUM_SEPOLIA_TOKEN`), so those callers pass BOTH the selectorName
+/// (the directory) and the chainNameIdentifier (the body); the hooks file is named by symbol +
+/// poolType and carries a fixed `POOL_HOOKS` body key. Each deploy writes a NEW timestamped file —
 /// pure create, never rewrite. `history/` is gitignored.
 library DeploymentUtils {
     /// @dev Saves a token deployment.

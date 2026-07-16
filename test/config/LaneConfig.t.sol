@@ -57,20 +57,27 @@ contract LaneConfigTest is Test {
     SyncCcipConfig internal sync;
 
     function setUp() public {
-        // Delete leftover scratch files (config + project) from a prior aborted run: cleanup happens
-        // before every test, not at the end of a happy path a failing assertion would skip.
+        _clean();
+        vm.setEnv("FOUNDRY_PROFILE", "sync");
+        sync = new SyncCcipConfig();
+    }
+
+    /// @dev Sweeps this suite's scratch fixtures from setUp(): the revert-safe guarantee (a failed
+    /// test leaves its fixtures for inspection until the next run). Each test additionally removes
+    /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
+    /// run leaves no residue.
+    function _clean() private {
         string[2] memory prefixes = ["zz-scratch-lane-a", "zz-scratch-lane-b"];
         for (uint256 p = 0; p < prefixes.length; p++) {
             for (uint256 n = 1; n <= 11; n++) {
                 _cleanAll(string.concat(prefixes[p], vm.toString(n)));
             }
         }
-        string[3] memory extras = ["zz-scratch-lane-c6", "zz-scratch-lane-c7", "zz-scratch-lane-c8"];
+        string[4] memory extras =
+            ["zz-scratch-lane-c1", "zz-scratch-lane-c6", "zz-scratch-lane-c7", "zz-scratch-lane-c8"];
         for (uint256 i = 0; i < extras.length; i++) {
             _cleanAll(extras[i]);
         }
-        vm.setEnv("FOUNDRY_PROFILE", "sync");
-        sync = new SyncCcipConfig();
     }
 
     function _cleanAll(string memory name) internal {
@@ -142,7 +149,7 @@ contract LaneConfigTest is Test {
     function test_AddLane_WritesOnlyLanesSubtree() public {
         _writeScratchChain("zz-scratch-lane-a1", 888000101, 8880001010000000001);
         _writeScratchChain("zz-scratch-lane-b1", 888000102, 8880001020000000002);
-        _writeScratchChain("zz-scratch-lane-c6", 888000103, 8880001030000000003);
+        _writeScratchChain("zz-scratch-lane-c1", 888000103, 8880001030000000003);
 
         // First touch seeds the project skeleton and writes the first lane; capture that as `before`.
         sync.addLane("zz-scratch-lane-a1", "zz-scratch-lane-b1", CAPACITY, RATE);
@@ -150,7 +157,7 @@ contract LaneConfigTest is Test {
         bytes32 configBefore = keccak256(bytes(vm.readFile(_path("zz-scratch-lane-a1"))));
 
         // A second lane rewrites `.lanes` only — addresses/roles/schema must be content-identical.
-        sync.addLane("zz-scratch-lane-a1", "zz-scratch-lane-c6", CAPACITY, RATE);
+        sync.addLane("zz-scratch-lane-a1", "zz-scratch-lane-c1", CAPACITY, RATE);
         string memory after_ = vm.readFile(_projPath("zz-scratch-lane-a1"));
 
         string[] memory keys = vm.parseJsonKeys(before, ".");
@@ -180,6 +187,9 @@ contract LaneConfigTest is Test {
         );
         // The remote's project file is not created by a local add-lane (declaration is one-sided).
         assertFalse(vm.exists(_projPath("zz-scratch-lane-b1")), "add-lane created the remote project file");
+        _cleanAll("zz-scratch-lane-a1");
+        _cleanAll("zz-scratch-lane-b1");
+        _cleanAll("zz-scratch-lane-c1");
     }
 
     function test_AddLane_IdenticalReRunIsByteIdenticalNoOp() public {
@@ -195,24 +205,28 @@ contract LaneConfigTest is Test {
             before,
             "identical re-run mutated the file (must be byte-identical)"
         );
+        _cleanAll("zz-scratch-lane-a2");
+        _cleanAll("zz-scratch-lane-b2");
     }
 
     // An existing entry with DIFFERENT capacity/rate is NOT silently no-op'd: the WARN path (message
     // asserted in the tooling suite) still leaves the file byte-identical — the entry is never
     // rewritten in place, the operator must remove-then-add or hand-edit.
     function test_AddLane_ChangedArgsLeavesFileUnchanged() public {
-        _writeScratchChain("zz-scratch-lane-a2", 888000201, 8880002010000000001);
-        _writeScratchChain("zz-scratch-lane-b2", 888000202, 8880002020000000002);
-        sync.addLane("zz-scratch-lane-a2", "zz-scratch-lane-b2", CAPACITY, RATE);
+        _writeScratchChain("zz-scratch-lane-a11", 888001101, 8880011010000000001);
+        _writeScratchChain("zz-scratch-lane-b11", 888001102, 8880011020000000002);
+        sync.addLane("zz-scratch-lane-a11", "zz-scratch-lane-b11", CAPACITY, RATE);
 
-        bytes32 before = keccak256(bytes(vm.readFile(_projPath("zz-scratch-lane-a2"))));
+        bytes32 before = keccak256(bytes(vm.readFile(_projPath("zz-scratch-lane-a11"))));
         // Different policy values: the entry must be left UNCHANGED (no in-place rewrite).
-        sync.addLane("zz-scratch-lane-a2", "zz-scratch-lane-b2", 1, 1);
+        sync.addLane("zz-scratch-lane-a11", "zz-scratch-lane-b11", 1, 1);
         assertEq(
-            keccak256(bytes(vm.readFile(_projPath("zz-scratch-lane-a2")))),
+            keccak256(bytes(vm.readFile(_projPath("zz-scratch-lane-a11")))),
             before,
             "changed-args add-lane mutated the file (must be left unchanged)"
         );
+        _cleanAll("zz-scratch-lane-a11");
+        _cleanAll("zz-scratch-lane-b11");
     }
 
     function test_AddLane_SelfLaneRefused() public {
@@ -232,6 +246,8 @@ contract LaneConfigTest is Test {
         }
         // Refused BEFORE any write: no project file was created for the declaring chain.
         assertFalse(vm.exists(_projPath("zz-scratch-lane-a3")), "refused lane seeded a project file");
+        _cleanAll("zz-scratch-lane-a3");
+        _cleanAll("zz-scratch-lane-b3");
     }
 
     function test_CcipSyncPreservesLanes() public {
@@ -268,6 +284,8 @@ contract LaneConfigTest is Test {
         // Hand-authored config keys survive too (the same targeted-merge rule).
         assertEq(vm.parseJsonString(configAfter, ".rpcEnv"), "ZZ_SCRATCH_LANE_RPC_URL", "sync mutated .rpcEnv");
         assertEq(vm.parseJsonUint(configAfter, ".confirmations"), 2, "sync mutated .confirmations");
+        _cleanAll("zz-scratch-lane-a4");
+        _cleanAll("zz-scratch-lane-b4");
     }
 
     /// @dev Flat source JSON (the `ccip-config-source.sh` output shape) echoing `chainJson`'s
@@ -318,6 +336,9 @@ contract LaneConfigTest is Test {
             "55",
             "inbound block lost by a later add-lane"
         );
+        _cleanAll("zz-scratch-lane-a6");
+        _cleanAll("zz-scratch-lane-b6");
+        _cleanAll("zz-scratch-lane-c6");
     }
 
     function test_AddLane_PreservesNestedBlocksOnRewrite() public {
@@ -358,6 +379,9 @@ contract LaneConfigTest is Test {
             "90000",
             "v2.feeConfig lost by add-lane rewrite"
         );
+        _cleanAll("zz-scratch-lane-a7");
+        _cleanAll("zz-scratch-lane-b7");
+        _cleanAll("zz-scratch-lane-c7");
     }
 
     function test_MeshReciprocity_OneSidedLaneFailsFromEitherSide() public {
@@ -379,6 +403,8 @@ contract LaneConfigTest is Test {
         assertEq(fails, 0, "reciprocal lane must clear the declaring side");
         (fails,) = (new VerifyChain()).checkMeshForTest("zz-scratch-lane-b5");
         assertEq(fails, 0, "reciprocal lane must clear the remote side");
+        _cleanAll("zz-scratch-lane-a5");
+        _cleanAll("zz-scratch-lane-b5");
     }
 
     // `removeLane` removes ONLY the target entry: a sibling lane carrying every nested optional
@@ -429,6 +455,9 @@ contract LaneConfigTest is Test {
                 string.concat("remove-lane mutated project .", keys[i])
             );
         }
+        _cleanAll("zz-scratch-lane-a8");
+        _cleanAll("zz-scratch-lane-b8");
+        _cleanAll("zz-scratch-lane-c8");
     }
 
     // Removing a lane that is NOT declared is a logged no-op leaving the file byte-identical
@@ -446,6 +475,8 @@ contract LaneConfigTest is Test {
             before,
             "undeclared remove-lane mutated the file (must be a byte-identical no-op)"
         );
+        _cleanAll("zz-scratch-lane-a9");
+        _cleanAll("zz-scratch-lane-b9");
     }
 
     // A missing config file is a named refusal (the helpful known-chains list), never a raw
@@ -482,5 +513,7 @@ contract LaneConfigTest is Test {
             _subtreeHash(after_, "lanes"),
             "remove-then-readd did not round-trip the lanes subtree"
         );
+        _cleanAll("zz-scratch-lane-a10");
+        _cleanAll("zz-scratch-lane-b10");
     }
 }

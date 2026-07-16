@@ -36,8 +36,14 @@ abstract contract BaseForkTest is Test {
     function _createSepoliaFork() internal {
         string memory rpcOverride = vm.envOr("ETHEREUM_SEPOLIA_RPC_URL", string(""));
         if (bytes(rpcOverride).length > 0) {
-            vm.createSelectFork(rpcOverride);
-            return;
+            // Name the SOURCE of a bad override - the raw fork error never says which env var fed it.
+            try vm.createSelectFork(rpcOverride) returns (uint256) {
+                return;
+            } catch {
+                revert(
+                    "BaseForkTest: fork failed on the ETHEREUM_SEPOLIA_RPC_URL override - check ETHEREUM_SEPOLIA_RPC_URL in your .env"
+                );
+            }
         }
 
         string[3] memory publicRpcs = [

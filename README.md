@@ -538,7 +538,7 @@ make add-chain CHAIN=ethereum-testnet-sepolia-base-1 SELECTOR=103449712358744650
 make doctor CHAIN=ethereum-testnet-sepolia-base-1   # 3. layered verification — re-run until green
 ```
 
-`CHAIN` is the chain's **canonical CCIP selectorName** as shown by `make discover` (the API/registry name — e.g. `ethereum-testnet-sepolia-base-1`, not a bespoke `base-sepolia`); it becomes the file name `config/chains/<CHAIN>.json` and is validated against the API. `SELECTOR` is the **explicit identity key**, also from `make discover` — every fetch cross-checks both: a valid-but-wrong selector fails loudly as `SELECTOR MISMATCH`, and a non-canonical name as `SELECTOR NAME MISMATCH`, instead of silently writing another chain's contracts. New chains are **discovered automatically** from `config/chains/` — `HelperConfig` scans the directory, so no Solidity edit is needed anywhere. For a newly added chain the `chainNameIdentifier` (and hence the `rpcEnv` and the `<ID>_TOKEN`/`<ID>_TOKEN_POOL` override prefix) is **derived from the selectorName** as UPPER_SNAKE — so it may differ in style from the six bundled chains' curated short forms (e.g. `AVALANCHE_TESTNET_FUJI`, not `AVALANCHE_FUJI`); `add-chain` **prints the exact `chainNameIdentifier` and `rpcEnv` names it generated** so you never have to guess (or open the JSON) which env var to export. `add-chain` prints your next steps: add the chain's RPC env var to `.env`, then deploy your token and pool there ([Step 1](#step-1-deploy-token-on-both-chains) / [Step 2](#step-2-deploy-token-pools-on-both-chains)). Then declare the lane policy with `make add-lane LOCAL=<name> REMOTE=<remote> CAPACITY=<wei> RATE=<wei> BOTH=1`, apply it on-chain via [Step 5](#step-5-apply-chain-updates-configure-cross-chain-routes), and re-run `make doctor` — its lanes rung reconciles the declared policy against the pool. To retire a lane, `make remove-lane LOCAL=<name> REMOTE=<remote> [BOTH=1]` removes the declaration; that is a separate step from the on-chain removal, done with [`RemoveChain`](#remove-a-remote-chain) (whole-chain teardown, every version) or [`RemoveRemotePool`](#remove-a-remote-pool) (a single pool, 1.5.1+), and between the two `make doctor` WARNs that the on-chain lane is not declared.
+`CHAIN` is the chain's **canonical CCIP selectorName** as shown by `make discover` (the API/registry name — e.g. `ethereum-testnet-sepolia-base-1`, not a bespoke `base-sepolia`); it becomes the file name `config/chains/<CHAIN>.json` and is validated against the API. `SELECTOR` is the **explicit identity key**, also from `make discover` — every fetch cross-checks both: a valid-but-wrong selector fails loudly as `SELECTOR MISMATCH`, and a non-canonical name as `SELECTOR NAME MISMATCH`, instead of silently writing another chain's contracts. New chains are **discovered automatically** from `config/chains/` — `HelperConfig` scans the directory, so no Solidity edit is needed anywhere. For a newly added chain the `chainNameIdentifier` (and hence the `rpcEnv` and the `<ID>_TOKEN`/`<ID>_TOKEN_POOL` override prefix) is **derived from the selectorName** as UPPER_SNAKE — so it may differ in style from the six bundled chains' curated short forms (e.g. `AVALANCHE_TESTNET_FUJI`, not `AVALANCHE_FUJI`); `add-chain` **prints the exact `chainNameIdentifier` and `rpcEnv` names it generated** so you never have to guess (or open the JSON) which env var to export. `add-chain` prints your next steps: add the chain's RPC env var to `.env`, review the generated defaults in the config file, wire a lane with `make add-lane`, and re-run the doctor until it reports 0 FAIL. Deploying your token and pool there is the golden path's [Step 1](#step-1-deploy-token-on-both-chains) / [Step 2](#step-2-deploy-token-pools-on-both-chains). Then declare the lane policy with `make add-lane LOCAL=<name> REMOTE=<remote> CAPACITY=<wei> RATE=<wei> BOTH=1`, apply it on-chain via [Step 5](#step-5-apply-chain-updates-configure-cross-chain-routes), and re-run `make doctor` — its lanes rung reconciles the declared policy against the pool. To retire a lane, `make remove-lane LOCAL=<name> REMOTE=<remote> [BOTH=1]` removes the declaration; that is a separate step from the on-chain removal, done with [`RemoveChain`](#remove-a-remote-chain) (whole-chain teardown, every version) or [`RemoveRemotePool`](#remove-a-remote-pool) (a single pool, 1.5.1+), and between the two `make doctor` WARNs that the on-chain lane is not declared.
 
 Full details: [Configuration](#configuration) overview, the per-field [`docs/config-schema.md`](docs/config-schema.md), and the command + architecture reference [`docs/config-architecture.md`](docs/config-architecture.md).
 
@@ -1475,6 +1475,11 @@ DEST_CHAIN=MANTLE_SEPOLIA \
 
 - Ethereum Sepolia (`ETHEREUM_SEPOLIA`)
 - Mantle Sepolia (`MANTLE_SEPOLIA`)
+- Ink Sepolia (`INK_SEPOLIA`)
+- Plume Testnet (`PLUME_TESTNET`)
+- 0G Galileo Testnet (`0G_GALILEO_TESTNET` — digit-leading, so its `<ID>_*` override vars cannot live in `.env`; see [`docs/deployed-addresses.md`](docs/deployed-addresses.md))
+
+Any other chain in the CCIP testnet catalog is onboarded as a config edit — see [Adding a New Chain](#adding-a-new-chain).
 
 **Non-EVM chains (destination only):**
 
@@ -1629,7 +1634,7 @@ to trust the store over the on-chain TokenAdminRegistry.
 
 ### Session exports — `export VAR=0x...` (overrides)
 
-These are **not** stored in `.env` and are now **optional**: the registry covers the default flow. Use an export (or the chain-agnostic `TOKEN` / `TOKEN_POOL` inline aliases, see [CLI inline vars](#cli-inline-vars----varvalue-forge-script-)) when you want to target a _different_ contract than the registered one — e.g. an older deployment or a contract deployed outside this repo. Session exports last for the current terminal — values can always be recovered from `project/<selectorName>.json` or the `history/` ledger.
+These are **not** stored in `.env` and are now **optional**: the registry covers the default flow. Use an export (or the chain-agnostic `TOKEN` / `TOKEN_POOL` inline aliases, see [CLI inline vars](#cli-inline-vars--varvalue-forge-script-)) when you want to target a _different_ contract than the registered one — e.g. an older deployment or a contract deployed outside this repo. Session exports last for the current terminal — values can always be recovered from `project/<selectorName>.json` or the `history/` ledger.
 
 > **Note:** Do not add these to `.env`. An env var always **beats** the registry, so a stale `.env` value would silently target the wrong contract after a redeployment.
 
@@ -1701,11 +1706,16 @@ Prepended directly to a single `forge script` command. They apply to that one in
 
 ## Testing
 
-Run the test suite with:
+### Running the tests
+
+Build and run the Solidity suite with:
 
 ```bash
-forge test
+forge build
+forge test --ffi
 ```
+
+`--ffi` enables the few canonical-format tests that cross-check against `jq`; without it those tests skip with a named reason and everything else still runs.
 
 No configuration is needed: the fork tests default to public Ethereum Sepolia RPC endpoints (trying several in order, so a single unavailable provider does not fail the suite). To use a private or paid endpoint instead, set `ETHEREUM_SEPOLIA_RPC_URL` (the same variable used by the deployment scripts):
 
@@ -1714,3 +1724,21 @@ ETHEREUM_SEPOLIA_RPC_URL=<your-sepolia-rpc-url> forge test
 ```
 
 The fork tests deploy the token and pool fixtures by running the repo's own deploy scripts, so they exercise the same code paths as the commands documented above.
+
+The chain-config tooling has its own shell suite, `script/config/test-tooling.sh`, split into three partitions:
+
+```bash
+TOOLING_PARTITION=offline bash script/config/test-tooling.sh # no live API needed - the CI-blocking set
+TOOLING_PARTITION=live bash script/config/test-tooling.sh    # reaches the real CCIP API - the scheduled set
+bash script/config/test-tooling.sh                           # both (the default)
+```
+
+The offline partition is genuinely network-free: cases that need API responses are served committed fixtures (`test/fixtures/ccip-api/`) from a local server, so it passes fully airgapped.
+
+The suites write gitignored `zz-scratch-*` fixtures into `config/chains/`, `project/`, and `history/` because discovery is directory-based, so the tooling must be exercised against real files in the scanned directories. A green run cleans up after itself — CI enforces this with an inventory gate (`git status --porcelain --ignored -- config/chains project history` must be empty after `forge test`, whatever the filename). A failed test leaves its own fixtures in place for inspection, until the next run's setup sweep or `make clean-scratch` removes them.
+
+Lint the Solidity sources with:
+
+```bash
+forge lint
+```

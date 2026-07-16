@@ -49,6 +49,14 @@ contract ArtifactRecordCompletenessTest is Test {
     uint256 internal constant T3 = 1_700_000_100;
 
     function setUp() public {
+        _clean();
+    }
+
+    /// @dev Sweeps this suite's scratch fixtures from setUp(): the revert-safe guarantee (a failed
+    /// test leaves its fixtures for inspection until the next run). Each test additionally removes
+    /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
+    /// run leaves no residue.
+    function _clean() private {
         string[6] memory sels = [SEL_TOKEN, SEL_BM, SEL_LR, SEL_LB, SEL_HOOKS, SEL_MULTI];
         for (uint256 i = 0; i < sels.length; i++) {
             ProjectScratch.clean(sels[i]); // project/ + config/chains scratch
@@ -78,6 +86,8 @@ contract ArtifactRecordCompletenessTest is Test {
         RegistryWriter.recordDeterministic(SEL_TOKEN, "token", name, token);
         assertEq(RegistryWriter.read(SEL_TOKEN, "token"), token, "active.token");
         assertEq(RegistryWriter.readDeployment(SEL_TOKEN, name), token, "deployments[token]");
+        ProjectScratch.clean(SEL_TOKEN);
+        ProjectScratch.cleanHistory(SEL_TOKEN);
     }
 
     // ─────────────────────────────────────────── (2) burn-mint pool: store + history
@@ -102,6 +112,8 @@ contract ArtifactRecordCompletenessTest is Test {
         assertEq(RegistryWriter.read(SEL_BM, "tokenPool"), pool, "active.tokenPool");
         assertEq(RegistryWriter.readDeployment(SEL_BM, name), pool, "deployments[burnmint pool]");
         assertEq(name, "BnM-T_BurnMintTokenPool_2.0.0", "versioned pool key composed");
+        ProjectScratch.clean(SEL_BM);
+        ProjectScratch.cleanHistory(SEL_BM);
     }
 
     // ─────────────────────────────────────────── (3) lock-release pool: store + history (incl. LOCK_BOX body)
@@ -126,6 +138,8 @@ contract ArtifactRecordCompletenessTest is Test {
         RegistryWriter.recordDeterministic(SEL_LR, "tokenPool", name, pool);
         assertEq(RegistryWriter.read(SEL_LR, "tokenPool"), pool, "active.tokenPool");
         assertEq(RegistryWriter.readDeployment(SEL_LR, name), pool, "deployments[lockrelease pool]");
+        ProjectScratch.clean(SEL_LR);
+        ProjectScratch.cleanHistory(SEL_LR);
     }
 
     // ─────────────────────────────────────────── (4) lockBox: store + history
@@ -147,6 +161,8 @@ contract ArtifactRecordCompletenessTest is Test {
         assertEq(RegistryWriter.read(SEL_LB, "lockBox"), lockBox, "active.lockBox");
         assertEq(RegistryWriter.readDeployment(SEL_LB, name), lockBox, "deployments[lockBox]");
         assertEq(name, "LR-T_LockBox", "lockBox key composed");
+        ProjectScratch.clean(SEL_LB);
+        ProjectScratch.cleanHistory(SEL_LB);
     }
 
     // ─────────────────────────────────────────── (5) poolHooks: store + history
@@ -168,6 +184,8 @@ contract ArtifactRecordCompletenessTest is Test {
         assertEq(RegistryWriter.read(SEL_HOOKS, "poolHooks"), hooks, "active.poolHooks");
         assertEq(RegistryWriter.readDeployment(SEL_HOOKS, name), hooks, "deployments[poolHooks]");
         assertEq(name, "ACE-T_BurnMint_PoolHooks", "hooks key composed");
+        ProjectScratch.clean(SEL_HOOKS);
+        ProjectScratch.cleanHistory(SEL_HOOKS);
     }
 
     // ─────────────────────────────────────────── multi-deploy: several DISTINCT pools on ONE chain
@@ -229,5 +247,7 @@ contract ArtifactRecordCompletenessTest is Test {
         assertEq(RegistryWriter.readDeployment(SEL_MULTI, "CCC_LockReleaseTokenPool_2.0.0"), poolC, "CCC deployment");
         assertEq(RegistryWriter.readDeployment(SEL_MULTI, "BBB_BurnMintTokenPool_2.0.0"), poolB, "BBB deployment");
         assertEq(RegistryWriter.read(SEL_MULTI, "tokenPool"), poolB, "active.tokenPool is the newest write (BBB)");
+        ProjectScratch.clean(SEL_MULTI);
+        ProjectScratch.cleanHistory(SEL_MULTI);
     }
 }

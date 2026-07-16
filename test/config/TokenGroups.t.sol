@@ -61,6 +61,8 @@ contract TokenGroupsTest is Test {
     // A VISIBLE test group (zz-tt-*, not zz-scratch-*): the group-sweeping tools do NOT skip it, so the
     // doctor's grouped-sibling detection can be asserted on it.
     string internal constant GRP_NOTICE = "zz-tt-groups-notice";
+    // The scratch group the notice test plants to prove the sweep SKIPS the zz-scratch-* class.
+    string internal constant GRP_SKIP = "zz-scratch-groups-gskip";
 
     /// @dev The canonical (2-space, sorted, no trailing newline) empty skeleton `seedIfAbsentIn` writes —
     /// the exact bytes `vm.writeJson(SKELETON, path)` emits, pinned so a grouped seed is proven identical
@@ -70,6 +72,14 @@ contract TokenGroupsTest is Test {
 
     function setUp() public {
         harness = new GroupHarness();
+        _clean();
+    }
+
+    /// @dev Sweeps this suite's scratch fixtures from setUp(): the revert-safe guarantee (a failed
+    /// test leaves its fixtures for inspection until the next run). Each test additionally removes
+    /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
+    /// run leaves no residue.
+    function _clean() private {
         ProjectScratch.clean(SEL_FLAT);
         ProjectScratch.clean(SEL_CLOBBER);
         ProjectScratch.clean(SEL_SEED);
@@ -82,6 +92,7 @@ contract TokenGroupsTest is Test {
         ProjectScratch.cleanGroupDir(GRP_SMEAR);
         ProjectScratch.cleanGroupDir(GRP_NOSEED);
         ProjectScratch.cleanGroupDir(GRP_NOTICE);
+        ProjectScratch.cleanGroupDir(GRP_SKIP);
     }
 
     // ---------------------------------------------------------------- (1) flat-default byte-equivalence
@@ -201,6 +212,9 @@ contract TokenGroupsTest is Test {
 
         assertTrue(keccak256(bytes(vm.readFile(pathA))) != bBefore, "group A mutated");
         assertEq(keccak256(bytes(vm.readFile(pathB))), bBefore, "group B byte-identical after writing group A");
+        ProjectScratch.clean(SEL_CLOBBER);
+        ProjectScratch.cleanGroupDir(GRP_A);
+        ProjectScratch.cleanGroupDir(GRP_B);
     }
 
     // ---------------------------------------------------------------- (E) canonical golden in a group dir
@@ -231,9 +245,16 @@ contract TokenGroupsTest is Test {
         try this.runFfi(cmd) returns (bytes memory out) {
             assertEq(got, _trimTrailingNewline(string(out)), "grouped seed != jq --indent 2 -S canonical");
         } catch {
+            // Clean BEFORE skipping: vm.skip aborts the body, and a stranded group dir fails the CI
+            // residue gate on the no-ffi run. The grouped-skeleton byte asserts above already ran,
+            // so the pin keeps its coverage even without ffi.
+            ProjectScratch.clean(SEL_SEED);
+            ProjectScratch.cleanGroupDir(GRP_SEED);
             emit log_string("SKIP: ffi/jq unavailable (default profile has ffi off) - grouped jq golden not run");
             vm.skip(true);
         }
+        ProjectScratch.clean(SEL_SEED);
+        ProjectScratch.cleanGroupDir(GRP_SEED);
     }
 
     // ---------------------------------------------------------------- (D) read-path safety / no env smear
@@ -258,6 +279,8 @@ contract TokenGroupsTest is Test {
         harness.seedIfAbsentIn(GRP_SMEAR, SEL_SMEAR);
         assertEq(harness.group(), "", "group() must be the flat default in the forge-test context (no env smear)");
         assertEq(ProjectStore.path(SEL_SMEAR), ProjectStore.pathIn("", SEL_SMEAR), "env-driven path stays flat");
+        ProjectScratch.clean(SEL_SMEAR);
+        ProjectScratch.cleanGroupDir(GRP_SMEAR);
     }
 
     // ---------------------------------------------------------------- (E) divergence-notice format
@@ -300,11 +323,14 @@ contract TokenGroupsTest is Test {
         VerifyChain doctor = new VerifyChain();
         assertEq(doctor.groupedSiblingsForTest(SEL_NOTICE), "", "no grouped sibling -> no notice (flat/one-token case)");
         // A zz-scratch-* group is INVISIBLE to the sweep (leaked-scratch class) -> still no notice.
-        harness.seedIfAbsentIn(GRP_A, SEL_NOTICE);
+        harness.seedIfAbsentIn(GRP_SKIP, SEL_NOTICE);
         assertEq(doctor.groupedSiblingsForTest(SEL_NOTICE), "", "scratch group dir must not surface in the notice");
         // A real (non-scratch) group holding the chain IS reported.
         harness.seedIfAbsentIn(GRP_NOTICE, SEL_NOTICE);
         assertEq(doctor.groupedSiblingsForTest(SEL_NOTICE), GRP_NOTICE, "notice names the group holding the chain");
+        ProjectScratch.clean(SEL_NOTICE);
+        ProjectScratch.cleanGroupDir(GRP_SKIP);
+        ProjectScratch.cleanGroupDir(GRP_NOTICE);
     }
 
     // ---------------------------------------------------------------- helpers

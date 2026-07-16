@@ -68,15 +68,21 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
     RateLimitersLaneSourceHarness internal harness;
 
     function setUp() public {
-        // Delete leftover scratch files from a prior aborted run: cleanup happens before every
-        // test, never at the end of a happy path a failing assertion would skip.
+        _clean();
+        harness = new RateLimitersLaneSourceHarness();
+    }
+
+    /// @dev Sweeps this suite's scratch fixtures from setUp(): the revert-safe guarantee (a failed
+    /// test leaves its fixtures for inspection until the next run). Each test additionally removes
+    /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
+    /// run leaves no residue.
+    function _clean() private {
         string[] memory names = new string[](15);
         for (uint256 n = 1; n <= 14; n++) {
             names[n - 1] = string.concat("zz-scratch-rlsrc-l", vm.toString(n));
         }
         names[14] = "zz-scratch-rlsrc-r1";
         _cleanupScratch(names);
-        harness = new RateLimitersLaneSourceHarness();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -192,7 +198,7 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
         );
         assertEq(res.inboundHint, "", "inbound direction has no hint");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
         vm.removeFile(_path("zz-scratch-rlsrc-r1"));
     }
 
@@ -211,7 +217,7 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
         assertFalse(res.outboundDiverges, "agreeing env values must not flag divergence");
         assertFalse(res.editHint, "an agreeing declaration needs no hint");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // Env set, lanes{} entry DIVERGES: env wins (the update carries the env values), divergence
@@ -248,7 +254,7 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
             "composed divergence notice"
         );
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // ENABLED=false alone is an env override too (incident response: explicitly disable): env wins
@@ -266,7 +272,7 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
         assertTrue(res.outboundDiverges, "disabled override vs enabled declaration must diverge");
         assertTrue(res.editHint, "divergence must hint");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -289,7 +295,7 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
         assertFalse(res.inboundFromLanes, "absent inbound{} must leave the direction untouched");
         assertFalse(res.editHint, "a lanes{}-sourced apply is already consistent");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // Lane entry with an inbound{} block: both directions from lanes{}. No hint.
@@ -315,7 +321,7 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
         assertTrue(res.inboundFromLanes, "declared inbound{} must drive the inbound direction");
         assertFalse(res.editHint, "a lanes{}-sourced apply is already consistent");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // A declared 0/0 bucket is declared-disabled (enabled iff capacity or rate non-zero — the same
@@ -330,7 +336,7 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
         _assertOutbound(res.update, true, false, 0, 0);
         assertTrue(res.outboundFromLanes, "declared-disabled still comes from lanes{}");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -353,7 +359,7 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
         );
         harness.resolve("zz-scratch-rlsrc-none8", REMOTE_SELECTOR, false);
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -385,7 +391,7 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
         assertFalse(res.inboundDeclared, "undeclared fast-finality inbound must stay undeclared");
         assertFalse(res.editHint, "a lanes{}-sourced apply is already consistent");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // No env, both fast-finality directions declared: both driven from the v2 block.
@@ -412,7 +418,7 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
         _assertInbound(res.update, true, true, FTF_INBOUND_CAPACITY, FTF_INBOUND_RATE);
         assertTrue(res.outboundFromLanes && res.inboundFromLanes, "both directions must come from lanes{}");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // Env set on the fast-finality axis, declared v2.fastFinality.outbound diverges: env wins, the
@@ -440,7 +446,7 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
         assertTrue(res.outboundDiverges, "env override diverging from v2.fastFinality.outbound must be flagged");
         assertTrue(res.editHint, "divergence must hint");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // Env set on the fast-finality axis with no v2 block declared: env applies, hint armed (the
@@ -458,7 +464,7 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
         assertFalse(res.outboundDiverges, "nothing declared, nothing to diverge from");
         assertTrue(res.editHint, "env apply with an undeclared fast-finality bucket must hint");
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // No env and no declared fast-finality bucket (core fields only): the error stands and names
@@ -479,7 +485,7 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
         );
         harness.resolve("zz-scratch-rlsrc-remote13", REMOTE_SELECTOR, true);
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -499,6 +505,6 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
         assertEq(res.laneKey, "zz-scratch-rlsrc-ghost14", "wrong lane key matched");
         _assertOutbound(res.update, true, true, LANE_CAPACITY, LANE_RATE);
 
-        vm.removeFile(_path(local));
+        _cleanupScratchOne(local);
     }
 }

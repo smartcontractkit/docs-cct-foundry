@@ -79,11 +79,15 @@ contract AdoptTokenForkTest is Test {
         }
         script = new AdoptToken();
         sepoliaJson = vm.readFile("config/chains/ethereum-testnet-sepolia.json");
+        _clean();
+    }
 
-        // Registry hygiene: the scratch project file must not exist when a test starts. No scratch
-        // chain-config is needed — RegistryWriter's family validation defaults to EVM when
-        // config/chains/<name>.json is absent, and creating a stub config would pollute the global
-        // HelperConfig discovery scan run by every parallel fork suite.
+    /// @dev Registry hygiene: the scratch project file must not exist when a test starts. No scratch
+    /// chain-config is needed — RegistryWriter's family validation defaults to EVM when
+    /// config/chains/<name>.json is absent, and creating a stub config would pollute the global
+    /// HelperConfig discovery scan run by every parallel fork suite. The setUp() call is the
+    /// revert-safe guarantee; the end-of-test call keeps a green run residue-free.
+    function _clean() private {
         ProjectScratch.clean(SCRATCH_SEL);
     }
 
@@ -231,5 +235,6 @@ contract AdoptTokenForkTest is Test {
             CCT_POOL_200,
             "deployments entry keyed by the on-chain type and version"
         );
+        _clean();
     }
 }

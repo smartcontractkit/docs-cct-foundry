@@ -14,8 +14,26 @@ set -uo pipefail
 
 cd "$(dirname "$0")/../.."
 
-# shellcheck disable=SC1091
-[ -f ./.env ] && { set -a && source ./.env && set +a; }
+# .env fills gaps only — a var already set by the caller wins (callers inject e.g.
+# CCIP_API_BASE=<fixture>; plain source-after-inject would clobber it with the .env value).
+if [ -f ./.env ]; then
+    declare -a _preset_keys=() _preset_vals=()
+    while IFS= read -r _line; do
+        case "$_line" in '' | \#*) continue ;; esac
+        _line="${_line#export }"
+        _k="${_line%%=*}"
+        case "$_k" in *[!A-Za-z0-9_]* | '') continue ;; esac
+        if [ -n "${!_k+x}" ]; then
+            _preset_keys+=("$_k")
+            _preset_vals+=("${!_k}")
+        fi
+    done < ./.env
+    # shellcheck disable=SC1091
+    set -a && source ./.env && set +a
+    for _i in "${!_preset_keys[@]}"; do
+        export "${_preset_keys[$_i]}=${_preset_vals[$_i]}"
+    done
+fi
 
 chains=("$@")
 if [ ${#chains[@]} -eq 0 ]; then
@@ -37,7 +55,7 @@ for name in "${chains[@]}"; do
     status=$?
     echo "$out" | grep -E "DRIFT |SKIP |CLEAN |SELECTOR MISMATCH|API_UNREACHABLE|NOT_FOUND|CONFIG_DRIFT" || true
     if [ $status -ne 0 ]; then
-        if echo "$out" | grep -q "API_UNREACHABLE"; then
+        if grep -q "API_UNREACHABLE" <<< "$out"; then
             unreachable=1
             flaked+=("$name")
         else
@@ -48,8 +66,9 @@ for name in "${chains[@]}"; do
 done
 
 if [ $drift -ne 0 ]; then
-    echo "sync-check: CONFIG_DRIFT (or config error) for: ${drifted[*]} - refresh with:" \
-        "FOUNDRY_PROFILE=sync forge script script/config/SyncCcipConfig.s.sol --sig \"run(string)\" <name>"
+    echo "sync-check: CONFIG_DRIFT (or config error) for: ${drifted[*]} - refresh with: make sync CHAIN=<name>" \
+        "(raw escape hatch: FOUNDRY_PROFILE=sync forge script script/config/SyncCcipConfig.s.sol --sig \"run(string)\" <name>," \
+        "then make fmt-config - vm.writeJson output is not canonical)"
     exit 1
 elif [ $unreachable -ne 0 ]; then
     echo "sync-check: API_UNREACHABLE for: ${flaked[*]} - flake, not drift; retry later"

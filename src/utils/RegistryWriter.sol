@@ -258,10 +258,11 @@ library RegistryWriter {
         console.log(string.concat("         Scripts with no env override will now resolve ", value, "."));
         console.log(
             string.concat(
-                "         A second token here belongs in its own group (a grouped rerun would have left this store untouched): GROUP=<g> make adopt-token CHAIN=",
+                "         A second token here belongs in its own group (a grouped rerun would have left this store untouched): make adopt-token CHAIN=",
                 selectorName,
                 " TOKEN=",
-                value
+                value,
+                " GROUP=<g>"
             )
         );
         console.log(

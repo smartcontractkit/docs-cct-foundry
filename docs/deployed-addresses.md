@@ -148,6 +148,16 @@ likewise). Each group has its own single-valued `active.<role>`, so there is no 
 the earlier artifact within a group, pass it explicitly via an inline alias or a `{CHAIN}_` env var, or read
 its `deployments.<name>` entry.
 
+**Digit-leading `{CHAIN}_` prefixes cannot live in `.env`.** The bundled `0g-testnet-galileo-1` carries
+`chainNameIdentifier: 0G_GALILEO_TESTNET`, so its override vars (`0G_GALILEO_TESTNET_TOKEN`,
+`0G_GALILEO_TESTNET_TOKEN_POOL`, ...) are digit-leading - not valid shell identifiers: `export 0G_...=` is
+refused, and forge's `.env` autoload silently stops parsing the file at the first digit-leading key
+(silently dropping every later line). Pass such overrides inline via `env` instead:
+`env '0G_GALILEO_TESTNET_TOKEN_POOL=0x...' forge script ...` (its `rpcEnv` is the shell-safe
+`ZERO_G_TESTNET_RPC_URL` and belongs in `.env` as usual). The deeper fix - a shell-safe
+`chainNameIdentifier` alias for the bundled chain - is a breaking rename, out of scope here; new chains
+pick one up front via `CHAIN_NAME_IDENTIFIER=` at `add-chain` time.
+
 **Env overrides are group-agnostic.** Steps 1-2 of the ladder sit **above** the group-scoped registry, so an
 exported `{CHAIN}_TOKEN` / inline `TOKEN=` wins over **every** group's `active.<role>` at once. With two
 groups live, an override set for one group also resolves into the other - unset it between groups so a

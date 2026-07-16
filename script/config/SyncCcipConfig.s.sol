@@ -179,7 +179,9 @@ contract SyncCcipConfig is Script {
                 apiName,
                 "' and rename the file to config/chains/",
                 apiName,
-                ".json (the config basename IS the selectorName)"
+                ".json (the config basename IS the selectorName). Onboarding a new chain? Remove the file and re-run: make add-chain CHAIN=",
+                apiName,
+                " SELECTOR=<selector>"
             )
         );
     }
@@ -370,6 +372,7 @@ contract SyncCcipConfig is Script {
     }
 
     /// @dev Fetch the chain-list row (identity metadata) by selector via the meta helper script.
+    /// Shared by init, run, and check - the error label is the neutral `[sync]`, not one caller's name.
     function _fetchChainMeta(uint256 selector) internal returns (string memory) {
         string[] memory cmd = new string[](3);
         cmd[0] = "bash";
@@ -377,7 +380,7 @@ contract SyncCcipConfig is Script {
         cmd[2] = vm.toString(selector);
         Vm.FfiResult memory r = vm.tryFfi(cmd);
         if (r.exitCode != 0) {
-            revert(string(bytes.concat(bytes("[add-chain] chain metadata fetch failed: "), r.stderr)));
+            revert(string(bytes.concat(bytes("[sync] chain metadata fetch failed: "), r.stderr)));
         }
         return string(r.stdout);
     }
@@ -425,6 +428,7 @@ contract SyncCcipConfig is Script {
         console.log(string.concat("[add-chain] generated env-var names for ", localName, ":"));
         console.log(string.concat("  chainNameIdentifier: ", chainNameId));
         console.log(string.concat("  rpcEnv:              ", rpcEnv, "   <- export this to use RPC-dependent commands"));
+        console.log("  (prefer different names? re-run init with CHAIN_NAME_IDENTIFIER=... / RPC_ENV=... set)");
         console.log("");
         console.log(string.concat("[add-chain] NEXT STEPS for ", localName, ":"));
         console.log(
@@ -494,8 +498,11 @@ contract SyncCcipConfig is Script {
                         vm.toString(metaDrift),
                         " metadata field(s) drifted for ",
                         name,
-                        " - refresh with: FOUNDRY_PROFILE=sync forge script script/config/SyncCcipConfig.s.sol --sig \"run(string)\" ",
-                        name
+                        " - refresh with: make sync CHAIN=",
+                        name,
+                        " (raw escape hatch: FOUNDRY_PROFILE=sync forge script script/config/SyncCcipConfig.s.sol --sig \"run(string)\" ",
+                        name,
+                        ", then make fmt-config - vm.writeJson output is not canonical)"
                     )
                 );
             }
@@ -527,8 +534,11 @@ contract SyncCcipConfig is Script {
                     vm.toString(drift),
                     " field(s) drifted for ",
                     name,
-                    " - refresh with: FOUNDRY_PROFILE=sync forge script script/config/SyncCcipConfig.s.sol --sig \"run(string)\" ",
-                    name
+                    " - refresh with: make sync CHAIN=",
+                    name,
+                    " (raw escape hatch: FOUNDRY_PROFILE=sync forge script script/config/SyncCcipConfig.s.sol --sig \"run(string)\" ",
+                    name,
+                    ", then make fmt-config - vm.writeJson output is not canonical)"
                 )
             );
         }
@@ -952,9 +962,10 @@ contract SyncCcipConfig is Script {
     /// dangling lane (the mesh rung's FAIL for a renamed or deleted remote) is exactly this
     /// command's job.
     /// @dev Declaration-only by design: the write touches `project/<local>.json` and never the pool.
-    /// A lane that is applied on-chain must be removed there separately - the pool's
-    /// `applyChainUpdates` takes the selector in its `remoteChainSelectorsToRemove` input (see
-    /// `script/setup/ApplyChainUpdates.s.sol`) - and until it is, `make doctor`'s lanes rung WARNs
+    /// A lane that is applied on-chain must be removed there separately - via `RemoveChain`
+    /// (whole-chain teardown, every version; `script/configure/remote-chains/RemoveChain.s.sol`
+    /// feeds the pool's `remoteChainSelectorsToRemove`) or `RemoveRemotePool` (one pool, 1.5.1+;
+    /// `script/configure/remote-pools/RemoveRemotePool.s.sol`) - and until it is, `make doctor`'s lanes rung WARNs
     /// that the on-chain lane is not declared in `lanes{}`. Removing the only lane leaves an empty
     /// `lanes{}`; a never-touched chain has no project file, so there is nothing to remove.
     function removeLane(string memory local, string memory remote) public {
@@ -993,7 +1004,7 @@ contract SyncCcipConfig is Script {
             string.concat(
                 "[remove-lane] declaration removed; the pool is untouched - if the lane is applied on-chain, make doctor CHAIN=",
                 local,
-                " will WARN 'on-chain lane ... not declared in lanes{}' until it is removed on-chain via ApplyChainUpdates (the pool's applyChainUpdates 'remoteChainSelectorsToRemove' input)"
+                " will WARN 'on-chain lane ... not declared in lanes{}' until it is removed on-chain via RemoveChain (whole-chain teardown) or RemoveRemotePool (one pool, 1.5.1+) - see README > Remove a remote chain"
             )
         );
     }
