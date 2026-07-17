@@ -278,7 +278,7 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
         }
 
         // Rung 1 cross-check: an env override that disagrees with the declared policy is a notice,
-        // never a revert (the doctor WARNs until reconciled). An undeclared bucket is not compared —
+        // never a revert (the doctor FAILs until reconciled). An undeclared bucket is not compared —
         // the same absent-means-undeclared rule the doctor applies.
         if (res.outboundFromEnv && res.outboundDeclared) {
             res.outboundDiverges =
@@ -432,7 +432,7 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
             vm.toString(declRate),
             ") in ",
             ProjectStore.display(res.configName),
-            " - make doctor will WARN until reconciled"
+            " - make doctor will FAIL until reconciled"
         );
     }
 
@@ -466,7 +466,7 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
             vm.toString(uint256(applied.rate)),
             " - make doctor CHAIN=",
             res.configName,
-            " WARNs until reconciled"
+            " FAILs until reconciled"
         );
     }
 

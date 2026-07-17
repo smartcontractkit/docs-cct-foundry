@@ -1305,17 +1305,18 @@ if offline_enabled; then
         echo "$setenv_hits" | sed 's/^/       | /'
     fi
 
-    # E2/H4. Config purity: a committed config/chains/*.json is pure API + chain facts — no `lanes`,
-    #        `roles`, or `ccipBnM` key (those live in the project store, not the config layer).
+    # Config purity: a committed config/chains/*.json is pure API + chain facts — no `lanes`,
+    # `roles`, `ccipBnM`, or `ccvThreshold` key (project state lives in the project store; the
+    # pool-scoped CCV threshold is declared at poolPolicy.ccvThreshold there).
     impure=""
     for f in config/chains/*.json; do
         case "$f" in *zz-scratch* | "$TMP_FILE" | "$TMP_FILE_B" | "$FUJI_FILE") continue ;; esac
         [ -e "$f" ] || continue
-        jq -e 'has("lanes") or has("roles") or has("ccipBnM")' "$f" > /dev/null 2>&1 && impure="$impure $f"
+        jq -e 'has("lanes") or has("roles") or has("ccipBnM") or has("ccvThreshold")' "$f" > /dev/null 2>&1 && impure="$impure $f"
     done
     if [ -z "$impure" ]; then
         pass=$((pass + 1))
-        echo "[PASS] config purity: no lanes/roles/ccipBnM key in any committed config/chains/*.json"
+        echo "[PASS] config purity: no lanes/roles/ccipBnM/ccvThreshold key in any committed config/chains/*.json"
     else
         fail=$((fail + 1))
         failures+=("config purity")

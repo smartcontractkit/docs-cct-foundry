@@ -17,6 +17,7 @@ import {IPoolV2} from "@chainlink/contracts-ccip/contracts/interfaces/IPoolV2.so
 import {AdvancedPoolHooks} from "@chainlink/contracts-ccip/contracts/pools/AdvancedPoolHooks.sol";
 import {TokenAdminRegistry} from "@chainlink/contracts-ccip/contracts/tokenAdminRegistry/TokenAdminRegistry.sol";
 import {RolesAuditor} from "../../src/roles/RolesAuditor.sol";
+import {FinalityConfigUtils} from "../utils/FinalityConfigUtils.s.sol";
 
 /// @dev The chain-membership read surface shared by every cataloged TokenPool version: both
 /// `isSupportedChain(uint64)` and `getSupportedChains()` exist unchanged from 1.5.0 through 2.0.0
@@ -41,6 +42,12 @@ interface IPoolFeeConfigReader {
 /// `IAdvancedPoolHooks`, ABI-decoded as a plain address so no hooks interface is needed here.
 interface IPoolHooksReader {
     function getAdvancedPoolHooks() external view returns (address hooks);
+}
+
+/// @dev The 2.0.0 allowed-finality getter on the pool (`TokenPool.getAllowedFinalityConfig`): the
+/// bytes4 FinalityCodec value naming which fast-finality modes the pool accepts.
+interface IPoolFinalityReader {
+    function getAllowedFinalityConfig() external view returns (bytes4);
 }
 
 /// @dev The CCV read surface on the pool's `AdvancedPoolHooks` (2.0.0): the per-lane verifier arrays
@@ -178,6 +185,19 @@ contract ChainProbe {
     function hooksThreshold(address hooks) external view returns (uint256) {
         return IHooksCCVReader(hooks).getThresholdAmount();
     }
+
+    /// @dev The live allowed-finality config on the pool (2.0.0). External so a pool that does not
+    /// answer `getAllowedFinalityConfig` degrades to a catchable WARN, never an aborted doctor run.
+    function poolAllowedFinality(address pool) external view returns (bytes4) {
+        return IPoolFinalityReader(pool).getAllowedFinalityConfig();
+    }
+
+    /// @dev Encodes the declared `poolPolicy.finality` block. External so a malformed declaration
+    /// (an over-range blockDepth, a non-numeric value) degrades to a catchable, named FAIL instead
+    /// of aborting the doctor run.
+    function parseDeclaredFinality(string memory json) external view returns (bytes4) {
+        return FinalityConfigUtils.parseDeclared(json, ".poolPolicy.finality");
+    }
 }
 
 /// @title VerifyChain
@@ -198,12 +218,16 @@ contract ChainProbe {
 ///                matches the remote's `chainSelector`, plus reciprocity across the whole mesh: a
 ///                one-sided lane (A declares B without B declaring A, in either direction) is a
 ///                FAIL naming both chains — the lane policy is committed, so the mesh must agree
-///   8. LANES     declared lanes{} reconciled against the ON-CHAIN pool, both directions (RPC-gated,
-///                SKIP when the rpcEnv is unset; SKIP when no pool is recorded): forward, every
-///                declared lane must be applied on the pool (`isSupportedChain`) with a live outbound
-///                rate-limit bucket matching the declared policy (version-dispatched getter); reverse,
-///                every on-chain supported selector must be declared in lanes{}. All WARNs, never
-///                FAILs — live drift may be a deliberate emergency throttle or an out-of-band change
+///   8. LANES     declared lanes{} + poolPolicy{} reconciled against the ON-CHAIN pool, both
+///                directions (RPC-gated, SKIP when the rpcEnv is unset; SKIP when no pool is
+///                recorded): forward, every declared lane must be applied on the pool
+///                (`isSupportedChain`) with live values matching every declared policy field
+///                (version-dispatched getters); reverse, every on-chain supported selector must be
+///                declared in lanes{}. A declared value the chain contradicts is a FAIL naming the
+///                exact field — an emergency throttle is recorded by updating the declaration (the
+///                git diff is the audit trail). Forward-intent states (declared-but-not-applied),
+///                undeclared on-chain lanes, uncataloged pool versions, and unanswered reads stay
+///                WARN: they are pending work or degraded visibility, not proven drift
 ///
 /// Run: FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" <name>
 /// @dev Non-EVM chains (e.g. solana-devnet) get the schema parse only; API/RPC/on-chain/registry
@@ -277,6 +301,17 @@ contract VerifyChain is Script {
                 )
             );
         }
+        if (vm.keyExistsJson(json, ".ccvThreshold")) {
+            _fail(
+                string.concat(
+                    "schema: config/chains/",
+                    name,
+                    ".json has a ccvThreshold key - pool-scoped policy belongs in ",
+                    ProjectStore.display(name),
+                    " under poolPolicy.ccvThreshold. Delete it here and re-declare with a reviewed hand edit"
+                )
+            );
+        }
     }
 
     function run(string memory name) public {
@@ -319,7 +354,7 @@ contract VerifyChain is Script {
             if (rpcOk) _checkOnChainCode(name, json);
             _checkRegistryAndExtras(name, json);
             _checkMesh(name, projectJson);
-            _checkLanesOnChain(name, json, projectJson);
+            _checkLanesOnChain(name, projectJson);
             _checkRoles(name, projectJson, rpcOk);
         } else {
             // Non-EVM chains have no EVM-shaped ccip{} to sync, so the API/RPC/on-chain/registry
@@ -1021,8 +1056,9 @@ contract VerifyChain is Script {
     /// @dev On-chain lane reconciliation. The mesh rung (7) proves the committed lane policy agrees
     /// with ITSELF across the config directory; this rung proves it agrees with the CHAIN. RPC-gated
     /// like the TAR rung (SKIP with no fork), pool-gated like the registry rung (SKIP when no pool is
-    /// recorded), and WARN-only: live drift may be a deliberate emergency throttle, and an on-chain
-    /// lane added out-of-band is an operator decision to surface, not a config error to block on.
+    /// recorded). A declared value the live chain contradicts is a FAIL naming the exact field; a
+    /// declared-but-not-applied lane, an on-chain lane added out-of-band, and any unanswered read
+    /// stay WARN (pending work or degraded visibility, never proven drift).
     /// @dev The ROLES rung: mounts the read-only `RolesAuditor`. It reconciles the declared
     /// `roles{}` authority surface against the live chain, folding the auditor's [PASS]/[FAIL]/[WARN]/
     /// [SKIP] tallies into the doctor's own. A chain with no `roles{}` block SKIPs (bootstrap it with
@@ -1101,24 +1137,20 @@ contract VerifyChain is Script {
         );
     }
 
-    function _checkLanesOnChain(string memory name, string memory configJson, string memory projectJson) private {
+    function _checkLanesOnChain(string memory name, string memory projectJson) private {
         if (!forked) {
             _skip("lanes: on-chain reconciliation needs an RPC (no fork) - declared lanes not checked against the pool");
             return;
         }
         address pool = RegistryWriter.read(name, "tokenPool");
-        _reconcileLanesWithPool(name, configJson, projectJson, pool);
+        _reconcileLanesWithPool(name, projectJson, pool);
     }
 
-    /// @dev The reconciliation core (fork + store resolution already done). Chain-level policy
-    /// (`ccvThreshold`) comes from the config; the lanes{} come from the project store. Every pool read
-    /// goes through the probe so a weird pool degrades to a WARN/SKIP, never a hard revert of the doctor.
-    function _reconcileLanesWithPool(
-        string memory name,
-        string memory configJson,
-        string memory projectJson,
-        address pool
-    ) private {
+    /// @dev The reconciliation core (fork + store resolution already done). Both the per-lane
+    /// `lanes{}` policy and the pool-scoped `poolPolicy{}` block (ccvThreshold + finality) come from
+    /// the project store. Every pool read goes through the probe so a weird pool degrades to a
+    /// WARN/SKIP, never a hard revert of the doctor.
+    function _reconcileLanesWithPool(string memory name, string memory projectJson, address pool) private {
         if (pool == address(0)) {
             _skip(
                 string.concat(
@@ -1147,24 +1179,29 @@ contract VerifyChain is Script {
         string[] memory declared =
             vm.keyExistsJson(projectJson, ".lanes") ? vm.parseJsonKeys(projectJson, ".lanes") : new string[](0);
         uint256 warnsBefore = warns;
-        // Chain-level (pool-global) additional-CCV threshold: reconciled once per chain, not per lane.
-        // ccvThreshold is chain-level policy in config/chains (NOT a lanes{} entry).
-        if (vm.keyExistsJson(configJson, ".ccvThreshold")) {
-            _reconcileCcvThreshold(configJson, pool, version);
+        uint256 failsBefore = fails;
+        // Pool-scoped policy (poolPolicy{} in the project store): reconciled once per chain, not per
+        // lane - the additional-CCV threshold is pool-global on the hooks contract, and the allowed
+        // finality config is pool-global on the pool itself.
+        if (vm.keyExistsJson(projectJson, ".poolPolicy.ccvThreshold")) {
+            _reconcileCcvThreshold(projectJson, pool, version);
+        }
+        if (vm.keyExistsJson(projectJson, ".poolPolicy.finality")) {
+            _reconcileFinalityConfig(projectJson, pool, version);
         }
         uint64[] memory declaredSelectors = new uint64[](declared.length);
         for (uint256 i = 0; i < declared.length; i++) {
             declaredSelectors[i] = _checkDeclaredLaneOnChain(projectJson, pool, version, declared[i]);
         }
         bool reverseChecked = _checkOnChainLanesDeclared(name, pool, declaredSelectors);
-        if (warns == warnsBefore && reverseChecked) {
+        if (warns == warnsBefore && fails == failsBefore && reverseChecked) {
             _pass(
                 string.concat(
                     "lanes: pool ",
                     vm.toString(pool),
                     " agrees with lanes{} - ",
                     vm.toString(declared.length),
-                    " declared lane(s) applied on-chain, rate limits match, no undeclared on-chain lane"
+                    " declared lane(s) applied on-chain, every declared policy value matches, no undeclared on-chain lane"
                 )
             );
         }
@@ -1220,8 +1257,9 @@ contract VerifyChain is Script {
     /// @dev The declared policy blocks of one applied lane, against the live pool. Always: the core
     /// outbound bucket (`capacity`/`rate`). Optional, reconciled ONLY when declared (absent fields
     /// are undeclared, never defaulted): the `inbound{}` bucket, and the `v2{}` block (fast-finality
-    /// buckets + per-lane fee config), which needs a 2.0.0 pool - declared against an earlier or
-    /// unrecognized version it is a WARN naming the mismatch, not a read attempt.
+    /// buckets + per-lane fee config + per-lane ccv), which needs a 2.0.0 pool - declared against a
+    /// cataloged earlier version it is a FAIL naming the mismatch (the declaration can never
+    /// converge), declared against an unrecognized version a WARN; never a read attempt either way.
     function _checkLanePolicy(
         string memory json,
         address pool,
@@ -1237,17 +1275,23 @@ contract VerifyChain is Script {
         if (!vm.keyExistsJson(json, string.concat(lanePath, ".v2"))) return;
         if (version < PoolVersions.Version.V2_0_0) {
             (,, string memory typeAndVersion) = PoolVersion.tryResolve(pool);
-            _warn(
-                string.concat(
-                    "lanes: lanes.",
-                    remote,
-                    " declares a v2{} block but pool ",
-                    vm.toString(pool),
-                    " reports \"",
-                    typeAndVersion,
-                    "\" - the v2 lane surface (fast finality, fee config) needs a 2.0.0 pool; block not reconciled"
-                )
+            string memory gate = string.concat(
+                "lanes: lanes.",
+                remote,
+                " declares a v2{} block but pool ",
+                vm.toString(pool),
+                " reports \"",
+                typeAndVersion,
+                "\" - the v2 lane surface (fast finality, fee config, ccv) needs a 2.0.0 pool; block not reconciled"
             );
+            // A cataloged pre-2.0.0 pool can never satisfy a v2 declaration: FAIL by name (fix the
+            // declaration or migrate the pool). An uncataloged version is degraded visibility, not
+            // proven incompatibility: WARN per the reads-degrade doctrine.
+            if (version != PoolVersions.Version.UNKNOWN) {
+                _fail(string.concat(gate, "; fix the declaration or migrate the pool"));
+            } else {
+                _warn(gate);
+            }
             return;
         }
         string memory ftfPath = string.concat(lanePath, ".v2.fastFinality");
@@ -1272,8 +1316,9 @@ contract VerifyChain is Script {
     /// @dev Compares ONE declared bucket (capacity/rate at `declPath`; enabled iff either is
     /// non-zero) to the live bucket for its direction. `label` names the bucket in every message:
     /// "outbound" (the core policy), "inbound", "fast-finality outbound", "fast-finality inbound".
-    /// Drift is a WARN, never a FAIL: the live values may be a deliberate emergency throttle
-    /// applied out-of-band.
+    /// Drift is a FAIL naming the bucket: the declaration is the intent, so an emergency throttle is
+    /// recorded by updating the declaration (the git diff documents it). An unanswered getter stays
+    /// WARN (degraded visibility, not proven drift).
     function _reconcileBucket(
         string memory json,
         string memory declPath,
@@ -1308,7 +1353,7 @@ contract VerifyChain is Script {
             return;
         }
         if (live.isEnabled == enabled && (!enabled || (live.capacity == capacity && live.rate == rate))) return;
-        _warn(
+        _fail(
             string.concat(
                 "lanes: lanes.",
                 remote,
@@ -1326,7 +1371,7 @@ contract VerifyChain is Script {
                 vm.toString(live.capacity),
                 " rate=",
                 vm.toString(live.rate),
-                " (may be a deliberate throttle; re-apply the policy via ApplyChainUpdates/SetRateLimitConfig to clear)"
+                " - re-apply the policy (ApplyChainUpdates/UpdateRateLimiters) or update the declaration to the live values"
             )
         );
     }
@@ -1346,8 +1391,9 @@ contract VerifyChain is Script {
 
     /// @dev Compares the declared per-lane fee config (2.0.0 pools) to the live
     /// `getTokenTransferFeeConfig`. A declared block means an ENABLED on-chain config (the pool
-    /// refuses to store a disabled one); each declared field is compared individually and an
-    /// undeclared field is not reconciled. WARN-only, one line per drifting field.
+    /// refuses to store a disabled one), so a declared-but-live-disabled config is a FAIL like any
+    /// other drift; each declared field is compared individually (one FAIL line per drifting field)
+    /// and an undeclared field is not reconciled. An unanswered getter stays WARN.
     function _reconcileFeeConfig(
         string memory json,
         string memory declPath,
@@ -1371,13 +1417,13 @@ contract VerifyChain is Script {
             return;
         }
         if (!live.isEnabled) {
-            _warn(
+            _fail(
                 string.concat(
                     "lanes: lanes.",
                     remote,
                     " v2.feeConfig declared but the pool has no enabled fee config on-chain for selector ",
                     vm.toString(selector),
-                    " - apply it: TokenPool.applyTokenTransferFeeConfigUpdates"
+                    " - apply it (script/configure/fee-config/UpdateTokenTransferFeeConfig.s.sol) or remove the declaration"
                 )
             );
             return;
@@ -1402,7 +1448,7 @@ contract VerifyChain is Script {
         if (!vm.keyExistsJson(json, key)) return;
         uint256 declaredValue = vm.parseJsonUint(json, key);
         if (declaredValue == liveValue) return;
-        _warn(
+        _fail(
             string.concat(
                 "lanes: lanes.",
                 remote,
@@ -1411,17 +1457,20 @@ contract VerifyChain is Script {
                 " drift - declared ",
                 vm.toString(declaredValue),
                 " but on-chain ",
-                vm.toString(liveValue)
+                vm.toString(liveValue),
+                " - re-apply (script/configure/fee-config/UpdateTokenTransferFeeConfig.s.sol) or update the declaration"
             )
         );
     }
 
     /// @dev Compares the declared per-lane CCV config (2.0.0 pools with an AdvancedPoolHooks wired) to
     /// the live `getCCVConfig`. CCVs live on the hooks contract, not the pool: a 2.0.0 pool with no
-    /// hooks wired is the same shape of WARN as the v2-block-on-a-pre-2.0.0-pool case ("needs advanced
-    /// hooks"). Each declared verifier array is compared as a SET (order-insensitive - a reordering of
-    /// the same CCVs is not drift); an undeclared array is not reconciled. WARN-only, one line per
-    /// drifting field; any read failure degrades to a WARN, never a FAIL or a revert of the doctor.
+    /// hooks wired can never satisfy a declared v2.ccv block, so it is a FAIL of the same shape as
+    /// the v2-block-on-a-cataloged-1.x-pool gate. Each declared verifier array is compared as a SET
+    /// (order-insensitive - a reordering of the same CCVs is not drift) and a mismatch is a FAIL
+    /// naming the array (a drifted verifier set silently changes what attestations the lane
+    /// requires); an undeclared array is not reconciled. Any read failure degrades to a WARN, never
+    /// a FAIL or a revert of the doctor.
     function _reconcileCCVConfig(
         string memory json,
         string memory declPath,
@@ -1445,13 +1494,13 @@ contract VerifyChain is Script {
             return;
         }
         if (hooks == address(0)) {
-            _warn(
+            _fail(
                 string.concat(
                     "lanes: lanes.",
                     remote,
                     " declares a v2.ccv block but pool ",
                     vm.toString(pool),
-                    " has no AdvancedPoolHooks wired - CCV config needs advanced hooks; block not reconciled"
+                    " has no AdvancedPoolHooks wired - wire hooks (script/configure/allowlist/DeployAdvancedPoolHooks.s.sol) or remove the declaration"
                 )
             );
             return;
@@ -1491,7 +1540,7 @@ contract VerifyChain is Script {
         if (!vm.keyExistsJson(json, key)) return;
         address[] memory declared = vm.parseJsonAddressArray(json, key);
         if (_sameAddressSet(declared, live)) return;
-        _warn(
+        _fail(
             string.concat(
                 "lanes: lanes.",
                 remote,
@@ -1500,27 +1549,32 @@ contract VerifyChain is Script {
                 " drift - declared ",
                 _addrArrayToString(declared),
                 " but on-chain ",
-                _addrArrayToString(live)
+                _addrArrayToString(live),
+                " - re-apply (script/configure/ccv/UpdateCCVConfig.s.sol) or update the declaration"
             )
         );
     }
 
-    /// @dev The chain-level (pool-global) additional-CCV threshold vs the live `getThresholdAmount`.
-    /// Needs a 2.0.0 pool with an AdvancedPoolHooks wired - a pre-2.0.0 pool or an unwired 2.0.0 pool
-    /// is a WARN of the same shape as the v2-block case ("needs advanced hooks"). WARN-only; any read
-    /// failure degrades to a WARN, never a FAIL.
+    /// @dev The pool-scoped (pool-global) additional-CCV threshold, declared at
+    /// `poolPolicy.ccvThreshold` in the project store, vs the live `getThresholdAmount`. Needs a
+    /// 2.0.0 pool with an AdvancedPoolHooks wired: a cataloged pre-2.0.0 pool or an unwired 2.0.0
+    /// pool can never satisfy the declaration, so both are FAILs naming the fix; an uncataloged
+    /// version and any unanswered read stay WARN. Drift is a FAIL naming the field.
     function _reconcileCcvThreshold(string memory json, address pool, PoolVersions.Version version) private {
         if (version < PoolVersions.Version.V2_0_0) {
             (,, string memory typeAndVersion) = PoolVersion.tryResolve(pool);
-            _warn(
-                string.concat(
-                    "lanes: ccvThreshold declared but pool ",
-                    vm.toString(pool),
-                    " reports \"",
-                    typeAndVersion,
-                    "\" - the pool-global CCV threshold needs a 2.0.0 pool; not reconciled"
-                )
+            string memory gate = string.concat(
+                "lanes: poolPolicy.ccvThreshold declared but pool ",
+                vm.toString(pool),
+                " reports \"",
+                typeAndVersion,
+                "\" - the pool-global CCV threshold needs a 2.0.0 pool; not reconciled"
             );
+            if (version != PoolVersions.Version.UNKNOWN) {
+                _fail(string.concat(gate, "; fix the declaration or migrate the pool"));
+            } else {
+                _warn(gate);
+            }
             return;
         }
         address hooks;
@@ -1531,17 +1585,17 @@ contract VerifyChain is Script {
                 string.concat(
                     "lanes: pool ",
                     vm.toString(pool),
-                    " does not answer getAdvancedPoolHooks - ccvThreshold not reconciled"
+                    " does not answer getAdvancedPoolHooks - poolPolicy.ccvThreshold not reconciled"
                 )
             );
             return;
         }
         if (hooks == address(0)) {
-            _warn(
+            _fail(
                 string.concat(
-                    "lanes: ccvThreshold declared but pool ",
+                    "lanes: poolPolicy.ccvThreshold declared but pool ",
                     vm.toString(pool),
-                    " has no AdvancedPoolHooks wired - the CCV threshold needs advanced hooks; not reconciled"
+                    " has no AdvancedPoolHooks wired - wire hooks (script/configure/allowlist/DeployAdvancedPoolHooks.s.sol) or remove the declaration"
                 )
             );
             return;
@@ -1554,16 +1608,79 @@ contract VerifyChain is Script {
                 string.concat(
                     "lanes: hooks ",
                     vm.toString(hooks),
-                    " does not answer getThresholdAmount - ccvThreshold not reconciled"
+                    " does not answer getThresholdAmount - poolPolicy.ccvThreshold not reconciled"
                 )
             );
             return;
         }
-        uint256 declared = vm.parseJsonUint(json, ".ccvThreshold");
+        uint256 declared = vm.parseJsonUint(json, ".poolPolicy.ccvThreshold");
         if (declared == live) return;
-        _warn(
+        _fail(
             string.concat(
-                "lanes: ccvThreshold drift - declared ", vm.toString(declared), " but on-chain ", vm.toString(live)
+                "lanes: poolPolicy.ccvThreshold drift - declared ",
+                vm.toString(declared),
+                " but on-chain ",
+                vm.toString(live),
+                " - re-apply (script/configure/ccv/UpdateCCVConfig.s.sol) or update the declaration"
+            )
+        );
+    }
+
+    /// @dev The pool-scoped allowed-finality config, declared in mode terms at `poolPolicy.finality`
+    /// in the project store ({blockDepth?, waitForSafe?}; an empty block declares the default
+    /// WAIT_FOR_FINALITY, i.e. fast finality disabled), vs the live `getAllowedFinalityConfig`.
+    /// Needs a 2.0.0 pool: a cataloged pre-2.0.0 pool can never satisfy the declaration (FAIL); an
+    /// uncataloged version and an unanswered read stay WARN. Drift is a FAIL printing both sides raw
+    /// (bytes4) plus decoded, so the operator sees the meaning next to the hex.
+    function _reconcileFinalityConfig(string memory json, address pool, PoolVersions.Version version) private {
+        if (version < PoolVersions.Version.V2_0_0 && version != PoolVersions.Version.UNKNOWN) {
+            (,, string memory typeAndVersion) = PoolVersion.tryResolve(pool);
+            _fail(
+                string.concat(
+                    "lanes: poolPolicy.finality declared but pool ",
+                    vm.toString(pool),
+                    " reports \"",
+                    typeAndVersion,
+                    "\" - the allowed finality config needs a 2.0.0 pool; fix the declaration or migrate the pool"
+                )
+            );
+            return;
+        }
+        bytes4 live;
+        try probe.poolAllowedFinality(pool) returns (bytes4 f) {
+            live = f;
+        } catch {
+            _warn(
+                string.concat(
+                    "lanes: pool ",
+                    vm.toString(pool),
+                    " does not answer getAllowedFinalityConfig - poolPolicy.finality not reconciled"
+                )
+            );
+            return;
+        }
+        bytes4 declared;
+        try probe.parseDeclaredFinality(json) returns (bytes4 d) {
+            declared = d;
+        } catch Error(string memory reason) {
+            _fail(string.concat("lanes: malformed poolPolicy.finality declaration (", reason, ") - fix the hand edit"));
+            return;
+        } catch {
+            _fail("lanes: malformed poolPolicy.finality declaration (a value failed to parse) - fix the hand edit");
+            return;
+        }
+        if (declared == live) return;
+        _fail(
+            string.concat(
+                "lanes: poolPolicy.finality drift - declared ",
+                vm.toString(abi.encodePacked(declared)),
+                " (",
+                FinalityConfigUtils.decodeModeLabel(declared),
+                ") but on-chain ",
+                vm.toString(abi.encodePacked(live)),
+                " (",
+                FinalityConfigUtils.decodeModeLabel(live),
+                ") - re-apply (script/configure/finality-config/SetFinalityConfig.s.sol) or update the declaration"
             )
         );
     }
@@ -1702,16 +1819,17 @@ contract VerifyChain is Script {
     }
 
     /// @notice Test hook: runs ONLY the on-chain lane reconciliation for `name` against `pool` on
-    /// the currently-selected fork and returns `(fails, warns)`. Lets a fork test assert the
-    /// WARN-not-FAIL contract (drift and undeclared lanes must never increment `fails`) and the
-    /// no-pool SKIP without the full ffi/API doctor run. Not used by any production path.
+    /// the currently-selected fork and returns `(fails, warns)`. Lets a fork test assert the rung's
+    /// severity contract (declared-vs-live drift FAILs naming the field; forward-intent, undeclared
+    /// on-chain lanes, and unanswered reads stay WARN) and the no-pool SKIP without the full ffi/API
+    /// doctor run. Not used by any production path.
     function checkLanesOnChainForTest(string memory name, address pool)
         public
         returns (uint256 failsOut, uint256 warnsOut)
     {
         forked = true;
         probe = new ChainProbe();
-        _reconcileLanesWithPool(name, vm.readFile(_path(name)), _readProject(name), pool);
+        _reconcileLanesWithPool(name, _readProject(name), pool);
         return (fails, warns);
     }
 }

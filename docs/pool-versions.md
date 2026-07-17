@@ -149,6 +149,14 @@ Read-only scripts that dispatch version-shaped reads (`GetRemotePools`, `GetSupp
 (`WARN: unrecognized pool version "..."; read-only display, best effort.`) and continue with
 best-effort getters. Diagnostics must survive unknown versions; a broadcast must not.
 
+The doctor's lanes rung applies the same split to version gating: a 2.0.0-only declaration (a
+`v2{}` lane block or a `poolPolicy{}` value) against a **cataloged** pre-2.0.0 pool is a FAIL by name
+— the catalog proves the declaration can never converge on that pool. Against an **uncataloged**
+version the gates degrade to WARN, per surface: the `v2{}` lane block and `poolPolicy.ccvThreshold`
+emit the version WARN without attempting their 2.0.0-only reads, while `poolPolicy.finality` and the
+rate-limit buckets read best-effort — and a value a read DOES recover that the chain contradicts
+still FAILs as drift (only the gates carve out unknown versions).
+
 If a pool reports a version like `1.6.0` that you expected to exist, you are probably reading an
 npm package version; see [the key is the contract's own word](#the-key-is-the-contracts-own-word).
 If a genuinely new pool release appears, extend the catalog: see

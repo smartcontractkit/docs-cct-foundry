@@ -13,6 +13,7 @@ import {FinalityConfigUtils} from "../../utils/FinalityConfigUtils.s.sol";
 import {LanePolicySource} from "../../utils/LanePolicySource.s.sol";
 import {CctActions} from "../../../src/actions/CctActions.sol";
 import {EoaExecutor} from "../../../src/base/EoaExecutor.s.sol";
+import {ProjectStore} from "../../../src/utils/ProjectStore.sol";
 
 /// @notice Sets the allowed finality configuration on a TokenPool, and optionally updates rate limits
 /// for the fast finality bucket on a specific remote chain lane.
@@ -20,7 +21,7 @@ import {EoaExecutor} from "../../../src/base/EoaExecutor.s.sol";
 /// @dev This function is only available on TokenPool v2.0 and later.
 /// The allowed finality config controls which fast finality modes are accepted for cross-chain transfers.
 ///
-/// Exactly one finality mode must be specified (or none, to use WAIT_FOR_FINALITY as the default):
+/// Finality modes (encoded into the bytes4 by FinalityConfigUtils.encode):
 ///   BLOCK_DEPTH=<n>                      — Allow fast finality after N block confirmations (1–65535).
 ///   WAIT_FOR_SAFE=true                   — Allow fast finality transfers using the `safe` head.
 ///   BLOCK_DEPTH=<n> + WAIT_FOR_SAFE=true — Allow both modes simultaneously (pool accepts either).
@@ -29,6 +30,13 @@ import {EoaExecutor} from "../../../src/base/EoaExecutor.s.sol";
 /// Environment Variables (finality mode — any combination):
 ///   BLOCK_DEPTH    - uint16, number of block confirmations to allow (1–65535).
 ///   WAIT_FOR_SAFE  - true/false, set to true to also allow transfers using the `safe` head.
+///
+/// Ladder (the applied bytes4): env (either variable present, even explicitly false/0) > the
+/// declared `poolPolicy.finality` block in the project store ({blockDepth?, waitForSafe?}; an empty
+/// block declares the WAIT_FOR_FINALITY default) > WAIT_FOR_FINALITY (reset). An env value that
+/// diverges from a declaration prints a one-line notice and a closing hand-edit hint, and
+/// `make doctor` FAILs until reconciled (`poolPolicy` has no flag surface — reconcile by a reviewed
+/// hand edit). The declaration is owner intent: an env-driven apply never writes it back.
 ///
 /// Environment Variables (optional — rate limiter):
 ///   DEST_CHAIN                    - Remote chain whose lane is queried/updated (e.g. MANTLE_SEPOLIA).
@@ -50,7 +58,7 @@ import {EoaExecutor} from "../../../src/base/EoaExecutor.s.sol";
 ///      the OUTBOUND_*/INBOUND_* env vars are set, and it never sources buckets from `lanes{}`. When
 ///      an env-applied bucket CONTRADICTS a declared `lanes.<remote>.v2.fastFinality.<dir>` policy,
 ///      the script prints the same one-line divergence notice and closing hand-edit hint
-///      `UpdateRateLimiters` prints (`make doctor` WARNs until reconciled); an absent or agreeing
+///      `UpdateRateLimiters` prints (`make doctor` FAILs until reconciled); an absent or agreeing
 ///      declaration is silent. To DECLARE the fast-finality policy and apply it from `lanes{}`, use
 ///      `UpdateRateLimiters` with `FAST_FINALITY=true` (the declare-from-policy path).
 ///
@@ -80,6 +88,26 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
     // from a declared lanes{}.v2.fastFinality policy; printed after the footer (empty when none).
     string private s_ffOutboundHint;
     string private s_ffInboundHint;
+    // The composed closing hand-edit hint for an env-applied finality config that diverges from (or
+    // is missing in) a declared poolPolicy.finality block; printed after the footer (empty when none).
+    string private s_finalityHint;
+
+    /// @dev How the applied finality config was resolved through the input ladder (env > declared
+    ///      `poolPolicy.finality` > the WAIT_FOR_FINALITY reset), plus the composed divergence
+    ///      notice/hint strings (pinned byte-exact by the test). The notice fires only on
+    ///      declared-and-diverges; the hint also fires for an env apply with no declaration.
+    struct FinalityResolution {
+        bool fromEnv; // rung 1: WAIT_FOR_SAFE or BLOCK_DEPTH exists in the env
+        bool fromDeclared; // rung 2: no env; poolPolicy.finality present
+        bool declared; // poolPolicy.finality exists in the project store
+        bytes4 declaredValue;
+        bool configFound;
+        string configName;
+        bool diverges; // env value != declared value
+        bytes4 value; // the resolved bytes4 that will be applied
+        string notice;
+        string hint;
+    }
 
     /// @dev The fast-finality rate-limit divergence resolution: whether an env-applied bucket
     ///      contradicts a declared `lanes.<remote>.v2.fastFinality.<dir>` policy, plus the composed
@@ -106,8 +134,19 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
     }
 
     function run() external {
-        // ── Build and validate finality config ────────────────────────────
-        s_newFinalityConfig = _buildFinalityConfig();
+        // ── Resolve the finality config through the input ladder ───────────
+        FinalityResolution memory finalityRes = _resolveFinality();
+        s_newFinalityConfig = finalityRes.value;
+        if (finalityRes.fromDeclared) {
+            console.log(
+                string.concat(
+                    "Finality config resolved from poolPolicy.finality in ",
+                    ProjectStore.display(finalityRes.configName)
+                )
+            );
+        }
+        if (finalityRes.diverges) console.log(finalityRes.notice);
+        s_finalityHint = finalityRes.hint;
 
         // ── Optional env vars — rate limiter ───────────────────────────────
         string memory sentinel = "__not_set__";
@@ -234,8 +273,10 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
             string.concat("Token Pool:      ", helperConfig.getExplorerUrl(chainId, "/address/", tokenPoolAddress))
         );
         console.log("========================================");
-        // Closing hand-edit hints for an env-applied fast-finality bucket that diverges from a
-        // declared lanes{}.v2.fastFinality policy (empty unless it fired).
+        // Closing hand-edit hints: an env-applied finality config that a declared poolPolicy.finality
+        // block does not match (or that no block declares), and an env-applied fast-finality bucket
+        // that diverges from a declared lanes{}.v2.fastFinality policy (each empty unless it fired).
+        if (bytes(s_finalityHint).length != 0) console.log(s_finalityHint);
         if (bytes(s_ffOutboundHint).length != 0) console.log(s_ffOutboundHint);
         if (bytes(s_ffInboundHint).length != 0) console.log(s_ffInboundHint);
         console.log("");
@@ -246,15 +287,80 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
     /// @dev Reads BLOCK_DEPTH / WAIT_FOR_SAFE env vars, validates them, and encodes the bytes4 config.
     /// Extracted into its own function to keep the EVM stack depth of run() within the 16-slot limit.
     function _buildFinalityConfig() internal view returns (bytes4) {
-        bool waitForSafe = vm.envOr("WAIT_FOR_SAFE", false);
-        uint256 blockDepthRaw = vm.envOr("BLOCK_DEPTH", uint256(0));
+        bool waitForSafe = _envBool("WAIT_FOR_SAFE", false);
+        uint256 blockDepthRaw = _envUint("BLOCK_DEPTH");
 
         require(blockDepthRaw <= FinalityCodec.MAX_BLOCK_DEPTH, "BLOCK_DEPTH must be <= FinalityCodec.MAX_BLOCK_DEPTH");
 
-        if (waitForSafe && blockDepthRaw > 0) return FinalityCodec._encodeBlockDepthAndSafeFlag(uint16(blockDepthRaw));
-        if (waitForSafe) return FinalityCodec.WAIT_FOR_SAFE_FLAG;
-        if (blockDepthRaw > 0) return FinalityCodec._encodeBlockDepth(uint16(blockDepthRaw));
-        return FinalityCodec.WAIT_FOR_FINALITY_FLAG;
+        return FinalityConfigUtils.encode(waitForSafe, blockDepthRaw);
+    }
+
+    /// @dev The finality-config input ladder: env (either variable present — explicit false/0 still
+    ///      pins the env rung) > declared `poolPolicy.finality` > WAIT_FOR_FINALITY (reset). With an
+    ///      absent declaration the result is bit-identical to the env-only behavior, so a project
+    ///      store with no poolPolicy block changes nothing.
+    function _resolveFinality() internal view returns (FinalityResolution memory res) {
+        res.fromEnv = _envExists("WAIT_FOR_SAFE") || _envExists("BLOCK_DEPTH");
+        (res.configFound, res.configName,) = _findLocalChainConfig();
+        if (res.configFound) {
+            string memory json = _localProjectJson(res.configName);
+            res.declared = vm.keyExistsJson(json, ".poolPolicy.finality");
+            if (res.declared) res.declaredValue = FinalityConfigUtils.parseDeclared(json, ".poolPolicy.finality");
+        }
+        if (res.fromEnv) {
+            res.value = _buildFinalityConfig();
+            res.diverges = res.declared && res.value != res.declaredValue;
+        } else if (res.declared) {
+            res.fromDeclared = true;
+            res.value = res.declaredValue;
+        } else {
+            res.value = FinalityCodec.WAIT_FOR_FINALITY_FLAG;
+        }
+        if (res.diverges) res.notice = _composeFinalityNotice(res);
+        if (res.fromEnv && res.configFound && (!res.declared || res.diverges)) {
+            res.hint = _composeFinalityEditHint(res);
+        }
+    }
+
+    /// @dev One divergence-notice line for an env-applied finality config that contradicts the
+    ///      declared poolPolicy.finality block (both sides raw + decoded), returned so the test can
+    ///      pin it byte-exact.
+    function _composeFinalityNotice(FinalityResolution memory res) internal view returns (string memory) {
+        return string.concat(
+            unicode"⚠️  Finality env override ",
+            vm.toString(abi.encodePacked(res.value)),
+            " (",
+            FinalityConfigUtils.decodeModeLabel(res.value),
+            ") diverges from declared poolPolicy.finality ",
+            vm.toString(abi.encodePacked(res.declaredValue)),
+            " (",
+            FinalityConfigUtils.decodeModeLabel(res.declaredValue),
+            ") in ",
+            ProjectStore.display(res.configName),
+            " - make doctor will FAIL until reconciled"
+        );
+    }
+
+    /// @dev One closing hand-edit hint line for an env-applied finality config the declaration does
+    ///      not match (or that no block declares), returned so the test can pin it byte-exact. The
+    ///      suggested edit is decoded from the applied bytes4 (depth = lower 16 bits, safe = bit 16).
+    function _composeFinalityEditHint(FinalityResolution memory res) internal view returns (string memory) {
+        uint16 depth = uint16(uint32(res.value & FinalityCodec.BLOCK_DEPTH_MASK));
+        bool safe = (res.value & FinalityCodec.WAIT_FOR_SAFE_FLAG) != bytes4(0);
+        return string.concat(
+            unicode"⚠️  Applied finality config ",
+            vm.toString(abi.encodePacked(res.value)),
+            res.declared ? " is diverging from" : " is not declared as",
+            " poolPolicy.finality (",
+            ProjectStore.display(res.configName),
+            "). Hand-edit the block to blockDepth=",
+            vm.toString(depth),
+            " waitForSafe=",
+            safe ? "true" : "false",
+            " - make doctor CHAIN=",
+            res.configName,
+            " FAILs until reconciled"
+        );
     }
 
     /// @dev Logs the current on-chain finality config. Isolated to avoid stack depth pressure in run().
@@ -395,7 +501,7 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
     ///      notice prints), returned so the test can pin it.
     function _composeFfDivergence(FastFinalityRlDivergence memory res, RateLimiter.Config memory applied, bool inbound)
         internal
-        pure
+        view
         returns (string memory)
     {
         (uint256 declCapacity, uint256 declRate) =
@@ -417,9 +523,9 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
             vm.toString(declCapacity),
             " rate=",
             vm.toString(declRate),
-            ") in config/chains/",
-            res.configName,
-            ".json - make doctor will WARN until reconciled"
+            ") in ",
+            ProjectStore.display(res.configName),
+            " - make doctor will FAIL until reconciled"
         );
     }
 
@@ -427,7 +533,7 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
     ///      hint prints for a diverging bucket), returned so the test can pin it.
     function _composeFfEditHint(FastFinalityRlDivergence memory res, RateLimiter.Config memory applied, bool inbound)
         internal
-        pure
+        view
         returns (string memory)
     {
         return string.concat(
@@ -437,15 +543,15 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
             res.laneKey,
             ".v2.fastFinality.",
             inbound ? "inbound" : "outbound",
-            " (config/chains/",
-            res.configName,
-            ".json). Hand-edit the entry to capacity=",
+            " (",
+            ProjectStore.display(res.configName),
+            "). Hand-edit the entry to capacity=",
             vm.toString(uint256(applied.capacity)),
             " rate=",
             vm.toString(uint256(applied.rate)),
             " - make doctor CHAIN=",
             res.configName,
-            " WARNs until reconciled"
+            " FAILs until reconciled"
         );
     }
 }

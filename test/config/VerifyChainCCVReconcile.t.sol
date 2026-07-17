@@ -4,15 +4,17 @@ pragma solidity 0.8.24;
 import {RateLimiter} from "@chainlink/contracts-ccip/contracts/libraries/RateLimiter.sol";
 import {AdvancedPoolHooks} from "@chainlink/contracts-ccip/contracts/pools/AdvancedPoolHooks.sol";
 import {VerifyChain} from "../../script/config/VerifyChain.s.sol";
-import {LaneReconcileScratch} from "./VerifyChainLaneReconcile.t.sol";
+import {LaneReconcileScratch, MockV1Pool} from "./VerifyChainLaneReconcile.t.sol";
 
-/// @dev A 2.0.0-shaped pool exposing exactly what the CCV reconcile reads: version, chain membership,
-///      the (disabled) core rate-limit buckets, and its AdvancedPoolHooks address (settable, so the
-///      no-hooks path is testable). No fastFinality/feeConfig surface is declared in these tests, so
-///      only the core buckets and the CCV block are reconciled.
+/// @dev A 2.0.0-shaped pool exposing exactly what the CCV and pool-policy reconciles read: version,
+///      chain membership, the (disabled) core rate-limit buckets, its AdvancedPoolHooks address
+///      (settable, so the no-hooks path is testable), and a settable allowed-finality config (for
+///      the poolPolicy.finality reconcile). No fastFinality/feeConfig surface is declared in these
+///      tests, so only the declared blocks are reconciled.
 contract MockV2CcvPool {
     uint64 private immutable i_selector;
     address private immutable i_hooks;
+    bytes4 private s_allowedFinality;
 
     constructor(uint64 selector, address hooks) {
         i_selector = selector;
@@ -37,6 +39,14 @@ contract MockV2CcvPool {
         return i_hooks;
     }
 
+    function setAllowedFinality(bytes4 config) external {
+        s_allowedFinality = config;
+    }
+
+    function getAllowedFinalityConfig() external view returns (bytes4) {
+        return s_allowedFinality;
+    }
+
     // Disabled core buckets (empty return): a lane declared 0/0 reconciles clean, isolating the CCV block.
     function getCurrentRateLimiterState(uint64, bool)
         external
@@ -45,9 +55,9 @@ contract MockV2CcvPool {
     {}
 }
 
-/// @dev A pre-2.0.0 pool (1.6.1): the reconcile's chain-level ccvThreshold check has a distinct
-///      version-named WARN branch for a pool that predates the AdvancedPoolHooks surface (never a read
-///      attempt, never a FAIL). Answers getSupportedChains for the reverse check.
+/// @dev A pre-2.0.0 pool (1.6.1): a pool-scoped policy declaration against it hits the version gate
+///      (FAIL by name for a cataloged 1.x version, never a read attempt). Answers getSupportedChains
+///      for the reverse check.
 contract MockV161Pool {
     function typeAndVersion() external pure returns (string memory) {
         return "BurnMintTokenPool 1.6.1";
@@ -63,9 +73,10 @@ contract MockV161Pool {
 }
 
 /// @notice The `make doctor` CCV reconcile: the declared `lanes.<remote>.v2.ccv` verifier arrays and
-///         the chain-level `ccvThreshold` compared against the pool's AdvancedPoolHooks, WARN-only.
-///         Set-insensitive (a reordered verifier set is not drift); a `v2.ccv` block against a pool
-///         with no hooks is a version-mismatch-style WARN, never a read attempt or a FAIL.
+///         the pool-scoped `poolPolicy.ccvThreshold` compared against the pool's AdvancedPoolHooks.
+///         Set-insensitive (a reordered verifier set is not drift); a mismatching set, a drifted
+///         threshold, a declaration against a hooks-less 2.0.0 pool, and a declaration against a
+///         cataloged 1.x pool are all FAILs naming the field or the fix; unanswered reads stay WARN.
 contract VerifyChainCCVReconcileTest is LaneReconcileScratch {
     uint64 internal constant SEL = 8_875_000_000_000_000_001;
     address internal constant A1 = address(0xA001);
@@ -80,8 +91,8 @@ contract VerifyChainCCVReconcileTest is LaneReconcileScratch {
     /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
     /// run leaves no residue.
     function _clean() private {
-        string[] memory names = new string[](6);
-        for (uint256 n = 1; n <= 6; n++) {
+        string[] memory names = new string[](7);
+        for (uint256 n = 1; n <= 7; n++) {
             names[n - 1] = string.concat("zz-scratch-ccvchk-", vm.toString(n));
         }
         _cleanupScratch(names);
@@ -133,8 +144,9 @@ contract VerifyChainCCVReconcileTest is LaneReconcileScratch {
         _cleanupScratchOne(name);
     }
 
-    /// WARN: the declared CCV set differs from on-chain.
-    function test_CCV_Warn_ArrayDrift() public {
+    /// FAIL: the declared CCV set differs from on-chain (a drifted verifier set silently changes
+    /// what attestations the lane requires - the doctor must go red naming the array).
+    function test_CCV_Fail_ArrayDrift() public {
         string memory name = "zz-scratch-ccvchk-2";
         _writeScratchChain(name, 887_500_201, 8_875_002_010_000_000_001);
         AdvancedPoolHooks hooks = _deployHooks(0);
@@ -145,14 +157,15 @@ contract VerifyChainCCVReconcileTest is LaneReconcileScratch {
         _declareLane(name, "zz-scratch-ccvchk-r2", _laneEntry(SEL, 0, 0, ccv));
 
         (uint256 fails, uint256 warns) = new VerifyChain().checkLanesOnChainForTest(name, address(pool));
-        assertEq(fails, 0, "CCV drift is a WARN, never a FAIL");
-        assertEq(warns, 1, "CCV outbound drift must emit exactly one WARN");
+        assertEq(fails, 1, "CCV outbound drift must FAIL naming the array");
+        assertEq(warns, 0, "CCV drift must not additionally WARN");
 
         _cleanupScratchOne(name);
     }
 
-    /// WARN: a v2.ccv block against a 2.0.0 pool with NO hooks wired (address(0)).
-    function test_CCV_Warn_NoHooks() public {
+    /// FAIL: a v2.ccv block against a 2.0.0 pool with NO hooks wired (address(0)) - the declaration
+    /// can never converge until hooks are wired or the block is removed.
+    function test_CCV_Fail_NoHooks() public {
         string memory name = "zz-scratch-ccvchk-3";
         _writeScratchChain(name, 887_500_301, 8_875_003_010_000_000_001);
         MockV2CcvPool pool = new MockV2CcvPool(SEL, address(0));
@@ -160,40 +173,72 @@ contract VerifyChainCCVReconcileTest is LaneReconcileScratch {
         _declareLane(name, "zz-scratch-ccvchk-r3", _laneEntry(SEL, 0, 0, ccv));
 
         (uint256 fails, uint256 warns) = new VerifyChain().checkLanesOnChainForTest(name, address(pool));
-        assertEq(fails, 0, "no-hooks CCV is a WARN, never a FAIL");
-        assertEq(warns, 1, "a v2.ccv block with no hooks must emit exactly one WARN");
+        assertEq(fails, 1, "a v2.ccv block with no hooks must FAIL naming the fix");
+        assertEq(warns, 0, "the no-hooks FAIL must not additionally WARN");
 
         _cleanupScratchOne(name);
     }
 
-    /// WARN: a chain-level ccvThreshold that differs from the pool's on-chain threshold.
-    function test_CCV_Warn_ThresholdDrift() public {
+    /// FAIL: a declared poolPolicy.ccvThreshold that differs from the pool's on-chain threshold.
+    function test_CCV_Fail_ThresholdDrift() public {
         string memory name = "zz-scratch-ccvchk-4";
         _writeScratchChain(name, 887_500_401, 8_875_004_010_000_000_001);
         AdvancedPoolHooks hooks = _deployHooks(500); // on-chain threshold 500
-        // selector 0 -> the pool advertises no on-chain lanes, isolating the chain-level threshold check
+        // selector 0 -> the pool advertises no on-chain lanes, isolating the pool-scoped threshold check
         MockV2CcvPool pool = new MockV2CcvPool(0, address(hooks));
-        vm.writeJson("999", _path(name), ".ccvThreshold"); // declared 999 != 500
+        _declarePoolPolicy(name, "{\"ccvThreshold\":\"999\"}"); // declared 999 != 500
 
         (uint256 fails, uint256 warns) = new VerifyChain().checkLanesOnChainForTest(name, address(pool));
-        assertEq(fails, 0, "threshold drift is a WARN, never a FAIL");
-        assertEq(warns, 1, "a diverging ccvThreshold must emit exactly one WARN");
+        assertEq(fails, 1, "a diverging poolPolicy.ccvThreshold must FAIL naming the field");
+        assertEq(warns, 0, "threshold drift must not additionally WARN");
 
         _cleanupScratchOne(name);
     }
 
-    /// WARN: a chain-level ccvThreshold declared against a PRE-2.0.0 pool. The threshold surface
-    /// (AdvancedPoolHooks) is 2.0.0-only, so the reconcile emits a distinct version-named WARN and never
-    /// attempts a read - and never FAILs. MockV2CcvPool (always 2.0.0) never reaches this branch.
-    function test_CCV_Warn_ThresholdPre200Pool() public {
+    /// PASS: a declared poolPolicy.ccvThreshold matching the pool's on-chain threshold is quiet.
+    function test_CCV_Pass_ThresholdMatch() public {
+        string memory name = "zz-scratch-ccvchk-6";
+        _writeScratchChain(name, 887_500_601, 8_875_006_010_000_000_001);
+        AdvancedPoolHooks hooks = _deployHooks(500);
+        MockV2CcvPool pool = new MockV2CcvPool(0, address(hooks));
+        _declarePoolPolicy(name, "{\"ccvThreshold\":\"500\"}");
+
+        (uint256 fails, uint256 warns) = new VerifyChain().checkLanesOnChainForTest(name, address(pool));
+        assertEq(fails, 0, "a matching poolPolicy.ccvThreshold must not FAIL");
+        assertEq(warns, 0, "a matching poolPolicy.ccvThreshold must not WARN");
+
+        _cleanupScratchOne(name);
+    }
+
+    /// WARN: a poolPolicy.ccvThreshold declared against an UNCATALOGED version. The gate degrades
+    /// to a WARN (no hooks read attempted) next to the general unknown-version notice - never a
+    /// FAIL, never an aborted run.
+    function test_CCV_Warn_ThresholdOnUnknownVersion() public {
+        string memory name = "zz-scratch-ccvchk-7";
+        _writeScratchChain(name, 887_500_701, 8_875_007_010_000_000_001);
+        MockV1Pool pool = new MockV1Pool("FancyForkPool 9.9.9", 0);
+        _declarePoolPolicy(name, "{\"ccvThreshold\":\"777\"}");
+
+        (uint256 fails, uint256 warns) = new VerifyChain().checkLanesOnChainForTest(name, address(pool));
+        assertEq(fails, 0, "a ccvThreshold on an uncataloged version must never FAIL");
+        assertEq(warns, 2, "the unknown-version notice plus the threshold gate WARN");
+
+        _cleanupScratchOne(name);
+    }
+
+    /// FAIL: a poolPolicy.ccvThreshold declared against a CATALOGED PRE-2.0.0 pool. The threshold
+    /// surface (AdvancedPoolHooks) is 2.0.0-only, so the declaration can never converge on this
+    /// pool: the version gate FAILs by name and never attempts a read. MockV2CcvPool (always 2.0.0)
+    /// never reaches this branch.
+    function test_CCV_Fail_ThresholdOnCataloged1xPool() public {
         string memory name = "zz-scratch-ccvchk-5";
         _writeScratchChain(name, 887_500_501, 8_875_005_010_000_000_001);
         MockV161Pool pool = new MockV161Pool();
-        vm.writeJson("777", _path(name), ".ccvThreshold"); // declared threshold on a pre-2.0.0 pool
+        _declarePoolPolicy(name, "{\"ccvThreshold\":\"777\"}"); // declared threshold on a 1.6.1 pool
 
         (uint256 fails, uint256 warns) = new VerifyChain().checkLanesOnChainForTest(name, address(pool));
-        assertEq(fails, 0, "a ccvThreshold on a pre-2.0.0 pool is a WARN, never a FAIL");
-        assertEq(warns, 1, "a ccvThreshold on a pre-2.0.0 pool must emit exactly one WARN");
+        assertEq(fails, 1, "a poolPolicy.ccvThreshold on a cataloged 1.x pool must FAIL the version gate");
+        assertEq(warns, 0, "the version-gate FAIL must not additionally WARN");
 
         _cleanupScratchOne(name);
     }

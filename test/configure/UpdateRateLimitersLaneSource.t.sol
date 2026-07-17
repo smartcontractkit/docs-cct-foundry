@@ -192,7 +192,7 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
                 vm.toString(uint256(ENV_RATE)),
                 " - make doctor CHAIN=",
                 local,
-                " WARNs until reconciled"
+                " FAILs until reconciled"
             ),
             "composed undeclared hint"
         );
@@ -249,7 +249,7 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
                 vm.toString(uint256(LANE_RATE)),
                 ") in project/",
                 local,
-                ".json - make doctor will WARN until reconciled"
+                ".json - make doctor will FAIL until reconciled"
             ),
             "composed divergence notice"
         );

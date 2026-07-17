@@ -9,7 +9,8 @@ import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 /// no-project SKIP)
 /// @notice Two doctor behaviors, offline (no fork):
 ///   1. **Stale-chain diagnostic** — a `config/chains/<name>.json` still carrying a `lanes{}` or
-///      `roles{}` block gets a NAMED FAIL that points at `project/<name>.json`,
+///      `roles{}` block, or a `ccvThreshold` key (pool-scoped policy: `poolPolicy.ccvThreshold` in
+///      the project store), gets a NAMED FAIL that points at `project/<name>.json`,
 ///      a clear diagnostic, never a cryptic one. A pure API/chain-facts config neither FAILs nor WARNs
 ///      (non-regression).
 ///   2. **No-project SKIP** — the mesh (lanes) rung on a chain that has a config but NO project file
@@ -21,6 +22,7 @@ contract VerifyChainSchemaRungTest is Test {
     string internal constant SEL_CLEAN = "zz-scratch-schema-clean";
     string internal constant SEL_STRAY_LANES = "zz-scratch-schema-straylanes";
     string internal constant SEL_STRAY_ROLES = "zz-scratch-schema-strayroles";
+    string internal constant SEL_STRAY_THRESHOLD = "zz-scratch-schema-straythreshold";
     string internal constant SEL_NOPROJECT = "zz-scratch-schema-noproject";
 
     function setUp() public {
@@ -32,7 +34,7 @@ contract VerifyChainSchemaRungTest is Test {
     /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
     /// run leaves no residue.
     function _clean() private {
-        string[4] memory sels = [SEL_CLEAN, SEL_STRAY_LANES, SEL_STRAY_ROLES, SEL_NOPROJECT];
+        string[5] memory sels = [SEL_CLEAN, SEL_STRAY_LANES, SEL_STRAY_ROLES, SEL_STRAY_THRESHOLD, SEL_NOPROJECT];
         for (uint256 i = 0; i < sels.length; i++) {
             _clean(sels[i]);
         }
@@ -116,7 +118,16 @@ contract VerifyChainSchemaRungTest is Test {
         _clean(SEL_STRAY_ROLES);
     }
 
-    // (4) No-project SKIP: the mesh (lanes) rung on a chain that has a config but NO project file cleanly
+    // (4) Stale config carrying a ccvThreshold: a NAMED FAIL pointing at poolPolicy.ccvThreshold in
+    // project/<name>.json (pool-scoped policy never lives in the API-synced config file).
+    function test_StrayState_ConfigWithCcvThreshold_NamedFail() public {
+        _writeConfig(SEL_STRAY_THRESHOLD, 889000501, 8890005010000000001, ',"ccvThreshold":"1000"');
+        (uint256 fails,) = new VerifyChain().checkNoStrayProjectStateForTest(SEL_STRAY_THRESHOLD);
+        assertEq(fails, 1, "a config carrying ccvThreshold must FAIL the stray-state diagnostic exactly once");
+        _clean(SEL_STRAY_THRESHOLD);
+    }
+
+    // (5) No-project SKIP: the mesh (lanes) rung on a chain that has a config but NO project file cleanly
     // SKIPs (0/0). An absent project store is a normal "no lanes declared" state — the reader
     // returns "{}" so keyExistsJson never raw-reverts (an empty/absent project store is not an error).
     function test_MeshRung_NoProjectFile_SkipsCleanly() public {

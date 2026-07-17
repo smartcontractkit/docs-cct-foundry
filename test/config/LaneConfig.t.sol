@@ -73,8 +73,9 @@ contract LaneConfigTest is Test {
                 _cleanAll(string.concat(prefixes[p], vm.toString(n)));
             }
         }
-        string[4] memory extras =
-            ["zz-scratch-lane-c1", "zz-scratch-lane-c6", "zz-scratch-lane-c7", "zz-scratch-lane-c8"];
+        string[5] memory extras = [
+            "zz-scratch-lane-c1", "zz-scratch-lane-c6", "zz-scratch-lane-c7", "zz-scratch-lane-c8", "zz-scratch-lane-c9"
+        ];
         for (uint256 i = 0; i < extras.length; i++) {
             _cleanAll(extras[i]);
         }
@@ -382,6 +383,73 @@ contract LaneConfigTest is Test {
         _cleanAll("zz-scratch-lane-a7");
         _cleanAll("zz-scratch-lane-b7");
         _cleanAll("zz-scratch-lane-c7");
+    }
+
+    // The pool-scoped poolPolicy{} block (one writer: a reviewed hand edit) must survive BOTH
+    // rewriting writers verbatim: an add-lane .lanes rewrite and a full ccip sync run. A project
+    // file WITHOUT the block stays byte-identical throughout (absent = undeclared, never seeded).
+    function test_PoolPolicy_SurvivesAddLaneAndSync() public {
+        _writeScratchChain("zz-scratch-lane-a9", 888000901, 8880009010000000001);
+        _writeScratchChain("zz-scratch-lane-b9", 888000902, 8880009020000000002);
+        _writeScratchChain("zz-scratch-lane-c9", 888000903, 8880009030000000003);
+
+        // The hand-edit simulation: the whole schema-3 document with poolPolicy in sorted position.
+        vm.writeFile(
+            _projPath("zz-scratch-lane-a9"),
+            string.concat(
+                "{\"addresses\":{\"active\":{},\"deployments\":{}},\"lanes\":{},",
+                "\"poolPolicy\":{\"ccvThreshold\":\"1000\",\"finality\":{\"blockDepth\":\"5\",\"waitForSafe\":true}},",
+                "\"roles\":{},\"schema\":3}"
+            )
+        );
+        string memory beforeAddLane = vm.readFile(_projPath("zz-scratch-lane-a9"));
+
+        // An add-lane rewrites only .lanes: the sibling poolPolicy subtree survives verbatim.
+        sync.addLane("zz-scratch-lane-a9", "zz-scratch-lane-b9", CAPACITY, RATE);
+        string memory afterAddLane = vm.readFile(_projPath("zz-scratch-lane-a9"));
+        assertEq(
+            _subtreeHash(beforeAddLane, "poolPolicy"),
+            _subtreeHash(afterAddLane, "poolPolicy"),
+            "add-lane mutated the poolPolicy block"
+        );
+        assertEq(vm.parseJsonString(afterAddLane, ".poolPolicy.ccvThreshold"), "1000", "ccvThreshold lost by add-lane");
+        assertEq(
+            vm.parseJsonString(afterAddLane, ".lanes.zz-scratch-lane-b9.capacity"),
+            vm.toString(CAPACITY),
+            "lane entry not written"
+        );
+
+        // A full ccip sync run writes only config/chains: the project file stays byte-identical.
+        string memory configBefore = vm.readFile(_path("zz-scratch-lane-a9"));
+        SyncHarness harness = new SyncHarness();
+        harness.setSource(new StubConfigSource(_flatFor("zz-scratch-lane-a9", configBefore, address(0xBEEF))));
+        harness.run("zz-scratch-lane-a9");
+        assertEq(
+            keccak256(bytes(vm.readFile(_projPath("zz-scratch-lane-a9")))),
+            keccak256(bytes(afterAddLane)),
+            "sync mutated a project file carrying poolPolicy"
+        );
+        // The sync never plants pool-scoped policy into the chain config.
+        assertFalse(
+            vm.keyExistsJson(vm.readFile(_path("zz-scratch-lane-a9")), ".ccvThreshold"),
+            "sync wrote a ccvThreshold key into the config"
+        );
+
+        // A project file WITHOUT poolPolicy stays byte-identical through an identical-lane re-run
+        // (the block is never seeded or defaulted into existence).
+        sync.addLane("zz-scratch-lane-c9", "zz-scratch-lane-b9", CAPACITY, RATE);
+        string memory noPolicyBefore = vm.readFile(_projPath("zz-scratch-lane-c9"));
+        assertFalse(vm.keyExistsJson(noPolicyBefore, ".poolPolicy"), "no writer may create poolPolicy");
+        sync.addLane("zz-scratch-lane-c9", "zz-scratch-lane-b9", CAPACITY, RATE);
+        assertEq(
+            keccak256(bytes(vm.readFile(_projPath("zz-scratch-lane-c9")))),
+            keccak256(bytes(noPolicyBefore)),
+            "identical re-run must stay byte-identical without a poolPolicy block"
+        );
+
+        _cleanAll("zz-scratch-lane-a9");
+        _cleanAll("zz-scratch-lane-b9");
+        _cleanAll("zz-scratch-lane-c9");
     }
 
     function test_MeshReciprocity_OneSidedLaneFailsFromEitherSide() public {
