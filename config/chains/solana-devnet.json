@@ -13,7 +13,6 @@
   "chainId": "0",
   "chainNameIdentifier": "SOLANA_DEVNET",
   "chainSelector": "16423721717087811551",
-  "confirmations": 0,
   "displayName": "Solana Devnet",
   "environment": "testnet",
   "explorerUrl": "https://explorer.solana.com?cluster=devnet",

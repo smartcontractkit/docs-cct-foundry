@@ -60,7 +60,6 @@ contract DynamicChainDiscoveryTest is Test {
                 '  "chainSelector": "',
                 vm.toString(SCRATCH_SELECTOR),
                 '",\n',
-                '  "confirmations": 2,\n',
                 '  "displayName": "Zz Scratch Dynamic",\n',
                 '  "environment": "testnet",\n',
                 '  "explorerUrl": "https://example.invalid",\n',
@@ -86,7 +85,6 @@ contract DynamicChainDiscoveryTest is Test {
         assertEq(c.registryModuleOwnerCustom, address(4), "registryModuleOwnerCustom");
         assertEq(c.tokenAdminRegistry, address(5), "tokenAdminRegistry");
         assertEq(c.link, address(1), "link");
-        assertEq(c.confirmations, 2, "confirmations");
         assertEq(c.chainName, "Zz Scratch Dynamic", "chainName");
         assertEq(c.chainNameIdentifier, SCRATCH_IDENTIFIER, "chainNameIdentifier");
         assertEq(c.chainFamily, "evm", "chainFamily");

@@ -16,11 +16,14 @@
   "chainId": "98867",
   "chainNameIdentifier": "PLUME_TESTNET",
   "chainSelector": "13874588925447303949",
-  "confirmations": 2,
   "displayName": "Plume Testnet",
   "environment": "testnet",
   "explorerUrl": "https://testnet-explorer.plume.org",
   "name": "plume-testnet-sepolia",
   "nativeCurrencySymbol": "PLUME",
-  "rpcEnv": "PLUME_TESTNET_RPC_URL"
+  "rpcEnv": "PLUME_TESTNET_RPC_URL",
+  "verifier": {
+    "type": "blockscout",
+    "url": "https://testnet-explorer.plume.org/api"
+  }
 }

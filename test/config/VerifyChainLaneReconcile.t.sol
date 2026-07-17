@@ -37,7 +37,6 @@ abstract contract LaneReconcileScratch is Test {
         vm.serializeString(obj, "chainId", vm.toString(chainId));
         vm.serializeString(obj, "chainSelector", vm.toString(selector));
         vm.serializeString(obj, "rpcEnv", "ZZ_SCRATCH_LANECHK_RPC_URL");
-        vm.serializeUint(obj, "confirmations", 2);
         vm.serializeString(obj, "explorerUrl", "https://example.invalid");
         vm.serializeString(obj, "nativeCurrencySymbol", "ZZZ");
         string memory ccipObj = string.concat("scratch-ccip-", name);

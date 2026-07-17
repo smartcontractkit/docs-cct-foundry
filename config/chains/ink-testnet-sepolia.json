@@ -16,11 +16,14 @@
   "chainId": "763373",
   "chainNameIdentifier": "INK_SEPOLIA",
   "chainSelector": "9763904284804119144",
-  "confirmations": 2,
   "displayName": "Ink Sepolia",
   "environment": "testnet",
   "explorerUrl": "https://explorer-sepolia.inkonchain.com",
   "name": "ink-testnet-sepolia",
   "nativeCurrencySymbol": "ETH",
-  "rpcEnv": "INK_SEPOLIA_RPC_URL"
+  "rpcEnv": "INK_SEPOLIA_RPC_URL",
+  "verifier": {
+    "type": "blockscout",
+    "url": "https://explorer-sepolia.inkonchain.com/api"
+  }
 }

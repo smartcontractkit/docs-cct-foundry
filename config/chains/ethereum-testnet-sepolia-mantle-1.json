@@ -16,7 +16,6 @@
   "chainId": "5003",
   "chainNameIdentifier": "MANTLE_SEPOLIA",
   "chainSelector": "8236463271206331221",
-  "confirmations": 2,
   "displayName": "Mantle Sepolia",
   "environment": "testnet",
   "explorerUrl": "https://explorer.sepolia.mantle.xyz",

@@ -5,8 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {HelperConfig} from "../../script/HelperConfig.s.sol";
 
 /// @title HelperConfigGoldenDataTest
-/// @notice Golden-data parity for the `config/chains` JSON: the addresses, selectors, and genuinely
-/// hand-authored keys (`chainNameIdentifier`, `confirmations`) below are pinned as LITERALS captured
+/// @notice Golden-data parity for the `config/chains` JSON: the addresses, selectors, and the genuinely
+/// hand-authored key (`chainNameIdentifier`) below are pinned as LITERALS captured
 /// from HelperConfig — they must NOT change.
 /// @dev The API-served identity/metadata fields (`chainName`/`displayName`, `chainFamily`, `explorerUrl`,
 /// `nativeCurrencySymbol`) are SOURCED from the CCIP REST API by the config sync and pinned to the API
@@ -30,7 +30,6 @@ contract HelperConfigGoldenDataTest is Test {
         address tokenAdminRegistry,
         address registryModuleOwnerCustom,
         address link,
-        uint256 confirmations,
         string memory chainName,
         string memory chainNameIdentifier,
         string memory explorerUrl,
@@ -43,7 +42,6 @@ contract HelperConfigGoldenDataTest is Test {
         assertEq(c.tokenAdminRegistry, tokenAdminRegistry, "tokenAdminRegistry");
         assertEq(c.registryModuleOwnerCustom, registryModuleOwnerCustom, "registryModuleOwnerCustom");
         assertEq(c.link, link, "link");
-        assertEq(c.confirmations, confirmations, "confirmations");
         assertEq(c.chainName, chainName, "chainName");
         assertEq(c.chainNameIdentifier, chainNameIdentifier, "chainNameIdentifier");
         assertEq(c.explorerUrl, explorerUrl, "explorerUrl");
@@ -60,7 +58,6 @@ contract HelperConfigGoldenDataTest is Test {
             0x95F29FEE11c5C55d26cCcf1DB6772DE953B37B82,
             0xa3c796d480638d7476792230da1E2ADa86e031b0,
             0x779877A7B0D9E8603169DdbD7836e478b4624789,
-            2,
             "Ethereum Sepolia",
             "ETHEREUM_SEPOLIA",
             "https://sepolia.etherscan.io",
@@ -78,7 +75,6 @@ contract HelperConfigGoldenDataTest is Test {
             0x23a5084Fa78104F3DF11C63Ae59fcac4f6AD9DeE,
             0x0820f975ce90EE5c508657F0C58b71D1fcc85cE0,
             0xe5e3a4fF1773d043a387b16Ceb3c91cC49bAFD54,
-            2,
             "0g Galileo 1",
             "0G_GALILEO_TESTNET",
             "https://chainscan-galileo.0g.ai",
@@ -96,7 +92,6 @@ contract HelperConfigGoldenDataTest is Test {
             0x855cF0d18A0BeBEDA7c1CD2F943686120cCCC6bd,
             0x693926456C8b210f56E29Bc5b4514B32A5224c88,
             0xB97e3665AEAF96BDD6b300B2e0C93C662104A068,
-            2,
             "Plume Testnet",
             "PLUME_TESTNET",
             "https://testnet-explorer.plume.org",
@@ -114,7 +109,6 @@ contract HelperConfigGoldenDataTest is Test {
             0x3A849a05a590FeaEf26c2d425241A2BF29307161,
             0xaB018890bBdDf9B80E21d1c335c5f6acdbE0f5D6,
             0x3423C922911956b1Ccbc2b5d4f38216a6f4299b4,
-            2,
             "Ink Sepolia",
             "INK_SEPOLIA",
             "https://explorer-sepolia.inkonchain.com",
@@ -132,7 +126,6 @@ contract HelperConfigGoldenDataTest is Test {
             0x0F1eE88A582f31d92510E300fc1330AA5a525D51,
             0xf76cE612250eeEb8889F49FBCB11f1c2705305F6,
             0x22bdEdEa0beBdD7CfFC95bA53826E55afFE9DE04,
-            2,
             "Mantle Sepolia",
             "MANTLE_SEPOLIA",
             "https://explorer.sepolia.mantle.xyz",
@@ -150,7 +143,6 @@ contract HelperConfigGoldenDataTest is Test {
             address(0),
             address(0),
             address(0),
-            0,
             "Solana Devnet",
             "SOLANA_DEVNET",
             "https://explorer.solana.com?cluster=devnet",

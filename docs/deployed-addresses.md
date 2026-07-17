@@ -1,8 +1,5 @@
 # Deployed addresses: the project store
 
-> Owner: docs-cct-foundry maintainers · Last reviewed: 2026-07-15 · Applies to: the `project/` +
-> `history/` layout (schema 3).
-
 Every deploy in this repo records its output in **two files**. They are not two sources of truth - they are
 **two views of a single write**. Knowing which store answers which question keeps you from trusting the
 wrong one.
@@ -201,6 +198,14 @@ stores are governed differently by design:
 `history/` stays gitignored in both cases (append-only local diary). See
 [`config-schema.md`](config-schema.md) for the per-store canonical JSON form (`project/` files carry no
 trailing newline; `config/chains` files do).
+
+## Verified source is part of the address record
+
+Wherever a deployed address is published for people to act on (a fork's tracked `project/`, a team
+runbook, a PR description), record the **verified** explorer URL next to it, at the same evidence bar as
+a tx hash: the link must show verified source, not just an address page. The verification workflow (the
+inline `--verify`, the standalone backfill, and the per-chain backends) is in
+[README → Verifying Deployed Contracts](../README.md#verifying-deployed-contracts).
 
 ## Related
 

@@ -109,7 +109,6 @@ contract LaneConfigTest is Test {
         vm.serializeString(obj, "chainId", vm.toString(chainId));
         vm.serializeString(obj, "chainSelector", vm.toString(selector));
         vm.serializeString(obj, "rpcEnv", "ZZ_SCRATCH_LANE_RPC_URL");
-        vm.serializeUint(obj, "confirmations", 2);
         vm.serializeString(obj, "explorerUrl", "https://example.invalid");
         vm.serializeString(obj, "nativeCurrencySymbol", "ZZZ");
         string memory ccipObj = string.concat("scratch-ccip-", name);
@@ -284,7 +283,6 @@ contract LaneConfigTest is Test {
         );
         // Hand-authored config keys survive too (the same targeted-merge rule).
         assertEq(vm.parseJsonString(configAfter, ".rpcEnv"), "ZZ_SCRATCH_LANE_RPC_URL", "sync mutated .rpcEnv");
-        assertEq(vm.parseJsonUint(configAfter, ".confirmations"), 2, "sync mutated .confirmations");
         _cleanAll("zz-scratch-lane-a4");
         _cleanAll("zz-scratch-lane-b4");
     }

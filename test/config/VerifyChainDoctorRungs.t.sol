@@ -86,11 +86,8 @@ contract VerifyChainDoctorRungsTest is Test {
         json = string.concat(json, '"chainFamily":"evm"');
         for (uint256 i = 0; i < keys.length; i++) {
             if (keccak256(bytes(keys[i])) == keccak256(bytes(omit))) continue;
-            // confirmations is a number, everything else a quoted string; chainId/chainSelector quoted.
+            // every value is a quoted string; chainId/chainSelector quoted (the big-int rule).
             json = string.concat(json, ',"', keys[i], '":"', vals[i], '"');
-        }
-        if (keccak256(bytes("confirmations")) != keccak256(bytes(omit))) {
-            json = string.concat(json, ',"confirmations":2');
         }
         json = string.concat(
             json,
@@ -199,7 +196,7 @@ contract VerifyChainDoctorRungsTest is Test {
             vm.toString(selector),
             '","chainId":"',
             vm.toString(chainId),
-            '","confirmations":2,',
+            '",',
             '"ccip":{"feeTokens":[],"tokenPoolFactory":"0x0000000000000000000000000000000000000007",',
             '"feeQuoter":"0x0000000000000000000000000000000000000006",',
             '"link":"0x0000000000000000000000000000000000000001",',

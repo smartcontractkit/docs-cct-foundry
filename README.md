@@ -100,7 +100,7 @@ forge script \
   --verify
 ```
 
-> **Note:** `--verify` requires `ETHERSCAN_API_KEY` to be set (see [Prerequisites](#prerequisites)). Etherscan API v2 supports all chains with a single key.
+> **Note:** `--verify` requires `ETHERSCAN_API_KEY` to be set (see [Prerequisites](#prerequisites)). A single key covers every Etherscan v2 chain. Chains whose explorer is not in the Etherscan family take extra verifier flags; see [Verifying Deployed Contracts](#verifying-deployed-contracts).
 
 Optional: Set `ROLES_RECIPIENT` to grant mint/burn roles to a specific address (defaults to the deployer).
 
@@ -527,6 +527,91 @@ forge script \
   $KEYSTORE_NAME \
   --broadcast
 ```
+
+## Verifying Deployed Contracts
+
+Source-verify every deployed contract on the chain's block explorer; a deploy is not done until the explorer shows verified source. There are two ways in, and the fast path is one flag.
+
+### Fastest: verify as part of the deploy
+
+Add `--verify` (plus the per-chain verifier flags, explained below) to the deploy command. On an Etherscan-family chain that is the whole story:
+
+```bash
+forge script script/deploy/DeployToken.s.sol \
+  --rpc-url "$ETHEREUM_SEPOLIA_RPC_URL" --account "$KEYSTORE_NAME" --broadcast \
+  --verify --retries 10 --delay 10
+```
+
+That works on Sepolia and Mantle Sepolia with just `ETHERSCAN_API_KEY` set (forge reads it from the env and derives the explorer from `--rpc-url`). For the other chains, one helper fills in the right flags so you do not have to remember which backend a chain uses:
+
+```bash
+VERIFIER_FLAGS=$(bash script/config/verify-args.sh ink-testnet-sepolia) &&
+forge script script/deploy/DeployToken.s.sol \
+  --rpc-url "$INK_SEPOLIA_RPC_URL" --account "$KEYSTORE_NAME" --broadcast \
+  --verify $VERIFIER_FLAGS --retries 10 --delay 10
+```
+
+`verify-args.sh <chain>` prints the flags for that chain (nothing for Etherscan-family, `--verifier blockscout --verifier-url <url>` for Ink/Plume, `--verifier sourcify` for 0G), so the same command line works for every chain. Composing it into a variable first means a mistyped chain name stops the run before it broadcasts. Leave `$VERIFIER_FLAGS` unquoted: it is a list of flags (empty for Etherscan-family), not one argument.
+
+Confirm it worked by opening the address on the explorer (the `#code` tab shows verified source); the [backend table below](#verifier-backend-per-chain) links a verified example per chain.
+
+### Verify a contract you already deployed
+
+Use the wrapper. It takes the chain, the address, and the contract identifier (`<file>:<ContractName>`), and handles the backend, the retries, and the constructor arguments for you. Verifying the bundled token deployed to Ink:
+
+```bash
+bash script/config/verify-contract.sh \
+  ink-testnet-sepolia \
+  0xYourTokenAddress \
+  node_modules/@chainlink/contracts-ccip/contracts/tokens/CrossChainToken.sol:CrossChainToken
+```
+
+`make verify CHAIN=ink-testnet-sepolia ADDRESS=0xYourTokenAddress CONTRACT=node_modules/@chainlink/contracts-ccip/contracts/tokens/CrossChainToken.sol:CrossChainToken` is the same thing. The address of any past deploy is in that deploy's `broadcast/**/run-latest.json`.
+
+With no fourth argument the wrapper passes `--guess-constructor-args`, so forge reads the constructor arguments from the on-chain creation code (no need to know the constructor shape). To supply them yourself instead, pass an ABI-encoded fourth argument, for example `"$(cast abi-encode 'constructor(...)' ...)"` matching the deployed contract's constructor.
+
+If you would rather run `forge` directly, the wrapper is doing this (compose-first so a wrong chain name aborts before submitting):
+
+```bash
+VERIFIER_FLAGS=$(bash script/config/verify-args.sh <chain>) &&
+forge verify-contract --chain <chainId> $VERIFIER_FLAGS \
+  --watch --retries 10 --delay 10 \
+  --guess-constructor-args --rpc-url "$<rpcEnv>" \
+  <address> <file>:<ContractName>
+```
+
+Swap `--guess-constructor-args --rpc-url ...` for `--constructor-args $(cast abi-encode ...)` to pass the arguments yourself.
+
+### How a chain picks its backend
+
+The backend is data, not code: an optional `verifier{type,url}` block in `config/chains/<selectorName>.json`, where `type` is `etherscan`, `blockscout`, or `sourcify`. No block means the Etherscan family, which forge resolves from the chain id (one `ETHERSCAN_API_KEY` covers all of them); for a chain Etherscan v2 does not serve, forge warns and falls back to Sourcify, its keyless default. Blockscout chains name their instance's `url` (usually `<explorerUrl>/api`); Sourcify chains just set `type`. Nothing per-chain goes in `foundry.toml`, so adding a chain is one `config/chains` edit, and `make doctor CHAIN=<name>` checks the block (an unknown `type` or a `blockscout` block with no `url` FAILs by name).
+
+### Verifier backend per chain
+
+| Chain (selectorName)                | Chain id   | Backend                                                               | Verified example                                                                                                    |
+| ----------------------------------- | ---------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `ethereum-testnet-sepolia`          | `11155111` | Etherscan v2 (no `verifier{}` block)                                  | [CrossChainToken](https://sepolia.etherscan.io/address/0x4FE0A569671278D3c2e69025d3B3321F440E517F#code)              |
+| `ethereum-testnet-sepolia-mantle-1` | `5003`     | Etherscan v2 (no `verifier{}` block)                                  | [CrossChainToken](https://sepolia.mantlescan.xyz/address/0xfC3BdAbD8a6A73B40010350E2a61716a21c87610#code)            |
+| `ink-testnet-sepolia`               | `763373`   | Blockscout (`https://explorer-sepolia.inkonchain.com/api`)            | [CrossChainToken](https://explorer-sepolia.inkonchain.com/address/0xfC3BdAbD8a6A73B40010350E2a61716a21c87610?tab=contract) |
+| `plume-testnet-sepolia`             | `98867`    | Blockscout (`https://testnet-explorer.plume.org/api`)                 | pending (the Plume faucet requires a browser check to fund a deployer)                                               |
+| `0g-testnet-galileo-1`              | `16602`    | Sourcify (its custom explorer exposes no forge-compatible verify API) | [CrossChainToken](https://repo.sourcify.dev/16602/0xfC3BdAbD8a6A73B40010350E2a61716a21c87610)                        |
+| `solana-devnet`                     | non-EVM    | none (no forge verification path)                                     | n/a                                                                                                                  |
+
+Sourcify serves all five EVM chains, so it is both `0g-testnet-galileo-1`'s primary backend and the fallback forge uses when Etherscan v2 does not cover a chain.
+
+### If verification fails or looks odd
+
+- `contract does not exist` / not-yet-on-the-explorer right after a deploy is explorer indexer lag: the explorer has not imported the deployment tx yet. The retry flags cure it (`--watch` polls the status endpoint; `--retries 10 --delay 10` outlasts the lag, versus forge's 5/5 default). Waiting for block confirmations does not help, the tx is already on chain.
+- `already verified` is a success, not an error, so re-running is always safe. Etherscan v2 also matches identical bytecode across chains, so an unmodified artifact can come back already-verified without a real submission; that still counts as verified.
+- `Local bytecode doesn't match on-chain bytecode` is the real failure to act on: the source or compiler settings differ from what was deployed. Wrong constructor arguments do not cause a bad record, because Etherscan v2 and Blockscout read the true arguments from the on-chain creation code; they cause this bytecode mismatch or nothing.
+
+### Proxies
+
+For a UUPS/ERC1967 proxy deployment, verify **both** the implementation and the proxy, then link the proxy to its implementation on the explorer so the proxy's read/write tabs expose the implementation ABI.
+
+### Deterministic deployment is a non-goal
+
+The repo does not use deterministic deployment (CREATE2 / CreateX): it conflicts with the address-registry and redeploy-guard model, where the registry records what was actually deployed per chain and the guard refuses a duplicate. Addresses are recorded, not derived.
 
 ## Adding a New Chain
 
@@ -1493,12 +1578,12 @@ Any other chain in the CCIP testnet catalog is onboarded as a config edit — se
 
 The repo keeps its cross-chain state as **data, not code**, in two files per chain (both keyed by the canonical CCIP **selectorName**, e.g. `ethereum-testnet-sepolia`):
 
-- **`config/chains/<selectorName>.json`** — pure API/chain facts: the API-synced `ccip{}` address block + API-synced identity/metadata (`displayName`, `chainFamily`, `environment`, `explorerUrl`, `nativeCurrencySymbol`), three hand-authored keys the API serves nothing for (`chainNameIdentifier`, `rpcEnv`, `confirmations`), and the join keys. **Always git-tracked.** `HelperConfig` reads it through `src/config/ChainConfig.sol` and discovers the chain list by scanning the `config/chains` directory, so adding a chain — or updating a CCIP address — is a **reviewed config edit with zero Solidity changes**.
+- **`config/chains/<selectorName>.json`** holds pure API/chain facts: the API-synced `ccip{}` address block + API-synced identity/metadata (`displayName`, `chainFamily`, `environment`, `explorerUrl`, `nativeCurrencySymbol`), the hand-authored keys the API serves nothing for (`chainNameIdentifier`, `rpcEnv`, and the optional `verifier{}` block), and the join keys. **Always git-tracked.** `HelperConfig` reads it through `src/config/ChainConfig.sol` and discovers the chain list by scanning the `config/chains` directory, so adding a chain (or updating a CCIP address) is a **reviewed config edit with zero Solidity changes**.
 - **`project/<selectorName>.json`** — the **project store**: three subtrees, one writer each, plus `"schema": 3`. `addresses{}` is the deployed-address registry (`active` role pointers + versioned `deployments`), written on a broadcast by the deploy recorder and by `make adopt-token`; `lanes{}` is owner policy (which remotes this pool connects to, at what outbound rate limits), written by `make add-lane`; `roles{}` is authority, written by `make snapshot-chain`. **Gitignored in this template** (it holds throwaway test addresses; only `project/ethereum-testnet-sepolia.example.json` ships) — a downstream **fork un-gitignores it** to track its own lanes/roles/addresses.
 
 **Multiple token groups (one clone, N tokens).** A clone can manage several independent cross-chain tokens without collision: pass `GROUP=<name>` and that token's state lives under `project/<name>/<selectorName>.json`, its own isolated mesh universe. An unset `GROUP` is the **default** group — the flat `project/<selectorName>.json` — so a single-token user never sets it and sees no change, and a second token added later goes in its own group with zero effect on the first. `make add-lane`, `remove-lane`, `adopt-token`, `snapshot-chain`, `doctor`, and `roles-check` all take `GROUP=` (with `roles-check` the one exception to "unset = default": unset sweeps the default group **and** every other group). The deploys have no make wrapper, so a second token's deploy is the first grouped step — a raw `forge script` that takes `PROJECT_GROUP=<name>` directly (e.g. `PROJECT_GROUP=usdx forge script script/deploy/DeployToken.s.sol ...`, and the pool deploy likewise). `config/chains` and `history/` stay shared (chain facts are per-chain, not per-token). See [`docs/config-schema.md`](docs/config-schema.md#the-project-store---projectselectornamejson).
 
-**One writer per subtree, and two audit surfaces.** In `config/chains`, the CCIP REST API owns every field it serves (via the sync); the three hand keys are hand-authored in reviewed PRs; the join keys are guard-validated — and because the file is always git-tracked, a git diff is an unambiguous audit log. In the project store, each subtree has one writer (`RegistryWriter` for `addresses{}`, `make add-lane` for `lanes{}`, `make snapshot-chain` for `roles{}`), each writing only its own subtree so no writer clobbers another. So the audit surface is `config/chains` in the template, and `config/chains` **plus** a tracked `project/` in a fork. The deploy `history/` ledger stays gitignored in both. Environment variables remain **read-only overrides** on top of the registry: an env-driven run resolves the override but never writes the store.
+**One writer per subtree, and two audit surfaces.** In `config/chains`, the CCIP REST API owns every field it serves (via the sync); the hand keys are hand-authored in reviewed PRs; the join keys are guard-validated. Because the file is always git-tracked, a git diff is an unambiguous audit log. In the project store, each subtree has one writer (`RegistryWriter` for `addresses{}`, `make add-lane` for `lanes{}`, `make snapshot-chain` for `roles{}`), each writing only its own subtree so no writer clobbers another. So the audit surface is `config/chains` in the template, and `config/chains` **plus** a tracked `project/` in a fork. The deploy `history/` ledger stays gitignored in both. Environment variables remain **read-only overrides** on top of the registry: an env-driven run resolves the override but never writes the store.
 
 > **Reference docs:** **[`docs/config-schema.md`](docs/config-schema.md)** is the per-field reference for both files (config/chains facts + the project store's `addresses{}`/`lanes{}`/`roles{}` subtrees + the non-EVM shape); **[`docs/config-architecture.md`](docs/config-architecture.md)** is the `make`-command reference plus the layered architecture (brand-colored Mermaid diagrams: layering, sync data-flow, the two-file store model, and the selectorName join); **[`docs/deployed-addresses.md`](docs/deployed-addresses.md)** is the deployed-address loop and the template-vs-fork tracking rule. The operational how-to (discover → add-chain → sync → doctor) stays below.
 
@@ -1549,7 +1634,7 @@ make doctor CHAIN=<name>                              # layered [PASS]/[FAIL]/[W
 make fmt-config                                       # restore the canonical config format after a raw forge run
 ```
 
-`CHAIN=` is the canonical **selectorName** (the file basename). The sync writes **every API-served field** — the `ccip{}` subtree plus the identity/metadata fields (`displayName`, `chainFamily`, `environment`, `explorerUrl`, `nativeCurrencySymbol`) — leaving the three hand-authored keys (`chainNameIdentifier`, `rpcEnv`, `confirmations`) untouched, never touching the project store, and re-canonicalizes as `jq --indent 2 -S` (trailing newline), so a no-drift `make sync` is a **zero-diff** no-op. Every fetch is guarded: the API chainId must equal the config's (`SELECTOR MISMATCH`) and the config `name` must equal the API selectorName (`SELECTOR NAME MISMATCH`); non-EVM chains (e.g. `solana-devnet`) skip the EVM address sync cleanly but still refresh their served identity/metadata. A scheduled workflow (`.github/workflows/config-drift.yml`) runs the drift check weekly: drift fails visibly, an unreachable API only warns.
+`CHAIN=` is the canonical **selectorName** (the file basename). The sync writes **every API-served field** (the `ccip{}` subtree plus the identity/metadata fields `displayName`, `chainFamily`, `environment`, `explorerUrl`, `nativeCurrencySymbol`), leaving the hand-authored keys (`chainNameIdentifier`, `rpcEnv`, the optional `verifier{}` block) untouched, never touching the project store, and re-canonicalizes as `jq --indent 2 -S` (trailing newline), so a no-drift `make sync` is a **zero-diff** no-op. Every fetch is guarded: the API chainId must equal the config's (`SELECTOR MISMATCH`) and the config `name` must equal the API selectorName (`SELECTOR NAME MISMATCH`); non-EVM chains (e.g. `solana-devnet`) skip the EVM address sync cleanly but still refresh their served identity/metadata. A scheduled workflow (`.github/workflows/config-drift.yml`) runs the drift check weekly: drift fails visibly, an unreachable API only warns.
 
 `make adopt-token` brings externally deployed contracts into the project store's `addresses{}` subtree, and it is guarded too: everything is validated on-chain before anything is written (the token's registration path is probed, and a given pool must report a cataloged contract version per [`docs/pool-versions.md`](docs/pool-versions.md) and manage exactly that token). A non-EVM chain uses the base58 path, `make adopt-token CHAIN=<solana-chain> TOKEN_B58=<base58> [POOL_B58=<base58>]`, which feeds `applyChainUpdates` from the store instead of the old env-only path; see [`docs/enabling-existing-token.md`](docs/enabling-existing-token.md).
 

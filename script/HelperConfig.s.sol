@@ -25,7 +25,6 @@ contract HelperConfig is Script {
         address tokenAdminRegistry;
         address registryModuleOwnerCustom;
         address link;
-        uint256 confirmations;
         string chainName;
         string chainNameIdentifier;
         string explorerUrl;
@@ -247,7 +246,6 @@ contract HelperConfig is Script {
             tokenAdminRegistry: c.tokenAdminRegistry,
             registryModuleOwnerCustom: c.registryModuleOwnerCustom,
             link: c.link,
-            confirmations: c.confirmations,
             chainName: c.chainName,
             chainNameIdentifier: c.chainNameIdentifier,
             explorerUrl: c.explorerUrl,

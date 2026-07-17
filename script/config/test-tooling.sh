@@ -190,7 +190,6 @@ cat > "$TMP_FILE" << 'EOF'
     "chainId": "99999",
     "chainSelector": "16015286601757825753",
     "rpcEnv": "TOOLING_TMP_RPC_URL",
-    "confirmations": 2,
     "explorerUrl": "",
     "nativeCurrencySymbol": "",
     "ccip": {}
@@ -371,7 +370,7 @@ fi
 
 # 12b. API-served fields sourced from the API: a HAND-EDITED displayName/environment/explorerUrl/
 #      nativeCurrencySymbol is CORRECTED to the API value on sync, while the genuinely hand-authored
-#      keys (confirmations, rpcEnv, chainNameIdentifier) survive VERBATIM. This is the
+#      keys (rpcEnv, chainNameIdentifier, the optional verifier{} block) survive VERBATIM. This is the
 #      one-writer-per-field guarantee for the widened synced surface. Local-fixture-server section:
 #      setup and assertions share the offline partition (same rule as section 12).
 if offline_enabled; then
@@ -385,7 +384,7 @@ if offline_enabled; then
   "chainId": "11155111",
   "chainSelector": "16015286601757825753",
   "rpcEnv": "CUSTOM_HAND_RPC_URL",
-  "confirmations": 7,
+  "verifier": { "type": "blockscout", "url": "http://hand.example/api" },
   "explorerUrl": "http://hand.example/wrong",
   "nativeCurrencySymbol": "XXX",
   "ccip": {}
@@ -406,7 +405,7 @@ assert d['explorerUrl'] == api['explorerUrl'], ('explorerUrl not sourced', d['ex
 assert d['nativeCurrencySymbol'] == api['nativeCurrencySymbol'], ('nativeCurrencySymbol not sourced', d['nativeCurrencySymbol'])
 assert d['chainFamily'] == 'evm', ('chainFamily not normalized', d['chainFamily'])
 # genuinely hand-authored keys survive verbatim
-assert d['confirmations'] == 7, ('confirmations clobbered', d['confirmations'])
+assert d['verifier'] == {'type': 'blockscout', 'url': 'http://hand.example/api'}, ('verifier clobbered', d.get('verifier'))
 assert d['rpcEnv'] == 'CUSTOM_HAND_RPC_URL', ('rpcEnv clobbered', d['rpcEnv'])
 assert d['chainNameIdentifier'] == 'CUSTOM_HAND_ID', ('chainNameIdentifier clobbered', d['chainNameIdentifier'])
 print('SOURCE_OK')
@@ -1270,6 +1269,173 @@ json.dump(d, open('$SVM_FILE', 'w'), indent=2, sort_keys=True)
     rm -rf "project/$GRP_X" "project/$GRP_Y" project/zz-tt-ga project/zz-tt-gb
 fi
 
+# ---------------------------------------------------------------- explorer-verification flags (offline)
+#
+# verify-args.sh composes the forge verifier flags from the chain's optional verifier{type,url} block.
+# Positive: each committed config yields the correct flags for its backend (Etherscan-family = bare
+# --verify, so EMPTY output; blockscout = --verifier + --verifier-url; sourcify = --verifier sourcify).
+# Negative: an unknown type, blockscout without a url, and a non-EVM chain fail LOUDLY by name.
+
+if offline_enabled; then
+    # Etherscan-family (no verifier{} block): EMPTY flag output, exit 0 (bare --verify is correct).
+    out="$(bash script/config/verify-args.sh ethereum-testnet-sepolia 2>&1)"
+    status=$?
+    if [ $status -eq 0 ] && [ -z "$out" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] verify-args: no verifier{} block -> empty flags (bare --verify), exit 0"
+    else
+        fail=$((fail + 1))
+        failures+=("verify-args etherscan-default")
+        echo "[FAIL] verify-args etherscan-default (exit=$status, out='$out')"
+    fi
+
+    # Blockscout chains: --verifier blockscout --verifier-url <declared url>.
+    out="$(bash script/config/verify-args.sh ink-testnet-sepolia 2>&1)"
+    if [ "$out" = "--verifier blockscout --verifier-url https://explorer-sepolia.inkonchain.com/api" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] verify-args: ink (blockscout) -> --verifier blockscout --verifier-url <url>"
+    else
+        fail=$((fail + 1))
+        failures+=("verify-args blockscout ink")
+        echo "[FAIL] verify-args blockscout ink (out='$out')"
+    fi
+    out="$(bash script/config/verify-args.sh plume-testnet-sepolia 2>&1)"
+    if [ "$out" = "--verifier blockscout --verifier-url https://testnet-explorer.plume.org/api" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] verify-args: plume (blockscout) -> --verifier blockscout --verifier-url <url>"
+    else
+        fail=$((fail + 1))
+        failures+=("verify-args blockscout plume")
+        echo "[FAIL] verify-args blockscout plume (out='$out')"
+    fi
+
+    # Sourcify chain (0G's explorer is not forge-compatible; Sourcify is keyless).
+    out="$(bash script/config/verify-args.sh 0g-testnet-galileo-1 2>&1)"
+    if [ "$out" = "--verifier sourcify" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] verify-args: 0g (sourcify) -> --verifier sourcify"
+    else
+        fail=$((fail + 1))
+        failures+=("verify-args sourcify")
+        echo "[FAIL] verify-args sourcify (out='$out')"
+    fi
+
+    # Negative: unknown verifier.type fails loudly by name.
+    jq --indent 2 -S '.verifier = {"type":"blockchair"}' config/chains/ethereum-testnet-sepolia.json > "$TMP_FILE"
+    run_case "verify-args rejects an unknown verifier.type by name" nonzero "unknown verifier.type 'blockchair'" -- \
+        bash script/config/verify-args.sh "$TMP_CHAIN"
+
+    # Negative: blockscout without a verifier.url fails loudly, naming the fix.
+    jq --indent 2 -S '.verifier = {"type":"blockscout"}' config/chains/ethereum-testnet-sepolia.json > "$TMP_FILE"
+    run_case "verify-args rejects blockscout without a verifier.url" nonzero "needs a verifier.url" -- \
+        bash script/config/verify-args.sh "$TMP_CHAIN"
+    rm -f "$TMP_FILE"
+
+    # Negative: a non-EVM chain has no forge-compatible verification path.
+    run_case "verify-args rejects a non-EVM chain" nonzero "not an EVM chain" -- \
+        bash script/config/verify-args.sh solana-devnet
+
+    # Negative: an unknown chain names the missing config file.
+    run_case "verify-args rejects an unknown chain" nonzero "unknown chain" -- \
+        bash script/config/verify-args.sh does-not-exist
+
+    # Chains-as-data invariant: verification/RPC config never lands in foundry.toml, so adding a
+    # chain must only ever add its config/chains/<name>.json.
+    if grep -qE '^\[(etherscan|rpc_endpoints)' foundry.toml; then
+        fail=$((fail + 1))
+        failures+=("foundry.toml per-chain block")
+        echo "[FAIL] foundry.toml carries an [etherscan]/[rpc_endpoints] block - per-chain config belongs in config/chains/*.json"
+    else
+        pass=$((pass + 1))
+        echo "[PASS] foundry.toml has no [etherscan]/[rpc_endpoints] block (chains stay data)"
+    fi
+
+    # verify-contract.sh wrapper: command assembly + outcome handling, offline via a stub `forge`
+    # first on PATH that records its argv and plays a scripted outcome (the same stubbing idea as the
+    # local fixture server). The stub writes argv to forge-argv.txt; STUB_MODE picks the outcome.
+    stub_dir="$(mktemp -d)"
+    cat > "$stub_dir/forge" << 'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$@" > "${STUB_ARGV_FILE:?}"
+case "${STUB_MODE:-ok}" in
+    ok) echo "Contract successfully verified"; exit 0 ;;
+    already) echo "Contract source code already verified"; exit 1 ;;
+    fail) echo "some verifier error"; exit 1 ;;
+esac
+EOF
+    chmod +x "$stub_dir/forge"
+    argv_file="$stub_dir/forge-argv.txt"
+
+    # Explicit ctor-args: the wrapper must pass --chain <chainId>, the retry flags, the composed
+    # blockscout flags, --constructor-args, the address, and the contract, and NOT guess.
+    out="$(PATH="$stub_dir:$PATH" STUB_ARGV_FILE="$argv_file" STUB_MODE=ok \
+        bash script/config/verify-contract.sh ink-testnet-sepolia 0x000000000000000000000000000000000000dEaD src/CrossChainToken.sol:CrossChainToken 0x1234 2>&1)"
+    status=$?
+    argv="$(tr '\n' ' ' < "$argv_file")"
+    wrapper_ok=1
+    [ $status -eq 0 ] || wrapper_ok=0
+    grep -q "verify-contract --chain 763373 --watch --retries 10 --delay 10 " <<< "$argv" || wrapper_ok=0
+    grep -q -- "--verifier blockscout --verifier-url https://explorer-sepolia.inkonchain.com/api" <<< "$argv" || wrapper_ok=0
+    grep -q -- "--constructor-args 0x1234 0x000000000000000000000000000000000000dEaD src/CrossChainToken.sol:CrossChainToken" <<< "$argv" || wrapper_ok=0
+    if grep -q -- "--guess-constructor-args" <<< "$argv"; then wrapper_ok=0; fi
+    if [ $wrapper_ok -eq 1 ]; then
+        pass=$((pass + 1))
+        echo "[PASS] verify-contract wrapper: assembles chain + retry + composed + ctor-args flags"
+    else
+        fail=$((fail + 1))
+        failures+=("verify-contract wrapper assembly")
+        echo "[FAIL] verify-contract wrapper assembly (exit=$status, argv='$argv')"
+    fi
+
+    # No ctor-args with the chain's rpcEnv set: the wrapper must switch to --guess-constructor-args
+    # with that RPC.
+    out="$(PATH="$stub_dir:$PATH" STUB_ARGV_FILE="$argv_file" STUB_MODE=ok INK_SEPOLIA_RPC_URL=http://127.0.0.1:9/rpc \
+        bash script/config/verify-contract.sh ink-testnet-sepolia 0x000000000000000000000000000000000000dEaD src/CrossChainToken.sol:CrossChainToken 2>&1)"
+    status=$?
+    argv="$(tr '\n' ' ' < "$argv_file")"
+    if [ $status -eq 0 ] && grep -q -- "--guess-constructor-args --rpc-url http://127.0.0.1:9/rpc" <<< "$argv"; then
+        pass=$((pass + 1))
+        echo "[PASS] verify-contract wrapper: no ctor-args + rpcEnv set -> --guess-constructor-args via the RPC"
+    else
+        fail=$((fail + 1))
+        failures+=("verify-contract wrapper guess path")
+        echo "[FAIL] verify-contract wrapper guess path (exit=$status, argv='$argv')"
+    fi
+
+    # No ctor-args and the rpcEnv unset: a named error BEFORE any forge invocation.
+    rm -f "$argv_file"
+    run_case "verify-contract wrapper: no ctor-args and no RPC -> named error" nonzero "needs the RPC" -- \
+        env PATH="$stub_dir:$PATH" STUB_ARGV_FILE="$argv_file" bash -c \
+        'unset INK_SEPOLIA_RPC_URL; bash script/config/verify-contract.sh ink-testnet-sepolia 0x000000000000000000000000000000000000dEaD src/CrossChainToken.sol:CrossChainToken'
+    if [ ! -e "$argv_file" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] verify-contract wrapper: the no-RPC error fires before forge runs"
+    else
+        fail=$((fail + 1))
+        failures+=("verify-contract wrapper no-RPC ordering")
+        echo "[FAIL] verify-contract wrapper: forge was invoked despite the missing RPC"
+    fi
+
+    # An already-verified contract is SUCCESS (exit 0), even though forge itself exits nonzero.
+    run_case "verify-contract wrapper: already-verified counts as success" zero "already verified" -- \
+        env PATH="$stub_dir:$PATH" STUB_ARGV_FILE="$argv_file" STUB_MODE=already \
+        bash script/config/verify-contract.sh ink-testnet-sepolia 0x000000000000000000000000000000000000dEaD src/CrossChainToken.sol:CrossChainToken 0x1234
+
+    # A persistent failure is retried (the Blockscout early-failure tolerance) and then FAILs loudly.
+    out="$(PATH="$stub_dir:$PATH" STUB_ARGV_FILE="$argv_file" STUB_MODE=fail VERIFY_RETRY_SLEEP=0 \
+        bash script/config/verify-contract.sh ink-testnet-sepolia 0x000000000000000000000000000000000000dEaD src/CrossChainToken.sol:CrossChainToken 0x1234 2>&1)"
+    status=$?
+    if [ $status -ne 0 ] && grep -q "FAILED after 3 attempts" <<< "$out" && [ "$(grep -c "retrying in" <<< "$out")" -eq 2 ]; then
+        pass=$((pass + 1))
+        echo "[PASS] verify-contract wrapper: persistent failure retried twice, then FAILs loudly"
+    else
+        fail=$((fail + 1))
+        failures+=("verify-contract wrapper retry loop")
+        echo "[FAIL] verify-contract wrapper retry loop (exit=$status): $(tail -2 <<< "$out" | tr '\n' ' ')"
+    fi
+    rm -rf "$stub_dir"
+fi
+
 # ---------------------------------------------------------------- committed-tree gates (offline)
 #
 # The project store and the deploy ledger hold local, throwaway, sometimes secret-bearing state, so only
@@ -1396,22 +1562,22 @@ if offline_enabled; then
         echo "$setenv_hits" | sed 's/^/       | /'
     fi
 
-    # Config purity: a committed config/chains/*.json is pure API + chain facts — no `lanes`,
-    # `roles`, `ccipBnM`, or `ccvThreshold` key (project state lives in the project store; the
-    # pool-scoped CCV threshold is declared at poolPolicy.ccvThreshold there).
+    # E2/H4. Config purity: a committed config/chains/*.json is pure API + chain facts — no `lanes`,
+    #        `roles`, or `ccipBnM` key (those live in the project store, not the config layer), and no
+    #        `confirmations` key (not part of the schema; the doctor FAILs a config that carries it).
     impure=""
     for f in config/chains/*.json; do
         case "$f" in *zz-scratch* | "$TMP_FILE" | "$TMP_FILE_B" | "$FUJI_FILE") continue ;; esac
         [ -e "$f" ] || continue
-        jq -e 'has("lanes") or has("roles") or has("ccipBnM") or has("ccvThreshold")' "$f" > /dev/null 2>&1 && impure="$impure $f"
+        jq -e 'has("lanes") or has("roles") or has("ccipBnM") or has("confirmations")' "$f" > /dev/null 2>&1 && impure="$impure $f"
     done
     if [ -z "$impure" ]; then
         pass=$((pass + 1))
-        echo "[PASS] config purity: no lanes/roles/ccipBnM/ccvThreshold key in any committed config/chains/*.json"
+        echo "[PASS] config purity: no lanes/roles/ccipBnM/confirmations key in any committed config/chains/*.json"
     else
         fail=$((fail + 1))
         failures+=("config purity")
-        echo "[FAIL] config purity: these configs still carry a project-state key:$impure"
+        echo "[FAIL] config purity: these configs still carry a removed/project-state key:$impure"
     fi
 fi
 
