@@ -17,7 +17,6 @@
   "chainId": "11155111",
   "chainNameIdentifier": "ETHEREUM_SEPOLIA",
   "chainSelector": "16015286601757825753",
-  "confirmations": 2,
   "displayName": "Ethereum Sepolia",
   "environment": "testnet",
   "explorerUrl": "https://sepolia.etherscan.io",

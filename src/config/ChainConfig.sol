@@ -15,7 +15,9 @@ import {Vm} from "forge-std/Vm.sol";
 ///   - `ccip{}`: the CCIP directory addresses (`router`, `rmnProxy`, `tokenAdminRegistry`,
 ///     `registryModuleOwnerCustom`, `link`, plus `feeQuoter`/`tokenPoolFactory`/`feeTokens`
 ///     kept for reference).
-///   - repo extras: `confirmations`, `explorerUrl`, `nativeCurrencySymbol`.
+///   - repo extras: `explorerUrl`, `nativeCurrencySymbol`, and an optional hand-authored
+///     `verifier{type,url}` block naming the explorer-verification backend (read by the verify
+///     tooling and validated by the doctor, not parsed into `Chain`).
 /// Project state (`lanes{}`, `roles{}`, deployed `addresses{}`) lives in `project/<selectorName>.json`,
 /// NOT here — this file is PURE API/chain facts (see `docs/config-schema.md`).
 /// `chainId` and `chainSelector` are quoted decimal STRINGS (uint64 selectors exceed JSON's safe
@@ -34,7 +36,6 @@ library ChainConfig {
         address tokenAdminRegistry;
         address registryModuleOwnerCustom;
         address link;
-        uint256 confirmations;
         string chainName;
         string chainNameIdentifier;
         string explorerUrl;
@@ -85,7 +86,6 @@ library ChainConfig {
         c.tokenAdminRegistry = VM.parseJsonAddress(json, ".ccip.tokenAdminRegistry");
         c.registryModuleOwnerCustom = VM.parseJsonAddress(json, ".ccip.registryModuleOwnerCustom");
         c.link = VM.parseJsonAddress(json, ".ccip.link");
-        c.confirmations = VM.parseJsonUint(json, ".confirmations");
         c.chainName = VM.parseJsonString(json, ".displayName");
         c.chainNameIdentifier = VM.parseJsonString(json, ".chainNameIdentifier");
         c.explorerUrl = VM.parseJsonString(json, ".explorerUrl");

@@ -16,11 +16,13 @@
   "chainId": "16602",
   "chainNameIdentifier": "0G_GALILEO_TESTNET",
   "chainSelector": "6892437333620424805",
-  "confirmations": 2,
   "displayName": "0g Galileo 1",
   "environment": "testnet",
   "explorerUrl": "https://chainscan-galileo.0g.ai",
   "name": "0g-testnet-galileo-1",
   "nativeCurrencySymbol": "0G",
-  "rpcEnv": "ZERO_G_TESTNET_RPC_URL"
+  "rpcEnv": "ZERO_G_TESTNET_RPC_URL",
+  "verifier": {
+    "type": "sourcify"
+  }
 }

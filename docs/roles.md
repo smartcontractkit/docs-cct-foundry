@@ -1,8 +1,5 @@
 # Roles: the authority durable store and reconciliation
 
-> Owner: docs-cct-foundry maintainers · Last reviewed: 2026-07-15 · Applies to: the `project/` layout
-> (schema 3).
-
 This deployment's **privileged authority** - who can mint, burn, re-point the pool, throttle a lane,
 move liquidity, or change which verifiers a message requires - is declared in the `roles{}` subtree of
 each chain's project store (`project/<selectorName>.json`), and reconciled against the live chain by

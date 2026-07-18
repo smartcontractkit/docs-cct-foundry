@@ -88,8 +88,8 @@ flowchart TD
 `make sync` fetches the per-chain config, selects the single `isActive` entry per contract type, validates
 identity, then rewrites **every API-served field** - the `.ccip` subtree AND the API-served identity/metadata
 (`displayName`, `chainFamily`, `environment`, `explorerUrl`, `nativeCurrencySymbol`) - and re-canonicalizes,
-so a no-drift sync is a zero-diff no-op. The three hand-authored keys (`chainNameIdentifier`, `rpcEnv`,
-`confirmations`) and the guarded join keys are left untouched.
+so a no-drift sync is a zero-diff no-op. The hand-authored keys (`chainNameIdentifier`, `rpcEnv`, the
+optional `verifier{}` block) and the guarded join keys are left untouched.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'primaryColor':'#375BD2','primaryTextColor':'#FFFFFF','primaryBorderColor':'#1A2B6B','lineColor':'#375BD2','actorBkg':'#375BD2','actorTextColor':'#FFFFFF','actorBorder':'#1A2B6B','signalColor':'#1A2B6B','signalTextColor':'#0B1636','noteBkgColor':'#E8EDFB','noteTextColor':'#0B1636','noteBorderColor':'#375BD2','fontFamily':'Inter, system-ui, sans-serif'}}}%%
@@ -104,7 +104,7 @@ sequenceDiagram
     A-->>B: chainConfig (versioned entries)
     B-->>S: flat JSON (isActive per type + apiName + identity/metadata)
     Note over S: _requireIdentity: chainId matches<br/>_requireSelectorName: name == apiName
-    S->>S: vm.writeJson(...) - .ccip subtree<br/>+ displayName/chainFamily/environment/<br/>explorerUrl/nativeCurrencySymbol<br/>(3 hand keys preserved: chainNameIdentifier/rpcEnv/confirmations)
+    S->>S: vm.writeJson(...) - .ccip subtree<br/>+ displayName/chainFamily/environment/<br/>explorerUrl/nativeCurrencySymbol<br/>(hand keys preserved: chainNameIdentifier/rpcEnv/verifier{})
     S-->>M: wrote .ccip block + metadata
     Note over M: canonicalize jq --indent 2 -S<br/>no drift => ZERO git diff
     Note over M,A: sync-check reuses this path read-only<br/>exit 0 clean · 1 drift · 2 API-down
@@ -116,13 +116,9 @@ Project state lives in two files per chain, both keyed by the canonical **select
 
 - **`config/chains/<selectorName>.json`** - pure API/chain facts. Everything the CCIP REST API serves
   (`ccip{}` addresses + the identity/metadata fields `displayName`/`chainFamily`/`environment`/
-  `explorerUrl`/`nativeCurrencySymbol`) is API-owned, written by the sync. Three keys the API serves nothing
-  for are hand-authored in reviewed PRs (`chainNameIdentifier`, `rpcEnv`, `confirmations`), and the join keys
-  (`name`/`chainSelector`/`chainId`) are seeded once and guard-validated. One optional key overrides the
-  `ccip{}` writer: `"configSource": "manual"` (absent = `"api"`) declares that a reviewed hand edit, not the
-  API sync, owns the `ccip{}` addresses for an address plane the API does not serve - the sync then REFUSES
-  the chain, `sync-check` and the doctor's API rung SKIP, and a cross-plane lane is refused (see
-  [`config-schema.md`](config-schema.md#manual-address-planes-configsource-manual)).
+  `explorerUrl`/`nativeCurrencySymbol`) is API-owned, written by the sync. The keys the API serves nothing
+  for are hand-authored in reviewed PRs (`chainNameIdentifier`, `rpcEnv`, the optional `verifier{}` block), and the join keys
+  (`name`/`chainSelector`/`chainId`) are seeded once and guard-validated.
 - **`project/[<group>/]<selectorName>.json`** - the project store: three subtrees plus a top-level
   `"schema": 3`, **one writer each**. `addresses{}` (deployed-address registry) is written by the deploy
   recorder and `make adopt-token`; `lanes{}` (owner policy) by `make add-lane` / `make remove-lane`; `roles{}`
@@ -157,7 +153,7 @@ surface (config/chains always; project/ when a fork tracks it).
 %%{init: {'theme':'base','themeVariables':{'primaryColor':'#375BD2','primaryTextColor':'#FFFFFF','primaryBorderColor':'#1A2B6B','lineColor':'#375BD2','fontFamily':'Inter, system-ui, sans-serif'}}}%%
 flowchart LR
     API["CCIP REST API"] -->|sync writes| CCIP["ccip addresses<br/>+ identity/metadata<br/>(displayName, chainFamily,<br/>environment, explorerUrl,<br/>nativeCurrencySymbol)"]
-    HUMAN["Maintainer (reviewed PR)"] -->|hand edit| ID["3 hand keys<br/>chainNameIdentifier,<br/>rpcEnv, confirmations"]
+    HUMAN["Maintainer (reviewed PR)"] -->|hand edit| ID["hand keys<br/>chainNameIdentifier,<br/>rpcEnv, verifier{}"]
     OWNER["Policy owner"] -->|make add-lane| LANES["lanes{} - remote selector<br/>+ outbound rate-limit policy"]
     OWNER -->|reviewed hand edit| POLICY["poolPolicy{} - pool-scoped<br/>ccvThreshold + finality"]
     GOV["Security owner"] -->|make snapshot-chain| ROLES["roles{} - privileged<br/>authority surface"]

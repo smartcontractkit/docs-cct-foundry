@@ -1,12 +1,9 @@
 # Chain config and project-store schema
 
-> Owner: docs-cct-foundry maintainers · Last reviewed: 2026-07-15 · Applies to: the `project/` +
-> `history/` layout (schema 3).
-
 Per-chain state lives in **two files, both keyed by the canonical CCIP selectorName**:
 
 - **`config/chains/<selectorName>.json`** - pure API/chain facts (the `ccip{}` addresses, API-served
-  identity/metadata, three hand-authored keys, and the join keys). Git-tracked.
+  identity/metadata, the hand-authored keys, and the join keys). Git-tracked.
 - **`project/<selectorName>.json`** - the **project store**: three subtrees (`addresses{}`, `lanes{}`,
   `roles{}`) plus `"schema": 3`. Gitignored in this template repo; a fork tracks it (see
   [The project store](#the-project-store---projectselectornamejson)).
@@ -46,19 +43,18 @@ tracks `project/` gets a git diff there too (see [The project store](#the-projec
 
 | File            | Subtree / field group                                                                                                                   | Owner                                          | Sole writer                                                                                                            |
 | --------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `config/chains` | `ccip{}` + the API-served identity/metadata fields (`displayName`, `chainFamily`, `environment`, `explorerUrl`, `nativeCurrencySymbol`), **when `configSource` is `"api"` (the default)** | the CCIP REST API | the **API sync** (`make add-chain` / `sync` / `sync-all`) - never by hand |
-| `config/chains` | the same `ccip{}` + identity/metadata fields **when `configSource: "manual"`** (an address plane the CCIP API does not serve) | the plane operator | a **reviewed hand edit** in a pull request - the API sync REFUSES to write it (SKIP by name), `sync-check` and the doctor's API rung SKIP, and a cross-plane lane is refused (see [Manual address planes](#manual-address-planes-configsource-manual)) |
-| `config/chains` | the three hand-authored keys the API serves nothing for (`chainNameIdentifier`, `rpcEnv`, `confirmations`)                              | repo maintainers                               | a **reviewed hand edit** in a pull request                                                                             |
+| `config/chains` | `ccip{}` + the API-served identity/metadata fields (`displayName`, `chainFamily`, `environment`, `explorerUrl`, `nativeCurrencySymbol`) | the CCIP REST API                              | the **API sync** (`make add-chain` / `sync` / `sync-all`) - never by hand                                              |
+| `config/chains` | the hand-authored keys the API serves nothing for (`chainNameIdentifier`, `rpcEnv`, the optional `verifier{}` block)                    | repo maintainers                               | a **reviewed hand edit** in a pull request                                                                             |
 | `config/chains` | immutable join keys (`name`, `chainSelector`, `chainId`)                                                                                | the chain-selectors registry                   | seeded at `add-chain`, then **guard-validated** by the sync (never rewritten)                                          |
 | `project`       | `addresses{}` (the deployed-address registry sub-store)                                                                                 | the deployer                                   | the **deploy scripts** (one `DeploymentRecorder` call → `RegistryWriter`) and **`make adopt-token`**, on `--broadcast` |
 | `project`       | `lanes{}` (which remotes this pool connects to, at what outbound rate limits)                                                           | the token owner (policy)                       | **`make add-lane`** / **`make remove-lane`** or a reviewed hand edit - **never the API sync**                          |
 | `project`       | `roles{}` (the privileged-authority surface: who holds token/pool/TAR/lockbox/hooks roles + optional `governance{}`)                    | the project's security owner (declared intent) | **`make snapshot-chain`** (backfill FROM chain) or a reviewed hand edit; `make roles-check` only READS it              |
 | `project`       | `poolPolicy{}` (pool-scoped values: the pool-global `ccvThreshold` and the allowed-finality `finality{}` block)                         | the token owner (policy)                       | a **reviewed hand edit** only (no flag surface, no scripted writer, no silent writeback); `make fmt-config` repairs form |
 
-The sync enforces this structurally: `SyncCcipConfig.run` writes **only** the API-served fields — the
+The sync enforces this structurally: `SyncCcipConfig.run` writes **only** the API-served fields: the
 `.ccip` subtree (`vm.writeJson(json, path, ".ccip")`) plus the five identity/metadata keys the CCIP REST
-API serves (each a targeted `vm.writeJson(value, path, ".<key>")`) — so the three hand-authored keys
-(`chainNameIdentifier`, `rpcEnv`, `confirmations`) are preserved untouched and the join keys are validated,
+API serves, each a targeted `vm.writeJson(value, path, ".<key>")`. So the hand-authored keys
+(`chainNameIdentifier`, `rpcEnv`, the optional `verifier{}` block) are preserved untouched and the join keys are validated,
 not overwritten. The sync **never touches the project store** at all. Each project-store writer mirrors the
 same discipline from its side: `make add-lane` writes **only** `.lanes` (`vm.writeJson(lanes, path, ".lanes")`),
 `RegistryWriter` writes **only** `.addresses`, and `make snapshot-chain` writes **only** `.roles`
@@ -72,7 +68,7 @@ operational runbook in [`docs/roles.md`](./roles.md).
 ## config/chains file - every field (pure API facts)
 
 `config/chains/<selectorName>.json` carries **only** chain facts: the API-synced `ccip{}` and
-identity/metadata, three hand-authored keys, and the join keys. Owner policy (`lanes{}`), authority
+identity/metadata, the hand-authored keys, and the join keys. Owner policy (`lanes{}`), authority
 (`roles{}`), and deployed addresses (`addresses{}`) are **not** here - they live in the project store (see
 [The project store](#the-project-store---projectselectornamejson)).
 
@@ -106,8 +102,8 @@ Example (`config/chains/ethereum-testnet-sepolia.json`), grouped by writer:
 
   // ── hand-authored (the API serves nothing for these; reviewed in a PR, preserved by sync) ──
   "chainNameIdentifier": "ETHEREUM_SEPOLIA", // UPPER_SNAKE env-var prefix: <ID>_RPC_URL, <ID>_TOKEN, <ID>_TOKEN_POOL
-  "rpcEnv": "ETHEREUM_SEPOLIA_RPC_URL", // name of the env var holding this chain's RPC URL
-  "confirmations": 2 // block confirmations the scripts wait for (operator choice)
+  "rpcEnv": "ETHEREUM_SEPOLIA_RPC_URL" // name of the env var holding this chain's RPC URL
+  // optional "verifier": { "type": "...", "url": "..." } - explorer-verification backend (absent = Etherscan v2)
 }
 ```
 
@@ -137,8 +133,16 @@ API serves nothing for it, so a reviewed PR owns it and the sync preserves it ve
 | `ccip.feeTokens`                 | address[]                             | **API sync**         | `chainConfig.feeTokens[].tokenAddress`            | reference (drift-checked)                     |
 | `chainNameIdentifier`            | UPPER_SNAKE string                    | hand                 | — (not in the API)                                | `ChainConfig.load`; the `<ID>_*` env prefix   |
 | `rpcEnv`                         | env-var name string                   | hand                 | — (not in the API)                                | fork setup; the doctor's RPC rung             |
-| `confirmations`                  | number                                | hand                 | — (`chainConfig.finality`/`blockTime` are `null`) | `ChainConfig.load`                            |
-| `configSource`                   | `"api"` (default when absent) \| `"manual"` | hand (optional) | not served by the API                     | the sync + `sync-check` (SKIP/refuse if not `"api"`); the doctor's API, on-chain, and mesh rungs; `add-lane` |
+| `verifier.type`                  | `"etherscan"` \| `"blockscout"` \| `"sourcify"` (optional block) | hand | (not in the API)                           | `script/config/verify-args.sh` (forge verifier flags) |
+| `verifier.url`                   | URL string (required for `blockscout` only) | hand           | (not in the API)                                  | `script/config/verify-args.sh` (`--verifier-url`) |
+
+The optional `verifier{}` block selects the chain's explorer-verification backend. Absent means the
+Etherscan family: bare `--verify` works because forge resolves the Etherscan v2 endpoint from the chain
+id, with a warned fallback to Sourcify for a chain Etherscan v2 does not serve. `"blockscout"` requires
+`url` (the instance API endpoint, usually `<explorerUrl>/api`); `"sourcify"` is keyless and needs no URL.
+`make doctor CHAIN=<name>` validates it: an unknown `type` FAILs, `blockscout` without a `url` FAILs, and
+so does a stray `confirmations` key (not part of the schema). See
+[README → Verifying Deployed Contracts](../README.md#verifying-deployed-contracts).
 
 The `lanes.<remote>` field rows (`remoteSelector`, `capacity`, `rate`, `inbound`, the `v2` blocks) live
 with the subtree in the project store - see
@@ -659,7 +663,6 @@ source). `config/chains/solana-devnet.json` keeps the same shape but:
     "link": "0x00...00",
     "feeTokens": []
   },
-  "confirmations": 0, // hand (operator choice)
   "explorerUrl": "https://explorer.solana.com?cluster=devnet", // <- chainMetadata.explorer.url (API-synced)
   "nativeCurrencySymbol": "SOL" // <- chainMetadata.nativeCurrency.symbol (API-synced)
 }

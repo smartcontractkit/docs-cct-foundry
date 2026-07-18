@@ -71,7 +71,7 @@ library ProjectScratch {
             '",',
             '"chainSelector":"',
             VM.toString(chainSelector),
-            '","confirmations":1,',
+            '",',
             '"displayName":"Scratch",',
             '"environment":"testnet",',
             '"explorerUrl":"https://example.invalid",',

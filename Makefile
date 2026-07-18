@@ -171,6 +171,19 @@ clean-scratch: ## Remove gitignored test-scratch fixtures (zz-scratch-*, zz-tt-*
 sync-check: tools ## Read-only drift check (CHAIN= optional; pass/fail only - CI uses the script for 0/1/2)
 	@bash script/config/sync-check.sh $(CHAIN)
 
+# Convenience sugar over the documented direct commands (README "Verifying deployed contracts"):
+# `verify-args` prints the composed verifier flags for a chain; `verify` backfills one contract.
+# The direct `forge verify-contract` / `forge script ... --verify` commands work without make.
+verify-args: tools ## Print the forge verifier flags composed from config/chains/<CHAIN>.json (CHAIN= required)
+	$(if $(CHAIN),,$(error CHAIN is required: make verify-args CHAIN=<name>))
+	@bash script/config/verify-args.sh "$(CHAIN)"
+
+verify: tools ## Source-verify an already-deployed contract on <CHAIN>'s explorer backend (CHAIN= ADDRESS= CONTRACT= required; CONSTRUCTOR_ARGS= optional, else guessed via the RPC)
+	$(if $(CHAIN),,$(error CHAIN is required: make verify CHAIN=<name> ADDRESS=<addr> CONTRACT=<path:Name>))
+	$(if $(ADDRESS),,$(error ADDRESS is required - the deployed contract address))
+	$(if $(CONTRACT),,$(error CONTRACT is required - e.g. CONTRACT=src/CrossChainToken.sol:CrossChainToken))
+	@bash script/config/verify-contract.sh "$(CHAIN)" "$(ADDRESS)" "$(CONTRACT)" $(if $(CONSTRUCTOR_ARGS),"$(CONSTRUCTOR_ARGS)",)
+
 doctor: tools ## Layered verification of one chain's config (CHAIN= required; GROUP= scopes to one token group)
 	$(if $(CHAIN),,$(error CHAIN is required: make doctor CHAIN=<name>))
 	$(require-chain-config)

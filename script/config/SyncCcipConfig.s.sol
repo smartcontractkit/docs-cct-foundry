@@ -35,8 +35,8 @@ import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 /// `registryModuleOwnerCustom`, `link`, `feeQuoter`, `tokenPoolFactory`, `feeTokens[]`) — AND the
 /// API-served identity + metadata fields (`displayName`, `chainFamily`, `environment`, `explorerUrl`,
 /// `nativeCurrencySymbol`), all of which `GET /v2/chains/{selector}` serves, so none is hand-typed.
-/// What it PRESERVES (never touches): the THREE genuinely hand-authored keys the API serves nothing for
-/// (`chainNameIdentifier`, `rpcEnv`, `confirmations`) and the immutable join keys
+/// What it PRESERVES (never touches): the genuinely hand-authored keys the API serves nothing for
+/// (`chainNameIdentifier`, `rpcEnv`, and the optional `verifier{}` block) and the immutable join keys
 /// (`name`/`chainSelector`/`chainId`) which are GUARD-validated, not rewritten. One writer per field.
 /// Project state (`lanes{}`, `roles{}`, deployed `addresses{}`) is NOT in this file — it lives in
 /// `project/<selectorName>.json`, so the sync never touches it (config/chains is pure API/chain facts).
@@ -241,7 +241,7 @@ contract SyncCcipConfig is Script {
     /// hand-authored key. The API-sync writer now owns the `ccip{}` address block AND the API-served
     /// identity + metadata fields (`displayName`, `chainFamily`, `environment`, `explorerUrl`,
     /// `nativeCurrencySymbol`) — all of which the CCIP REST API serves, so none of them should be
-    /// hand-typed. The three hand-authored keys (`chainNameIdentifier`, `rpcEnv`, `confirmations`) and
+    /// hand-typed. The hand-authored keys (`chainNameIdentifier`, `rpcEnv`, the optional `verifier{}`) and
     /// the immutable join keys (`name`/`chainSelector`/`chainId`, guarded, not rewritten) are preserved
     /// untouched; project state (`lanes{}`/`roles{}`/`addresses{}`) is not in this file. Non-EVM chains
     /// have no EVM-shaped `chainConfig`, so their `ccip{}` block stays zeroed (SKIP), but their
@@ -279,7 +279,7 @@ contract SyncCcipConfig is Script {
     /// `GET /v2/chains/{selector}` — `displayName`/`chainFamily`/`environment` from `.chain`,
     /// `explorerUrl`/`nativeCurrencySymbol` from `.chainMetadata` — so none is hand-authored. NOT in
     /// this list (genuinely hand-authored, the API serves nothing for them): `chainNameIdentifier`,
-    /// `rpcEnv`, `confirmations`.
+    /// `rpcEnv`, the optional `verifier{}` block.
     function metadataKeys() public pure returns (string[5] memory) {
         return ["displayName", "chainFamily", "environment", "explorerUrl", "nativeCurrencySymbol"];
     }
@@ -336,8 +336,8 @@ contract SyncCcipConfig is Script {
     /// @dev Refuses to overwrite an existing file (refresh an existing chain with `run` instead).
     /// `chainNameIdentifier` defaults to UPPER_SNAKE(localName) and `rpcEnv` to
     /// `<chainNameIdentifier>_RPC_URL`; override per-run with the `CHAIN_NAME_IDENTIFIER` / `RPC_ENV`
-    /// environment variables. Repo extras that the API does not carry (`confirmations`,
-    /// `explorerUrl`, `nativeCurrencySymbol`) are written as review-me defaults.
+    /// environment variables. Repo extras that the API does not carry (`explorerUrl`,
+    /// `nativeCurrencySymbol`) are written as review-me defaults.
     function init(string memory localName, uint256 selector) public {
         _requireSyncProfile();
         require(
@@ -385,11 +385,8 @@ contract SyncCcipConfig is Script {
         vm.serializeString(root, "chainId", isEvm ? vm.parseJsonString(meta, ".chainId") : "0");
         vm.serializeString(root, "chainSelector", vm.parseJsonString(meta, ".chainSelector"));
         vm.serializeString(root, "rpcEnv", rpcEnv);
-        // Genuinely hand-authored (the API serves nothing for it): confirmations (the block
-        // confirmations the scripts wait for — user-overridable per chain, preserved by sync).
         // explorerUrl/nativeCurrencySymbol are seeded empty here but the `run(localName)` call below
         // sources them from the API's chainMetadata in the same invocation.
-        vm.serializeUint(root, "confirmations", 2);
         vm.serializeString(root, "explorerUrl", "");
         vm.serializeString(root, "nativeCurrencySymbol", "");
         // `vm.writeJson` cannot CREATE keys, so the stub ships an (empty) ccip object the sync fills
@@ -478,7 +475,7 @@ contract SyncCcipConfig is Script {
             string.concat(
                 "  2. review the generated defaults in config/chains/",
                 localName,
-                ".json: chainNameIdentifier, rpcEnv, confirmations, explorerUrl, nativeCurrencySymbol"
+                ".json: chainNameIdentifier, rpcEnv, explorerUrl, nativeCurrencySymbol"
             )
         );
         if (isEvm) {

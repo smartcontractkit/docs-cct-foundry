@@ -181,7 +181,7 @@ contract HelperConfigDivergenceNoticeTest is Test {
             vm.toString(BI_CHAIN_ID),
             "\",\"chainSelector\":\"",
             vm.toString(BI_SELECTOR),
-            "\",\"confirmations\":2,",
+            "\",",
             "\"ccip\":{\"router\":\"0x0000000000000000000000000000000000000002\",",
             "\"rmnProxy\":\"0x0000000000000000000000000000000000000003\",",
             "\"tokenAdminRegistry\":\"0x0000000000000000000000000000000000000005\",",

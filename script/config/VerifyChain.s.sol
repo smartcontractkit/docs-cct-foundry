@@ -105,6 +105,13 @@ contract ChainProbe {
         return VM.keyExistsJson(json, path);
     }
 
+    /// @dev String read at a JSON path, external so a structurally-wrong node (an array/object where a
+    /// scalar is expected) degrades to a catchable, named FAIL in the verifier{} rung instead of
+    /// aborting the whole doctor with a raw cheatcode revert.
+    function parseString(string memory json, string memory path) external pure returns (string memory) {
+        return VM.parseJsonString(json, path);
+    }
+
     /// @dev `isSupportedChain` on the pool, external so a weird pool (proxy with no fallback, wrong
     /// ABI, RPC hiccup) degrades to a catchable WARN in the lanes rung, never an aborted doctor run.
     function poolSupportsChain(address pool, uint64 selector) external view returns (bool) {
@@ -219,7 +226,8 @@ contract ChainProbe {
 /// edited" and "scripts run against it". Layers:
 ///   1. TOOLS     curl + jq present (the ffi fetch preflight)
 ///   2. SCHEMA    every key the real `ChainConfig.load` path consumes, incl. the quoted-decimal
-///                big-int rule, plus an actual `ChainConfig.load` parse
+///                big-int rule, plus an actual `ChainConfig.load` parse, the optional
+///                `verifier{type,url}` block, and a FAIL on the removed `confirmations` key
 ///   3. API       re-fetch via the config-sync seam: selector<->chainId identity + field drift
 ///                (WARN + skip when the API is unreachable — flake is not failure)
 ///   4. RPC       rpcEnv set (SKIP cleanly when unset) -> fork -> block.chainid == chainId
@@ -412,14 +420,13 @@ contract VerifyChain is Script {
             _fail("schema: chainId/chainSelector must be quoted decimal STRINGS (see config/chains/*.json)");
         }
 
-        string[17] memory required = [
+        string[16] memory required = [
             ".name",
             ".displayName",
             ".chainNameIdentifier",
             ".chainId",
             ".chainSelector",
             ".rpcEnv",
-            ".confirmations",
             ".explorerUrl",
             ".nativeCurrencySymbol",
             ".ccip.router",
@@ -457,6 +464,87 @@ contract VerifyChain is Script {
             _fail(string.concat("schema: ChainConfig.load reverts - ", reason));
         } catch {
             _fail("schema: ChainConfig.load reverts (cheatcode parse error - check value formats)");
+        }
+
+        if (vm.keyExistsJson(json, ".confirmations")) {
+            _fail(
+                string.concat(
+                    "schema: config/chains/",
+                    name,
+                    ".json still has a confirmations key - the field was removed (nothing consumes it; explorer",
+                    " verification uses verify-side retries instead). Delete .confirmations"
+                )
+            );
+        }
+        _checkVerifierBlock(name, json);
+    }
+
+    /// @dev The optional hand-authored `verifier{type,url}` block: `type` must be one of
+    /// `etherscan` / `blockscout` / `sourcify`, and `blockscout` requires a `url` (its API endpoint
+    /// cannot be derived). A config with NO block is valid: bare `--verify` resolves Etherscan v2
+    /// from the chain id and forge falls back to Sourcify for chains Etherscan does not serve.
+    /// Every value read goes through the probe so a structurally-wrong node (`type`/`url` written as a
+    /// JSON array or object) is a NAMED FAIL, never a raw cheatcode revert that aborts the doctor; and
+    /// the blockscout `url` must be an `http(s)` endpoint so a bare number/bool cannot slip through as
+    /// a valid url (`vm.parseJsonString` would otherwise coerce `123` to `"123"`).
+    function _checkVerifierBlock(string memory name, string memory json) private {
+        if (!vm.keyExistsJson(json, ".verifier")) return;
+        (bool typeOk, string memory vtype) = _verifierString(json, ".verifier.type");
+        if (!typeOk) {
+            _fail(
+                string.concat(
+                    "schema: verifier{} in config/chains/",
+                    name,
+                    ".json needs a string .verifier.type (etherscan/blockscout/sourcify)"
+                )
+            );
+            return;
+        }
+        bytes32 t = keccak256(bytes(vtype));
+        bool known = t == keccak256(bytes("etherscan")) || t == keccak256(bytes("blockscout"))
+            || t == keccak256(bytes("sourcify"));
+        if (!known) {
+            _fail(
+                string.concat(
+                    "schema: verifier.type '",
+                    vtype,
+                    "' in config/chains/",
+                    name,
+                    ".json is not one of etherscan/blockscout/sourcify"
+                )
+            );
+            return;
+        }
+        if (t == keccak256(bytes("blockscout"))) {
+            (bool urlOk, string memory url) = _verifierString(json, ".verifier.url");
+            if (!urlOk || !_hasPrefix(url, "http")) {
+                _fail(
+                    string.concat(
+                        "schema: verifier.type blockscout in config/chains/",
+                        name,
+                        ".json needs an http(s) verifier.url (the instance API endpoint, usually <explorerUrl>/api)"
+                    )
+                );
+                return;
+            }
+        }
+        _pass(string.concat("schema: verifier{} is valid (", vtype, ")"));
+    }
+
+    /// @dev Reads a verifier{} string key through the probe: returns `(false, "")` when the key is
+    /// absent OR its value is not a JSON string the parse can read (an array/object reverts, and the
+    /// probe's external call makes that revert catchable). A scalar number/bool coerces to its text
+    /// here, so callers that need a real string (the blockscout url) additionally shape-check it.
+    function _verifierString(string memory json, string memory path)
+        private
+        view
+        returns (bool ok, string memory value)
+    {
+        if (!vm.keyExistsJson(json, path)) return (false, "");
+        try probe.parseString(json, path) returns (string memory s) {
+            return (true, s);
+        } catch {
+            return (false, "");
         }
     }
 
