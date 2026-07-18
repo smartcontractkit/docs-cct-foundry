@@ -211,7 +211,6 @@ contract ChainProbe {
     function feeQuoterTypeAndVersion(address feeQuoter) external view returns (string memory) {
         return ITypeAndVersionReader(feeQuoter).typeAndVersion();
     }
-    }
 }
 
 /// @title VerifyChain
@@ -1234,7 +1233,14 @@ contract VerifyChain is Script {
         );
     }
 
-    function _checkLanesOnChain(string memory name, string memory configJson, string memory projectJson) private {
+    function _checkLanesOnChain(
+        string memory name,
+        string memory,
+        /*configJson*/
+        string memory projectJson
+    )
+        private
+    {
         if (!forked) {
             _skip("lanes: on-chain reconciliation needs an RPC (no fork) - declared lanes not checked against the pool");
             return;
