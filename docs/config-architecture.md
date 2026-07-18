@@ -145,8 +145,8 @@ write-only history. `active.<role>` records the most-recently-deployed address, 
 **TokenAdminRegistry** stays the authority for the wired pool - `make doctor` reports any divergence as a
 WARN.
 
-The diagram below is the three-view picture: `config/chains` (API-owned facts), the `project/` store (three
-subtrees, three writers), and the `history/` ledger. The blue audit-surface nodes are the git-tracked
+The diagram below is the three-view picture: `config/chains` (API-owned facts), the `project/` store (four
+subtrees, four writers), and the `history/` ledger. The blue audit-surface nodes are the git-tracked
 surface (config/chains always; project/ when a fork tracks it).
 
 ```mermaid
@@ -155,6 +155,7 @@ flowchart LR
     API["CCIP REST API"] -->|sync writes| CCIP["ccip addresses<br/>+ identity/metadata<br/>(displayName, chainFamily,<br/>environment, explorerUrl,<br/>nativeCurrencySymbol)"]
     HUMAN["Maintainer (reviewed PR)"] -->|hand edit| ID["3 hand keys<br/>chainNameIdentifier,<br/>rpcEnv, confirmations"]
     OWNER["Policy owner"] -->|make add-lane| LANES["lanes{} - remote selector<br/>+ outbound rate-limit policy"]
+    OWNER -->|reviewed hand edit| POLICY["poolPolicy{} - pool-scoped<br/>ccvThreshold + finality"]
     GOV["Security owner"] -->|make snapshot-chain| ROLES["roles{} - privileged<br/>authority surface"]
     DEPLOY["Deploy scripts"] -->|broadcast| REC["DeploymentRecorder<br/>ONE call per artifact"]
     ADOPT["make adopt-token"] -->|RegistryWriter| ADDR
@@ -169,6 +170,7 @@ flowchart LR
     subgraph PRJ["project/[&lt;group&gt;/]&lt;selectorName&gt;.json - one file per (group, chain)<br/>schema 3 (gitignored here; a fork tracks it)"]
         ADDR
         LANES
+        POLICY
         ROLES
     end
     subgraph HIST["history/ (gitignored, write-only)"]
@@ -181,7 +183,7 @@ flowchart LR
     classDef store fill:#FFFFFF,color:#0B1636,stroke:#1A2B6B,stroke-width:1px;
     class API,TAR api;
     class HUMAN,DEPLOY,OWNER,GOV,REC,ADOPT writer;
-    class CCIP,ID,LANES,ROLES,ADDR subtree;
+    class CCIP,ID,LANES,POLICY,ROLES,ADDR subtree;
     class LEDGER store;
 ```
 
@@ -220,26 +222,38 @@ contract version (`PoolVersion.tryResolve`; an unrecognized version WARNs and re
 effort) and reconciles **both directions**:
 
 - **Declared → on-chain** - every `lanes{}` entry must be applied on the pool
-  (`isSupportedChain(remoteSelector)`; a missing lane WARNs naming `ApplyChainUpdates`), and the live
-  rate-limit buckets must match the declared policy, read through the version-dispatched getter
+  (`isSupportedChain(remoteSelector)`; a missing lane WARNs naming `ApplyChainUpdates` - forward
+  intent, declare-then-apply is the golden path), and the live rate-limit buckets must match the
+  declared policy, read through the version-dispatched getter
   (`getCurrentOutboundRateLimiterState` on 1.5.0-1.6.1, `getCurrentRateLimiterState(selector, false)`
-  on 2.0.0). Declared optional blocks are reconciled too: `inbound{}` against the inbound bucket, and
-  the 2.0.0-only `v2{}` block (fast-finality buckets via `getCurrentRateLimiterState(selector, true)`,
-  per-lane fee config via `getTokenTransferFeeConfig`) - declared against a pre-2.0.0 pool it WARNs
-  naming the version mismatch. Undeclared blocks are never reconciled.
+  on 2.0.0). Declared optional blocks are reconciled too: `inbound{}` against the inbound bucket, the
+  2.0.0-only `v2{}` block (fast-finality buckets via `getCurrentRateLimiterState(selector, true)`,
+  per-lane fee config via `getTokenTransferFeeConfig`, per-lane CCV arrays via the hooks'
+  `getCCVConfig`), and the pool-scoped `poolPolicy{}` block once per chain (`ccvThreshold` via the
+  hooks' `getThresholdAmount`, `finality{}` via `getAllowedFinalityConfig`, printed raw + decoded).
+  Undeclared blocks are never reconciled.
 - **On-chain → declared** - every selector in the pool's `getSupportedChains()` (present on every
   cataloged version, 1.5.0 through 2.0.0) must have a `lanes{}` entry; an undeclared on-chain lane
   WARNs naming the `make add-lane` command (or `make add-chain` first when no config declares that
   selector).
 
-Everything in the lanes rung is **WARN, never FAIL**: live drift can be a deliberate emergency
-throttle, and an on-chain lane added out-of-band is an operator decision to surface, not a config
-error to block on. The rung never hard-reverts on a non-standard pool - every read goes through the
-doctor's probe and degrades to a WARN or SKIP. Coverage: `test/config/VerifyChainLaneReconcile.t.sol`
-(fork + offline mock tests, including the 1.5.0 version-dispatch path) and the RPC-gated SKIP case in
-`script/config/test-tooling.sh`.
+The rung's severity contract: **a declared value the live chain contradicts is a FAIL naming the exact
+field** - the declaration is the intent, so a deliberate emergency throttle is recorded by updating the
+declaration (the git diff documents the incident). The same applies to a declaration that can never
+converge: a `v2{}`/`poolPolicy{}` block against a **cataloged** pre-2.0.0 pool, or a CCV
+declaration against a 2.0.0 pool with no hooks wired, FAILs by name. The rung accumulates every finding
+and exits nonzero once at the end, so one run names every drifted field and a batch remediation returns
+it to green. Forward-intent states (declared-but-not-applied), undeclared on-chain lanes, an
+**uncataloged** pool version (the buckets and `poolPolicy.finality` read best-effort; the `v2{}` gate
+and `poolPolicy.ccvThreshold` WARN without a read), and any unanswered read stay **WARN** - pending
+work or degraded visibility, never proven drift. The rung never hard-reverts on a non-standard pool - every
+read goes through the doctor's probe and degrades to a WARN or SKIP. Coverage:
+`test/config/VerifyChainLaneReconcile.t.sol` (fork + offline mock tests, including the 1.5.0
+version-dispatch path and the multi-drift aggregation contract),
+`test/config/VerifyChainCCVReconcile.t.sol`, `test/config/VerifyChainFinalityReconcile.t.sol`, and the
+RPC-gated SKIP case in `script/config/test-tooling.sh`.
 
-The declaration is not just verified - it is **consumed**, by four scripts sharing one input ladder
+The declaration is not just verified - it is **consumed**, by five scripts sharing one input ladder
 (matching the repo's `inline > env > registry` idiom): **env vars win** when set (byte-for-byte the
 historical behavior - the explicit override for incident response), otherwise the value comes from the
 **declared `lanes{}` entry** in the local project store (matched by the remote's config name, falling
@@ -257,22 +271,28 @@ back to `remoteSelector` equality), and with neither the historical default stan
 - **`UpdateTokenTransferFeeConfig`** resolves each of the six fee fields through the ladder: env var >
   declared `v2.feeConfig.<field>` > the current on-chain value (its historical per-field default).
 - **`UpdateCCVConfig`** resolves each of the four per-lane verifier arrays through the ladder (env var >
-  declared `v2.ccv.<field>` > current on-chain), plus the pool-global threshold (env var >
-  chain-level `ccvThreshold` > current). Because `applyCCVConfigUpdates` replaces a lane's whole entry,
+  declared `v2.ccv.<field>` > current on-chain), plus the pool-global threshold (env var > declared
+  `poolPolicy.ccvThreshold` > current). Because `applyCCVConfigUpdates` replaces a lane's whole entry,
   the read-modify-write is load-bearing: an undeclared array carries its current on-chain value, so
   setting one array never clears the others. The CCV surface lives on the pool's `AdvancedPoolHooks`
   contract, so the script (and the doctor's CCV reconcile) resolve it via `getAdvancedPoolHooks()`;
   divergence is compared as a set (order-insensitive).
+- **`SetFinalityConfig`** resolves the applied bytes4 through the ladder: env (`WAIT_FOR_SAFE` /
+  `BLOCK_DEPTH`, either present - an explicit false/0 still pins the env rung) > declared
+  `poolPolicy.finality` (mode terms; an empty block declares the WAIT_FOR_FINALITY default) > the
+  WAIT_FOR_FINALITY reset (the historical no-env behavior, bit-identical when nothing is declared).
 
-The loop stays owner-controlled: an apply **never writes `lanes{}` back**. An env-override apply that
-leaves the declaration missing or diverging prints a divergence notice plus a remediation hint with the
-values just applied - the exact `make add-lane` command for the core fields, a hand-edit instruction for
-the v2 blocks (`add-lane` has no flag surface for them, deliberately) - and the doctor WARNs until the
-declaration is reconciled through a reviewed edit. Coverage: `test/setup/ApplyChainUpdatesLaneSource.t.sol`,
+The loop stays owner-controlled: an apply **never writes `lanes{}` or `poolPolicy{}` back**. An
+env-override apply that leaves the declaration missing or diverging prints a divergence notice plus a
+remediation hint with the values just applied - the exact `make add-lane` command for the core fields, a
+hand-edit instruction for the v2/poolPolicy blocks (they have no flag surface, deliberately) - and the
+doctor FAILs until the declaration is reconciled through a reviewed edit. Coverage:
+`test/setup/ApplyChainUpdatesLaneSource.t.sol`,
 `test/configure/UpdateRateLimitersLaneSource.t.sol`,
-`test/configure/UpdateTokenTransferFeeConfigLaneSource.t.sol`, and
-`test/configure/UpdateCCVConfigLaneSource.t.sol`. The doctor reconciles the same v2 surfaces on-chain
-(`test/config/VerifyChainLaneReconcile.t.sol`, `test/config/VerifyChainCCVReconcile.t.sol`).
+`test/configure/UpdateTokenTransferFeeConfigLaneSource.t.sol`,
+`test/configure/UpdateCCVConfigLaneSource.t.sol`, and `test/configure/SetFinalityConfigLadder.t.sol`.
+The doctor reconciles the same surfaces on-chain (`test/config/VerifyChainLaneReconcile.t.sol`,
+`test/config/VerifyChainCCVReconcile.t.sol`, `test/config/VerifyChainFinalityReconcile.t.sol`).
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'primaryColor':'#375BD2','primaryTextColor':'#FFFFFF','primaryBorderColor':'#1A2B6B','lineColor':'#375BD2','fontFamily':'Inter, system-ui, sans-serif'}}}%%

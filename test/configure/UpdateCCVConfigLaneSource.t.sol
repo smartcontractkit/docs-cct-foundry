@@ -104,8 +104,8 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
     /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
     /// run leaves no residue.
     function _clean() private {
-        string[] memory names = new string[](9);
-        for (uint256 n = 1; n <= 9; n++) {
+        string[] memory names = new string[](10);
+        for (uint256 n = 1; n <= 10; n++) {
             names[n - 1] = string.concat("zz-scratch-ccvsrc-l", vm.toString(n));
         }
         _cleanupScratch(names);
@@ -226,7 +226,7 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
                 vm.toString(LANE1),
                 "] in project/",
                 local,
-                ".json - make doctor will WARN until reconciled"
+                ".json - make doctor will FAIL until reconciled"
             ),
             "composed CCV divergence notice"
         );
@@ -243,7 +243,7 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
                 vm.toString(CUR2),
                 "] thresholdInboundCCVs=[] - make doctor CHAIN=",
                 local,
-                " WARNs until reconciled"
+                " FAILs until reconciled"
             ),
             "composed diverging edit hint"
         );
@@ -276,7 +276,7 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
                 vm.toString(CUR2),
                 "] thresholdInboundCCVs=[] - make doctor CHAIN=",
                 local,
-                " WARNs until reconciled"
+                " FAILs until reconciled"
             ),
             "composed not-declared edit hint"
         );
@@ -304,18 +304,34 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
         _cleanupScratchOne(name);
     }
 
-    /// Threshold rung 2: a chain-level `ccvThreshold` with no env var resolves from lanes{} (fromLanes),
-    /// not from env, and does not arm the threshold hand-edit hint.
-    function test_Threshold_LanesOnly_FromDeclaration() public {
+    /// Threshold rung 2: a declared `poolPolicy.ccvThreshold` with no env var resolves from the
+    /// project store (fromLanes), not from env, and does not arm the threshold hand-edit hint.
+    function test_Threshold_DeclaredOnly_FromPoolPolicy() public {
         string memory local = _localChain(9);
-        _writeScratchChainWithThreshold(local, "750");
+        _declarePoolPolicy(local, "{\"ccvThreshold\":\"750\"}");
 
         UpdateCCVConfig.CCVConfigResolution memory res = harness.resolve(_current(), 100, "", 0);
 
         assertFalse(res.threshold.fromEnv, "threshold not from env");
-        assertTrue(res.threshold.fromLanes, "threshold from declared ccvThreshold");
+        assertTrue(res.threshold.fromLanes, "threshold from declared poolPolicy.ccvThreshold");
         assertEq(res.threshold.value, 750, "threshold is the declared value");
-        assertFalse(res.thresholdHint, "a lanes-sourced threshold does not hint");
+        assertFalse(res.thresholdHint, "a declared-sourced threshold does not hint");
+
+        _cleanupScratchOne(local);
+    }
+
+    /// A ccvThreshold left at the top level of config/chains is NOT a declaration: the ladder reads
+    /// only poolPolicy.ccvThreshold in the project store, so the stray key is ignored and the
+    /// current on-chain value carries (the doctor's schema rung FAILs the stray key by name).
+    function test_Threshold_StrayConfigKey_Ignored() public {
+        string memory local = _localChain(10);
+        vm.writeJson("750", _path(local), ".ccvThreshold"); // stray hand edit in the config file
+
+        UpdateCCVConfig.CCVConfigResolution memory res = harness.resolve(_current(), 100, "", 0);
+
+        assertFalse(res.threshold.fromEnv, "threshold not from env");
+        assertFalse(res.threshold.fromLanes, "a stray config-file ccvThreshold is not a declaration");
+        assertEq(res.threshold.value, 100, "the current on-chain value carries");
 
         _cleanupScratchOne(local);
     }
@@ -340,8 +356,8 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
 
     function test_Threshold_EnvDivergesFromDeclared_Hint() public {
         string memory local = _localChain(6);
-        // chain-level ccvThreshold declared = 500, env = 900
-        _writeScratchChainWithThreshold(local, "500");
+        // poolPolicy.ccvThreshold declared = 500, env = 900
+        _declarePoolPolicy(local, "{\"ccvThreshold\":\"500\"}");
         harness.setFakeEnv("CCV_THRESHOLD_AMOUNT", "900");
 
         UpdateCCVConfig.CCVConfigResolution memory res = harness.resolve(_current(), 100, "", 0);
@@ -354,20 +370,20 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
         assertEq(
             res.thresholdNotice,
             string.concat(
-                unicode"⚠️  CCV_THRESHOLD_AMOUNT=900 diverges from declared ccvThreshold=500 in config/chains/",
+                unicode"⚠️  CCV_THRESHOLD_AMOUNT=900 diverges from declared poolPolicy.ccvThreshold=500 in project/",
                 local,
-                ".json - make doctor will WARN until reconciled"
+                ".json - make doctor will FAIL until reconciled"
             ),
             "composed threshold divergence notice"
         );
         assertEq(
             res.thresholdHintText,
             string.concat(
-                unicode"⚠️  Applied CCV threshold 900 is diverging from ccvThreshold in config/chains/",
+                unicode"⚠️  Applied CCV threshold 900 is diverging from poolPolicy.ccvThreshold in project/",
                 local,
                 ".json - make doctor CHAIN=",
                 local,
-                " WARNs until reconciled"
+                " FAILs until reconciled"
             ),
             "composed threshold edit hint"
         );
@@ -460,11 +476,5 @@ contract UpdateCCVConfigLaneSourceTest is LaneReconcileScratch {
             )
         );
         harness.fencedHooks(address(pool), true);
-    }
-
-    /// @dev A scratch chain that also declares a chain-level ccvThreshold, for the threshold ladder.
-    function _writeScratchChainWithThreshold(string memory name, string memory threshold) internal {
-        _writeScratchChain(name, block.chainid, uint64(8_874_099_000_000_000_001));
-        vm.writeJson(threshold, _path(name), ".ccvThreshold");
     }
 }

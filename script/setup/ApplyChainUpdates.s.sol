@@ -91,7 +91,7 @@ import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 /// inline > env > registry idiom):
 ///   1. Any of the direction's rate-limit env vars set → the env values win. When the local chain
 ///      config declares a diverging lanes{} policy
-///      for the destination, a one-line console notice names both values (`make doctor` WARNs until
+///      for the destination, a one-line console notice names both values (`make doctor` FAILs until
 ///      reconciled) and the closing output prints the exact `make add-lane` remediation command.
 ///   2. Env vars unset → the declared `lanes{}` policy in `project/<local>.json` supplies the
 ///      bucket: `capacity`/`rate` drive the outbound bucket (enabled iff either is non-zero, the
@@ -765,7 +765,7 @@ contract ApplyChainUpdates is EoaExecutor {
         }
 
         // Rung 1 cross-check: an env override that disagrees with the declared policy is a notice,
-        // never a revert (the doctor WARNs until reconciled). An undeclared inbound{} block is not
+        // never a revert (the doctor FAILs until reconciled). An undeclared inbound{} block is not
         // compared — same absent-means-undeclared rule the doctor applies.
         if (res.lane.found && res.outboundFromEnv) {
             res.outboundDiverges = _diverges(res.outbound, res.lane.capacity, res.lane.rate);
@@ -1014,7 +1014,7 @@ contract ApplyChainUpdates is EoaExecutor {
             vm.toString(declaredRate),
             ") in ",
             ProjectStore.display(res.configName),
-            " - make doctor will WARN until reconciled"
+            " - make doctor will FAIL until reconciled"
         );
     }
 

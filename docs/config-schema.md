@@ -52,6 +52,7 @@ tracks `project/` gets a git diff there too (see [The project store](#the-projec
 | `project`       | `addresses{}` (the deployed-address registry sub-store)                                                                                 | the deployer                                   | the **deploy scripts** (one `DeploymentRecorder` call → `RegistryWriter`) and **`make adopt-token`**, on `--broadcast` |
 | `project`       | `lanes{}` (which remotes this pool connects to, at what outbound rate limits)                                                           | the token owner (policy)                       | **`make add-lane`** / **`make remove-lane`** or a reviewed hand edit - **never the API sync**                          |
 | `project`       | `roles{}` (the privileged-authority surface: who holds token/pool/TAR/lockbox/hooks roles + optional `governance{}`)                    | the project's security owner (declared intent) | **`make snapshot-chain`** (backfill FROM chain) or a reviewed hand edit; `make roles-check` only READS it              |
+| `project`       | `poolPolicy{}` (pool-scoped values: the pool-global `ccvThreshold` and the allowed-finality `finality{}` block)                         | the token owner (policy)                       | a **reviewed hand edit** only (no flag surface, no scripted writer, no silent writeback); `make fmt-config` repairs form |
 
 The sync enforces this structurally: `SyncCcipConfig.run` writes **only** the API-served fields — the
 `.ccip` subtree (`vm.writeJson(json, path, ".ccip")`) plus the five identity/metadata keys the CCIP REST
@@ -137,9 +138,12 @@ API serves nothing for it, so a reviewed PR owns it and the sync preserves it ve
 | `rpcEnv`                         | env-var name string                   | hand                 | — (not in the API)                                | fork setup; the doctor's RPC rung             |
 | `confirmations`                  | number                                | hand                 | — (`chainConfig.finality`/`blockTime` are `null`) | `ChainConfig.load`                            |
 
-The `lanes.<remote>` field rows (`remoteSelector`, `capacity`, `rate`, `inbound`, the `v2` blocks, and the
-chain-level `ccvThreshold`) moved with the subtree to the project store - see
-[The `lanes{}` subtree](#the-lanes-subtree---owner-policy-not-api-fact).
+The `lanes.<remote>` field rows (`remoteSelector`, `capacity`, `rate`, `inbound`, the `v2` blocks) live
+with the subtree in the project store - see
+[The `lanes{}` subtree](#the-lanes-subtree---owner-policy-not-api-fact). Pool-scoped policy values
+(`ccvThreshold`, `finality{}`) live there too, in the `poolPolicy{}` block - a `ccvThreshold` key left in
+a config file is a schema-rung FAIL naming the move (see
+[The `poolPolicy{}` block](#the-poolpolicy-block---pool-scoped-policy)).
 
 > **`chainNameIdentifier`/`rpcEnv` are DERIVED for newly added chains.** `make add-chain` seeds
 > `chainNameIdentifier` as UPPER_SNAKE of the selectorName (e.g. `avalanche-testnet-fuji` →
@@ -315,7 +319,7 @@ Per-artifact keys and the redeploy guard are the reference of
 mesh the owner intends, consumed by the `applyChainUpdates` flows: `ApplyChainUpdates` (CLI mode) applies
 the declared `capacity`/`rate` (and the optional `inbound{}` block) whenever the rate-limit env vars are
 unset, and the env vars remain the explicit override on top - an override that diverges from the
-declaration is noticed on the console (with the exact `make add-lane` command to reconcile) and WARNs in
+declaration is noticed on the console (with the exact `make add-lane` command to reconcile) and FAILs in
 `make doctor` until the declaration is brought in line. That is policy, so it has a different
 writer from everything above: the API sync never touches it (a `make sync` preserves it verbatim), and
 `make add-lane LOCAL=<a> REMOTE=<b> CAPACITY=<wei> RATE=<wei> [BOTH=1]` is the scripted writer (`BOTH=1`
@@ -338,10 +342,10 @@ does not reconcile it and the apply scripts fall through to their historical def
 bucket with `0`/`0` is _declared-disabled_ and the doctor asserts the live bucket is off. `add-lane`
 preserves every block verbatim when it rewrites the `lanes` subtree to append another lane.
 
-**The `v2.ccv` block and the chain-level `ccvThreshold`.** CCVs (Cross-Chain Verifiers) live on the
+**The `v2.ccv` block and the pool-scoped `ccvThreshold`.** CCVs (Cross-Chain Verifiers) live on the
 pool's `AdvancedPoolHooks` contract (`TokenPool(pool).getAdvancedPoolHooks()`), so this policy needs a
-2.0.0 pool **with hooks wired** - a declared `v2.ccv` on a pre-2.0.0 pool, or a 2.0.0 pool with no
-hooks, WARNs in the doctor and refuses by name in `UpdateCCVConfig` (wire hooks first:
+2.0.0 pool **with hooks wired** - a declared `v2.ccv` on a cataloged pre-2.0.0 pool, or a 2.0.0 pool with
+no hooks, FAILs in the doctor by name and refuses by name in `UpdateCCVConfig` (wire hooks first:
 `updateAdvancedPoolHooks` / `DeployAdvancedPoolHooks`). `v2.ccv` carries four **optional** address-string
 arrays, each declared-only-if-present (an absent array is _undeclared_ and is never reconciled; a present
 empty array `[]` is _declared-empty_): `outboundCCVs` and `inboundCCVs` are the base verifier sets
@@ -353,9 +357,11 @@ list or be shared between a list and its threshold list, and a lane whose `outbo
 `inboundCCVs` are both empty is **removed** from the pool's configured set. `applyCCVConfigUpdates` fully
 **replaces** a lane's entry, so `UpdateCCVConfig` reads the current on-chain config first and writes back
 every array the caller did not declare unchanged (declaring only `outboundCCVs` leaves the three other
-arrays at their live values). The `ccvThreshold` is **chain-level and pool-global**, not per-lane: it is a
+arrays at their live values). The `ccvThreshold` is **pool-scoped and pool-global**, not per-lane: it is a
 single value on the `AdvancedPoolHooks` (`setThresholdAmount`) that governs the threshold for every lane's
-`threshold*CCVs`; `0` or absent means no threshold is declared.
+`threshold*CCVs`, declared at `poolPolicy.ccvThreshold` (see
+[The `poolPolicy{}` block](#the-poolpolicy-block---pool-scoped-policy)); `0` or absent means no threshold
+is declared.
 
 Guards (each verified by `script/config/test-tooling.sh` and `test/config/LaneConfig.t.sol`):
 
@@ -376,9 +382,59 @@ declares B without B declaring A, in either direction) is a **FAIL naming both c
 are exempt from reciprocity: they are destination-only in this repo and carry no `lanes{}` of their own
 (see below). The **lanes rung** then proves the policy agrees with the **chain** (RPC-gated; see
 [`config-architecture.md`](config-architecture.md)): every declared lane must be applied on the
-registry-resolved pool with live rate limits (and any declared `inbound`/`v2` blocks) matching the
-declared values, and every on-chain supported selector must be declared back - all WARN-only, since
-live drift can be a deliberate emergency throttle.
+registry-resolved pool, and every declared value (the core outbound bucket, and any declared
+`inbound`/`v2`/`poolPolicy` block) must match the live chain. **A declared value the chain contradicts
+is a FAIL naming the exact field** - the declaration is the intent, so a deliberate emergency throttle
+is recorded by updating the declaration (the git diff documents the incident). The rung reports every
+drifted field in one run and exits nonzero once at the end, so a multi-field drift is remediated as a
+batch, not one fix-and-rerun at a time. Forward-intent states (a declared lane not yet applied), an
+on-chain lane not declared back, an uncataloged pool version, and any unanswered read stay **WARN**:
+they are pending work or degraded visibility, never proven drift.
+
+### The `poolPolicy{}` block - pool-scoped policy
+
+`poolPolicy{}` declares the pool-scoped (not per-lane) 2.0.0 policy values. It is optional and
+hand-authored only: **its sole writer is a reviewed hand edit** - no script writes it, `add-lane` and
+the sync preserve it verbatim, and no apply ever writes it back (`make fmt-config` repairs formatting).
+Absent = undeclared: a project store without the block behaves byte-identically to today.
+
+```jsonc
+{
+  "addresses": { ... },
+  "lanes": { ... },
+  "poolPolicy": {
+    // OPTIONAL. The pool-global additional-CCV threshold on the AdvancedPoolHooks
+    // (setThresholdAmount), quoted-decimal wei. Governs every lane's threshold*CCVs.
+    "ccvThreshold": "1000000000000000000000",
+    // OPTIONAL. The pool's allowed finality config (setAllowedFinalityConfig), declared in mode
+    // terms. PRESENT (even empty {}) = declared; both keys optional:
+    //   blockDepth   quoted-decimal 1..65535 - allow fast finality after N confirmations
+    //   waitForSafe  bool - allow fast finality at the `safe` head
+    //   both         - either mode acceptable;  {} - WAIT_FOR_FINALITY (fast finality disabled)
+    "finality": { "blockDepth": "5", "waitForSafe": true }
+  },
+  "roles": { ... },
+  "schema": 3
+}
+```
+
+The declaration is in mode terms, never raw hex; the tooling derives the on-chain `bytes4` (lower 16
+bits = block depth, bit 16 = the safe flag; full finality is always an allowed request - the value only
+adds faster modes) and every doctor/console line prints the raw `bytes4` **plus** its decoded meaning
+(e.g. `0x00010020 (WAIT_FOR_SAFE + BLOCK_DEPTH (32 blocks))`). Reserved flag bits this tooling cannot
+decode print honestly as `Custom / Reserved flags`. Consumption mirrors the lanes ladder:
+`UpdateCCVConfig` resolves the threshold as env (`CCV_THRESHOLD_AMOUNT`) > declared
+`poolPolicy.ccvThreshold` > current on-chain, and `SetFinalityConfig` resolves the finality config as
+env (`WAIT_FOR_SAFE`/`BLOCK_DEPTH`, either present) > declared `poolPolicy.finality` > the
+WAIT_FOR_FINALITY reset. The doctor's lanes rung reconciles whatever is declared, once per chain: drift
+FAILs naming the field; a declaration against a cataloged pre-2.0.0 pool, or `ccvThreshold` against a
+2.0.0 pool with no hooks wired, FAILs by name (the declaration can never converge). Against an
+**uncataloged** version the two values differ: `finality` is read best-effort (an unanswered
+`getAllowedFinalityConfig` stays WARN; a successful read that contradicts the declaration still FAILs
+as drift), while `ccvThreshold` emits the version WARN without attempting the hooks read. Both values
+are pool-scoped **chain state, per chain**: each chain's project store declares its own pool's values.
+A `ccvThreshold` key left at the top level of `config/chains/<name>.json` is a schema-rung **FAIL
+naming the correct location and remediation** (pool policy never lives in the API-synced file).
 
 ### The `roles{}` subtree - declared authority, not API fact
 

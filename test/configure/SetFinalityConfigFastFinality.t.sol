@@ -111,16 +111,16 @@ contract SetFinalityConfigFastFinalityTest is LaneReconcileScratch {
                 vm.toString(uint256(FTF_CAPACITY)),
                 " rate=",
                 vm.toString(uint256(FTF_RATE)),
-                ") in config/chains/",
+                ") in project/",
                 local,
-                ".json - make doctor will WARN until reconciled"
+                ".json - make doctor will FAIL until reconciled"
             ),
             "composed fast-finality divergence notice"
         );
         assertEq(
             res.outboundHint,
             string.concat(
-                unicode"⚠️  Applied OUTBOUND values are diverging from lanes.zz-scratch-ffdiv-remote1.v2.fastFinality.outbound (config/chains/",
+                unicode"⚠️  Applied OUTBOUND values are diverging from lanes.zz-scratch-ffdiv-remote1.v2.fastFinality.outbound (project/",
                 local,
                 ".json). Hand-edit the entry to capacity=",
                 vm.toString(uint256(ENV_CAPACITY)),
@@ -128,7 +128,7 @@ contract SetFinalityConfigFastFinalityTest is LaneReconcileScratch {
                 vm.toString(uint256(ENV_RATE)),
                 " - make doctor CHAIN=",
                 local,
-                " WARNs until reconciled"
+                " FAILs until reconciled"
             ),
             "composed fast-finality edit hint"
         );

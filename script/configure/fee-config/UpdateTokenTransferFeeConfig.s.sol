@@ -40,7 +40,7 @@ import {ProjectStore} from "../../../src/utils/ProjectStore.sol";
 /// independently falls back to the current on-chain value):
 ///   1. Env var set → the env value wins. When the local
 ///      chain config declares a diverging `lanes.<remote>.v2.feeConfig.<field>`, a one-line console
-///      notice names both values (`make doctor` WARNs until reconciled) and the closing output
+///      notice names both values (`make doctor` FAILs until reconciled) and the closing output
 ///      prints a hand-edit remediation hint.
 ///   2. Env var unset → the declared `v2.feeConfig.<field>` supplies the value when declared (with
 ///      no env vars at all, the whole config comes from the declared block). An undeclared field
@@ -314,7 +314,7 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
             }
             if (f.fromEnv) {
                 // Rung 1: the env value wins; a declared disagreeing field is a
-                // notice, never a revert (the doctor WARNs until reconciled).
+                // notice, never a revert (the doctor FAILs until reconciled).
                 f.value = _envUint(envNames[i]);
                 f.diverges = f.declared && f.value != f.declaredValue;
             } else if (f.declared) {
@@ -358,7 +358,7 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
             vm.toString(f.declaredValue),
             " in ",
             ProjectStore.display(res.configName),
-            " - make doctor will WARN until reconciled"
+            " - make doctor will FAIL until reconciled"
         );
     }
 
@@ -423,7 +423,7 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
             values,
             " - make doctor CHAIN=",
             res.configName,
-            " WARNs until reconciled"
+            " FAILs until reconciled"
         );
     }
 

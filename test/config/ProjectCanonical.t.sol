@@ -23,6 +23,7 @@ contract ProjectCanonicalTest is Test {
     string internal constant SEL_NOOP = "zz-scratch-canon-noop";
     string internal constant SEL_EDGE = "zz-scratch-canon-edge";
     string internal constant SEL_EXAMPLE = "zz-scratch-canon-example";
+    string internal constant SEL_POLICY = "zz-scratch-canon-poolpolicy";
 
     address internal constant TOKEN = address(0x1111111111111111111111111111111111111111);
     address internal constant POOL = address(0x2222222222222222222222222222222222222222);
@@ -43,6 +44,7 @@ contract ProjectCanonicalTest is Test {
         ProjectScratch.clean(SEL_NOOP);
         ProjectScratch.clean(SEL_EDGE);
         ProjectScratch.clean(SEL_EXAMPLE);
+        ProjectScratch.clean(SEL_POLICY);
     }
 
     /// @dev The exact canonical bytes a single `token` record produces (2-space, sorted, no trailing
@@ -207,6 +209,54 @@ contract ProjectCanonicalTest is Test {
             emit log_string("SKIP: ffi/jq unavailable - committed-example jq golden not run");
         }
         ProjectScratch.clean(SEL_EXAMPLE);
+    }
+
+    /// @dev The hand-authored `poolPolicy{}` block is canonical as documented: its keys sort into the
+    /// top-level order (`addresses < lanes < poolPolicy < roles < schema`) and inside it
+    /// (`blockDepth < waitForSafe` under `finality`, `ccvThreshold < finality`), so a correctly
+    /// hand-edited file is a `jq --indent 2 -S` no-op (the `make fmt-config` repair path) and the
+    /// writers' targeted subtree rewrites keep it byte-stable. ffi-gated like the other jq goldens.
+    function test_PoolPolicy_HandAuthoredCanonical_FfiGated() public {
+        _skipUnlessFfi();
+        string memory doc = string.concat(
+            "{\n",
+            '  "addresses": {\n',
+            '    "active": {},\n',
+            '    "deployments": {}\n',
+            "  },\n",
+            '  "lanes": {},\n',
+            '  "poolPolicy": {\n',
+            '    "ccvThreshold": "1000000000000000000000",\n',
+            '    "finality": {\n',
+            '      "blockDepth": "5",\n',
+            '      "waitForSafe": true\n',
+            "    }\n",
+            "  },\n",
+            '  "roles": {},\n',
+            '  "schema": 3\n',
+            "}"
+        );
+        string memory path = ProjectStore.path(SEL_POLICY);
+        vm.writeFile(path, doc);
+
+        string[] memory full = new string[](6);
+        full[0] = "jq";
+        full[1] = "--indent";
+        full[2] = "2";
+        full[3] = "-S";
+        full[4] = ".";
+        full[5] = path;
+        try this.runFfi(full) returns (bytes memory out) {
+            assertEq(
+                doc,
+                _trimTrailingNewline(string(out)),
+                "hand-authored poolPolicy block is not jq --indent 2 -S canonical"
+            );
+        } catch {
+            emit log_string("SKIP: ffi/jq unavailable (default profile has ffi off) - jq golden not run");
+            vm.skip(true);
+        }
+        ProjectScratch.clean(SEL_POLICY);
     }
 
     function _trimTrailingNewline(string memory s) internal pure returns (string memory) {

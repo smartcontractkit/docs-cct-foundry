@@ -211,7 +211,7 @@ contract UpdateTokenTransferFeeConfigLaneSourceTest is LaneReconcileScratch {
                 vm.toString(ENV_VALUES[5]),
                 " - make doctor CHAIN=",
                 local,
-                " WARNs until reconciled"
+                " FAILs until reconciled"
             ),
             "composed undeclared edit hint"
         );
@@ -265,7 +265,7 @@ contract UpdateTokenTransferFeeConfigLaneSourceTest is LaneReconcileScratch {
                 vm.toString(LANE_VALUES[0]),
                 " in project/",
                 local,
-                ".json - make doctor will WARN until reconciled"
+                ".json - make doctor will FAIL until reconciled"
             ),
             "composed per-field divergence notice"
         );

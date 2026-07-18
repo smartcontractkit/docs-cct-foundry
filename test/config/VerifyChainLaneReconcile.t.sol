@@ -99,13 +99,32 @@ abstract contract LaneReconcileScratch is Test {
             "}"
         );
     }
+
+    /// @dev Declares the scratch chain's `poolPolicy{}` block (pool-scoped policy: `ccvThreshold`,
+    /// `finality{}`) by authoring the WHOLE schema-3 project file in canonical sorted-key order —
+    /// the hand-edit simulation. Production has no `poolPolicy` writer (the block's one writer is a
+    /// reviewed hand edit) and the targeted 3-arg `vm.writeJson` cannot create a missing key, so
+    /// tests write the full document. Compose with `_declareLane` AFTER this call when a test needs
+    /// both (the targeted `.lanes` write preserves the sibling `poolPolicy`).
+    function _declarePoolPolicy(string memory name, string memory poolPolicyJson) internal {
+        vm.writeFile(
+            _projPath(name),
+            string.concat(
+                "{\"addresses\":{\"active\":{},\"deployments\":{}},\"lanes\":{},\"poolPolicy\":",
+                poolPolicyJson,
+                ",\"roles\":{},\"schema\":3}"
+            )
+        );
+    }
 }
 
 /// @notice The `make doctor` lanes rung reconciles the declared `lanes{}` policy against the ON-CHAIN
-/// pool, both directions, WARN-only (live drift may be a deliberate emergency throttle). These fork
-/// tests drive `VerifyChain.checkLanesOnChainForTest` against the repo's own 2.0.0 fixture pool
-/// (full control of the applied state) and against the live externally deployed 1.6.1 fixture pool
-/// (tests/pool-migration-v1to2/fixtures.json), asserting the (fails, warns) contract per state.
+/// pool, both directions: declared-vs-live drift is a FAIL naming the field, while forward-intent
+/// states (declared-but-not-applied), undeclared on-chain lanes, and unanswered reads stay WARN.
+/// These fork tests drive `VerifyChain.checkLanesOnChainForTest` against the repo's own 2.0.0
+/// fixture pool (full control of the applied state) and against the live externally deployed 1.6.1
+/// fixture pool (tests/pool-migration-v1to2/fixtures.json), asserting the (fails, warns) contract
+/// per state.
 contract VerifyChainLaneReconcileForkTest is BaseForkTest, LaneReconcileScratch {
     uint64 internal constant REMOTE_SELECTOR = 8_870_000_000_000_000_001;
     uint128 internal constant CAPACITY = 1000e18;
@@ -130,7 +149,7 @@ contract VerifyChainLaneReconcileForkTest is BaseForkTest, LaneReconcileScratch 
     /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
     /// run leaves no residue.
     function _clean() private {
-        string[] memory names = new string[](9);
+        string[] memory names = new string[](10);
         names[0] = "zz-scratch-lanechk-a1";
         names[1] = "zz-scratch-lanechk-a2";
         names[2] = "zz-scratch-lanechk-a3";
@@ -140,6 +159,7 @@ contract VerifyChainLaneReconcileForkTest is BaseForkTest, LaneReconcileScratch 
         names[6] = "zz-scratch-lanechk-a7";
         names[7] = "zz-scratch-lanechk-a8";
         names[8] = "zz-scratch-lanechk-a9";
+        names[9] = "zz-scratch-lanechk-a10";
         _cleanupScratch(names);
     }
 
@@ -201,16 +221,17 @@ contract VerifyChainLaneReconcileForkTest is BaseForkTest, LaneReconcileScratch 
         _cleanupScratchOne(name);
     }
 
-    // WARN: applied, but the live outbound bucket drifted from the declared policy.
-    function test_Lanes_Warn_OutboundRateLimitDrift() public {
+    // FAIL: applied, but the live outbound bucket drifted from the declared policy (a deliberate
+    // out-of-band throttle is recorded by updating the declaration; until then the doctor is red).
+    function test_Lanes_Fail_OutboundRateLimitDrift() public {
         string memory name = "zz-scratch-lanechk-a3";
         _writeScratchChain(name, 887000301, 8_870_003_010_000_000_001);
         _declareLane(name, "zz-scratch-lanechk-r3", _laneEntry(REMOTE_SELECTOR, CAPACITY, RATE, ""));
         _applyLane(_enabled(CAPACITY / 2, RATE / 2), _disabled()); // emergency-throttle shape
 
         (uint256 fails, uint256 warns) = _run(name);
-        assertEq(fails, 0, "rate-limit drift must never FAIL (may be a deliberate throttle)");
-        assertEq(warns, 1, "rate-limit drift must emit exactly one WARN");
+        assertEq(fails, 1, "rate-limit drift must FAIL naming the bucket");
+        assertEq(warns, 0, "rate-limit drift must not additionally WARN");
 
         _cleanupScratchOne(name);
     }
@@ -241,7 +262,7 @@ contract VerifyChainLaneReconcileForkTest is BaseForkTest, LaneReconcileScratch 
         _cleanupScratchOne(name);
     }
 
-    // Declared inbound block: reconciled when matching, one WARN when drifting.
+    // Declared inbound block: reconciled when matching, one FAIL when drifting.
     function test_Lanes_Inbound_MatchThenDrift() public {
         string memory name = "zz-scratch-lanechk-a6";
         _writeScratchChain(name, 887000601, 8_870_006_010_000_000_001);
@@ -267,13 +288,13 @@ contract VerifyChainLaneReconcileForkTest is BaseForkTest, LaneReconcileScratch 
         TokenPool(pool).setRateLimitConfig(args);
 
         (fails, warns) = _run(name);
-        assertEq(fails, 0, "inbound drift must never FAIL");
-        assertEq(warns, 1, "inbound drift must emit exactly one WARN");
+        assertEq(fails, 1, "inbound drift must FAIL naming the bucket");
+        assertEq(warns, 0, "inbound drift must not additionally WARN");
 
         _cleanupScratchOne(name);
     }
 
-    // Declared v2.fastFinality buckets on the 2.0.0 pool: reconciled when matching, WARN on drift.
+    // Declared v2.fastFinality buckets on the 2.0.0 pool: reconciled when matching, FAIL on drift.
     function test_Lanes_V2FastFinality_MatchThenDrift() public {
         string memory name = "zz-scratch-lanechk-a7";
         _writeScratchChain(name, 887000701, 8_870_007_010_000_000_001);
@@ -298,13 +319,14 @@ contract VerifyChainLaneReconcileForkTest is BaseForkTest, LaneReconcileScratch 
 
         _setFastFinality(_enabled(CAPACITY / 4, RATE / 4), _enabled(CAPACITY / 2, RATE / 2));
         (fails, warns) = _run(name);
-        assertEq(fails, 0, "fast-finality drift must never FAIL");
-        assertEq(warns, 1, "fast-finality outbound drift must emit exactly one WARN");
+        assertEq(fails, 1, "fast-finality outbound drift must FAIL naming the bucket");
+        assertEq(warns, 0, "fast-finality drift must not additionally WARN");
 
         _cleanupScratchOne(name);
     }
 
-    // Declared v2.feeConfig on the 2.0.0 pool: reconciled per field; WARN when undeclared on-chain.
+    // Declared v2.feeConfig on the 2.0.0 pool: reconciled per field; a declared block with no
+    // enabled on-chain config is the same declared-vs-live contradiction as a drifted field (FAIL).
     function test_Lanes_V2FeeConfig_MatchDriftAndDisabled() public {
         string memory name = "zz-scratch-lanechk-a8";
         _writeScratchChain(name, 887000801, 8_870_008_010_000_000_001);
@@ -313,10 +335,10 @@ contract VerifyChainLaneReconcileForkTest is BaseForkTest, LaneReconcileScratch 
         _declareLane(name, "zz-scratch-lanechk-r8", _laneEntry(REMOTE_SELECTOR, CAPACITY, RATE, feeBlock));
         _applyLane(_enabled(CAPACITY, RATE), _disabled());
 
-        // Declared but no enabled on-chain fee config -> one WARN.
+        // Declared but no enabled on-chain fee config -> one FAIL.
         (uint256 fails, uint256 warns) = _run(name);
-        assertEq(fails, 0, "missing on-chain fee config must never FAIL");
-        assertEq(warns, 1, "missing on-chain fee config must emit exactly one WARN");
+        assertEq(fails, 1, "a declared fee config with no enabled on-chain config must FAIL");
+        assertEq(warns, 0, "the missing fee config must not additionally WARN");
 
         // Applied matching -> clean.
         _applyFeeConfig(90_000, 32, 0, 0, 10, 25);
@@ -324,35 +346,83 @@ contract VerifyChainLaneReconcileForkTest is BaseForkTest, LaneReconcileScratch 
         assertEq(fails, 0, "matching fee config must never FAIL");
         assertEq(warns, 0, "matching fee config must not WARN");
 
-        // One live field drifts -> exactly one WARN (per-field reconciliation).
+        // One live field drifts -> exactly one FAIL (per-field reconciliation).
         _applyFeeConfig(90_000, 32, 0, 0, 40, 25);
         (fails, warns) = _run(name);
-        assertEq(fails, 0, "fee-config drift must never FAIL");
-        assertEq(warns, 1, "one drifted fee-config field must emit exactly one WARN");
+        assertEq(fails, 1, "one drifted fee-config field must FAIL naming the field");
+        assertEq(warns, 0, "fee-config drift must not additionally WARN");
 
         _cleanupScratchOne(name);
     }
 
-    // Live externally deployed 1.6.1 pool (v1 getter surface): the rung must reconcile it through
-    // the version-dispatched read path without ever FAILing or hard-reverting, whatever the live
-    // policy values currently are (WARNs are legitimate - external state is not pinned by this repo).
+    // Live externally deployed 1.6.1 pool (v1 getter surface): with NOTHING declared, the rung must
+    // walk the pool's real on-chain lanes through the version-dispatched read path without ever
+    // FAILing or hard-reverting - undeclared on-chain lanes are WARNs, and external state this repo
+    // does not pin must never turn the doctor red. (A declared policy against external state would
+    // legitimately FAIL on drift, so this test deliberately declares none.)
     function test_Lanes_Live161Pool_NeverFailsOrReverts() public {
         assertGt(LIVE_161_POOL.code.length, 0, "live 1.6.1 fixture pool missing on Sepolia fork");
         string memory name = "zz-scratch-lanechk-a9";
         _writeScratchChain(name, 887000901, 8_870_009_010_000_000_001);
-        _declareLane(name, "zz-scratch-lanechk-r9", _laneEntry(MANTLE_SELECTOR, CAPACITY, RATE, ""));
 
         (uint256 fails,) = new VerifyChain().checkLanesOnChainForTest(name, LIVE_161_POOL);
-        assertEq(fails, 0, "the lanes rung must never FAIL on a live externally deployed pool");
+        assertEq(fails, 0, "the lanes rung must never FAIL on a live externally deployed pool with nothing declared");
+
+        _cleanupScratchOne(name);
+    }
+
+    // The aggregate-then-verdict contract: THREE simultaneous drifts (standard outbound bucket,
+    // fast-finality outbound bucket, one fee-config field) are all named in ONE run - the rung
+    // never stops at the first finding - and remediating all three in a batch returns the rung to
+    // totally clean.
+    function test_Lanes_MultiDrift_AllNamedInOneRun_ThenRemediated() public {
+        string memory name = "zz-scratch-lanechk-a10";
+        _writeScratchChain(name, 887001001, 8_870_010_010_000_000_002);
+        string memory extra = string.concat(
+            ",\"v2\":{\"fastFinality\":{\"outbound\":{\"capacity\":\"",
+            vm.toString(CAPACITY / 2),
+            "\",\"rate\":\"",
+            vm.toString(RATE / 2),
+            "\"}},\"feeConfig\":{\"destGasOverhead\":\"90000\",\"finalityTransferFeeBps\":\"10\"}}"
+        );
+        _declareLane(name, "zz-scratch-lanechk-r10", _laneEntry(REMOTE_SELECTOR, CAPACITY, RATE, extra));
+
+        // All three surfaces drifted from the declaration at once.
+        _applyLane(_enabled(CAPACITY / 2, RATE / 2), _disabled());
+        _setFastFinality(_enabled(CAPACITY / 4, RATE / 4), _disabled());
+        _applyFeeConfig(90_000, 32, 0, 0, 40, 25);
+
+        (uint256 fails, uint256 warns) = _run(name);
+        assertEq(fails, 3, "every drifted field must be named in one run (outbound + fast-finality + fee field)");
+        assertEq(warns, 0, "drift must not additionally WARN");
+
+        // Batch remediation -> clean (the lane is already applied, so the standard bucket is
+        // re-set through the rate-limit setter, not a second applyChainUpdates).
+        _setStandard(_enabled(CAPACITY, RATE), _disabled());
+        _setFastFinality(_enabled(CAPACITY / 2, RATE / 2), _disabled());
+        _applyFeeConfig(90_000, 32, 0, 0, 10, 25);
+        (fails, warns) = _run(name);
+        assertEq(fails, 0, "remediated lane must be clean");
+        assertEq(warns, 0, "remediated lane must not WARN");
 
         _cleanupScratchOne(name);
     }
 
     function _setFastFinality(RateLimiter.Config memory outbound, RateLimiter.Config memory inbound) internal {
+        _setBuckets(true, outbound, inbound);
+    }
+
+    function _setStandard(RateLimiter.Config memory outbound, RateLimiter.Config memory inbound) internal {
+        _setBuckets(false, outbound, inbound);
+    }
+
+    function _setBuckets(bool fastFinality, RateLimiter.Config memory outbound, RateLimiter.Config memory inbound)
+        internal
+    {
         TokenPool.RateLimitConfigArgs[] memory args = new TokenPool.RateLimitConfigArgs[](1);
         args[0] = TokenPool.RateLimitConfigArgs({
             remoteChainSelector: REMOTE_SELECTOR,
-            fastFinality: true,
+            fastFinality: fastFinality,
             outboundRateLimiterConfig: outbound,
             inboundRateLimiterConfig: inbound
         });
@@ -475,8 +545,8 @@ contract MockV2OnlyFuturePool {
 }
 
 /// @notice Offline (no fork) lanes-rung tests against v1-shaped pool mocks: the version-dispatched
-/// read path for a 1.5.0 pool, the v2-block-on-a-pre-2.0.0-pool WARN, and the reads-degrade path
-/// for an unrecognized version. No RPC involved - the hook injects the mock as the pool.
+/// read path for a 1.5.0 pool, the v2-block-on-a-cataloged-1.x-pool FAIL, and the reads-degrade
+/// path for an unrecognized version. No RPC involved - the hook injects the mock as the pool.
 contract VerifyChainLaneReconcileMockTest is LaneReconcileScratch {
     uint64 internal constant SEL = 8_870_010_000_000_000_001;
     uint128 internal constant CAPACITY = 1000e18;
@@ -491,12 +561,13 @@ contract VerifyChainLaneReconcileMockTest is LaneReconcileScratch {
     /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
     /// run leaves no residue.
     function _clean() private {
-        string[] memory names = new string[](5);
+        string[] memory names = new string[](6);
         names[0] = "zz-scratch-lanechk-m1";
         names[1] = "zz-scratch-lanechk-m2";
         names[2] = "zz-scratch-lanechk-m3";
         names[3] = "zz-scratch-lanechk-m4";
         names[4] = "zz-scratch-lanechk-m5";
+        names[5] = "zz-scratch-lanechk-m6";
         _cleanupScratch(names);
     }
 
@@ -532,9 +603,10 @@ contract VerifyChainLaneReconcileMockTest is LaneReconcileScratch {
         _cleanupScratchOne(name);
     }
 
-    // A declared v2{} block against a 1.5.0 pool is a version-mismatch WARN, not a read attempt
-    // (the v1 pool has no fast-finality/fee surface to read).
-    function test_Lanes_Warn_V2BlockOnPreV2Pool() public {
+    // A declared v2{} block against a CATALOGED 1.5.0 pool is a version-gate FAIL by name, not a
+    // read attempt (the v1 pool has no fast-finality/fee/ccv surface, and the declaration can never
+    // converge on this pool - fix the declaration or migrate the pool).
+    function test_Lanes_Fail_V2BlockOnCataloged1xPool() public {
         string memory name = "zz-scratch-lanechk-m2";
         _writeScratchChain(name, 887001201, 8_870_012_010_000_000_001);
         string memory v2Block =
@@ -545,8 +617,8 @@ contract VerifyChainLaneReconcileMockTest is LaneReconcileScratch {
         mockPool.applyLane(_bucket(true, CAPACITY, RATE), _bucket(true, CAPACITY, RATE));
 
         (uint256 fails, uint256 warns) = new VerifyChain().checkLanesOnChainForTest(name, address(mockPool));
-        assertEq(fails, 0, "a v2 block on a pre-2.0.0 pool must never FAIL");
-        assertEq(warns, 1, "a v2 block on a pre-2.0.0 pool must emit exactly one WARN");
+        assertEq(fails, 1, "a v2 block on a cataloged 1.x pool must FAIL the version gate by name");
+        assertEq(warns, 0, "the version-gate FAIL must not additionally WARN");
 
         _cleanupScratchOne(name);
     }
@@ -571,9 +643,9 @@ contract VerifyChainLaneReconcileMockTest is LaneReconcileScratch {
     // The other half of the UNKNOWN reads-degrade ladder: an uncataloged typeAndVersion over a pool
     // that answers ONLY the v2 getter `getCurrentRateLimiterState(uint64,bool)` (no v1 getters).
     // The read must succeed through the v2-FIRST attempt - matching declared policy reconciles to
-    // exactly the unknown-version WARN, and a live drift on the same pool is still detected, which
-    // proves the values flowed from the mock's v2 getter (a failed read would WARN "does not
-    // answer" instead).
+    // exactly the unknown-version WARN, and a live drift on the same pool is still a FAIL: only the
+    // version GATES carve out UNKNOWN; a successfully read value that contradicts the declaration
+    // is proven drift regardless of catalog status (a failed read would WARN "does not answer").
     function test_Lanes_UnknownVersion_ReadsThroughV2GetterFirst() public {
         string memory name = "zz-scratch-lanechk-m4";
         _writeScratchChain(name, 887001401, 8_870_014_010_000_000_001);
@@ -587,11 +659,30 @@ contract VerifyChainLaneReconcileMockTest is LaneReconcileScratch {
         assertEq(warns, 1, "exactly one WARN (the unknown-version notice): the v2-first read succeeded and matched");
 
         // Same pool, drifted live bucket: the reconcile must see the mock's NEW values through the
-        // v2 getter (unknown-version WARN + one drift WARN).
+        // v2 getter (unknown-version WARN + one drift FAIL).
         mockPool.applyLane(_bucket(true, CAPACITY + 1, RATE), _bucket(true, CAPACITY, RATE));
         (fails, warns) = new VerifyChain().checkLanesOnChainForTest(name, address(mockPool));
-        assertEq(fails, 0, "drift under an unrecognized version must stay WARN-only");
-        assertEq(warns, 2, "unknown-version WARN + outbound drift WARN: the v2 getter's values were read");
+        assertEq(fails, 1, "successfully read drift FAILs even under an unrecognized version");
+        assertEq(warns, 1, "the unknown-version notice stays a WARN: the v2 getter's values were read");
+
+        _cleanupScratchOne(name);
+    }
+
+    // A declared v2{} block against an UNCATALOGED version: the gate degrades to a WARN (no
+    // fast-finality/fee/ccv read attempted) next to the general unknown-version notice - never a
+    // FAIL. The standard bucket still reconciles best-effort (matching here, so quiet).
+    function test_Lanes_Warn_V2BlockOnUnknownVersion() public {
+        string memory name = "zz-scratch-lanechk-m6";
+        _writeScratchChain(name, 887001601, 8_870_016_010_000_000_001);
+        string memory v2Block = ",\"v2\":{\"feeConfig\":{\"destGasOverhead\":\"90000\"}}";
+        _declareLane(name, "zz-scratch-lanechk-mr6", _laneEntry(SEL, CAPACITY, RATE, v2Block));
+
+        MockV1Pool mockPool = new MockV1Pool("FancyForkPool 9.9.9", SEL);
+        mockPool.applyLane(_bucket(true, CAPACITY, RATE), _bucket(true, CAPACITY, RATE));
+
+        (uint256 fails, uint256 warns) = new VerifyChain().checkLanesOnChainForTest(name, address(mockPool));
+        assertEq(fails, 0, "a v2 block on an uncataloged version must never FAIL");
+        assertEq(warns, 2, "the unknown-version notice plus the v2 gate WARN");
 
         _cleanupScratchOne(name);
     }
