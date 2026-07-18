@@ -117,7 +117,11 @@ library ChainConfig {
     /// includes an absent key (it reads as `"api"`). A present-but-unrecognized value is NOT known: the
     /// sync must refuse it rather than fall back to `"api"` and overwrite a plane the operator marked.
     function isKnownConfigSource(string memory json) internal view returns (bool) {
-        bytes32 h = keccak256(bytes(configSource(json)));
+        string memory source = configSource(json);
+        bytes32 h;
+        assembly {
+            h := keccak256(add(source, 0x20), mload(source))
+        }
         return h == keccak256(bytes("api")) || h == keccak256(bytes("manual"));
     }
 
