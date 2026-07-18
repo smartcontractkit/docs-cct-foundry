@@ -7,6 +7,7 @@ import {
     RegistryModuleOwnerCustom
 } from "@chainlink/contracts-ccip/contracts/tokenAdminRegistry/RegistryModuleOwnerCustom.sol";
 import {CrossChainToken} from "@chainlink/contracts-ccip/contracts/tokens/CrossChainToken.sol";
+import {AccessControlOnlyToken} from "../fixtures/ClaimPathMocks.sol";
 import {RateLimiter} from "@chainlink/contracts-ccip/contracts/libraries/RateLimiter.sol";
 import {BaseForkTest} from "../BaseForkTest.t.sol";
 import {DeploySafe} from "../../script/governance/DeploySafe.s.sol";
@@ -247,6 +248,14 @@ contract SafeModeForkTest is BaseForkTest {
             "registration-pair-via-getccipadmin",
             CctActions.registerAndAcceptAdminViaGetCCIPAdmin(address(registryModule), address(registry), token)
         );
+        _assertBatchRoundTrip(
+            "register-admin-via-access-control",
+            CctActions.registerAccessControlDefaultAdmin(address(registryModule), token)
+        );
+        _assertBatchRoundTrip(
+            "registration-pair-via-access-control",
+            CctActions.registerAndAcceptAdminViaAccessControl(address(registryModule), address(registry), token)
+        );
         _assertBatchRoundTrip("set-pool", CctActions.setPool(address(registry), token, pool));
         _assertBatchRoundTrip(
             "transfer-admin-role", CctActions.transferAdminRole(address(registry), token, address(safe))
@@ -401,6 +410,25 @@ contract SafeModeForkTest is BaseForkTest {
 
         assertEq(registry.getTokenConfig(token).administrator, address(safe), "Safe must be the administrator");
         assertEq(registry.getTokenConfig(token).pendingAdministrator, address(0), "pending must be cleared");
+    }
+
+    /// @dev The AccessControl registration pair executes atomically as ONE Safe MultiSend batch for a pure
+    ///      OZ AccessControl token. With the Safe holding DEFAULT_ADMIN_ROLE, the claim registers the Safe
+    ///      as pending administrator, so the accept in the SAME batch succeeds. This is the same governance
+    ///      handoff the getCCIPAdmin path proves above, over the third (AccessControl) claim path.
+    function test_ModeB_RegistrationPair_AccessControl_AtomicBatch() public {
+        AccessControlOnlyToken acToken = new AccessControlOnlyToken(address(safe));
+
+        CctActions.Call[] memory pair = CctActions.registerAndAcceptAdminViaAccessControl(
+            address(registryModule), address(registry), address(acToken)
+        );
+        assertEq(pair.length, 2, "AccessControl registration pair must be two calls");
+        _runSafeDirect("modeb-registration-pair-access-control", pair);
+
+        assertEq(
+            registry.getTokenConfig(address(acToken)).administrator, address(safe), "Safe must be the administrator"
+        );
+        assertEq(registry.getTokenConfig(address(acToken)).pendingAdministrator, address(0), "pending must be cleared");
     }
 
     /// @dev PR #9 liquidity-under-Safe: `ProvideLiquidity.s.sol` emits `approve` + `provideLiquidity` as ONE

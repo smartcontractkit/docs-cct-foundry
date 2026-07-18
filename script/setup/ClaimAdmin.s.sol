@@ -3,9 +3,8 @@ pragma solidity 0.8.24;
 
 import {console} from "forge-std/Script.sol";
 import {HelperConfig} from "../HelperConfig.s.sol"; // Network configuration helper
-import {IGetCCIPAdmin} from "@chainlink/contracts-ccip/contracts/interfaces/IGetCCIPAdmin.sol";
-import {IOwner} from "@chainlink/contracts-ccip/contracts/interfaces/IOwner.sol";
 import {CctActions} from "../../src/actions/CctActions.sol";
+import {ClaimPathDetector} from "./ClaimPathDetector.sol";
 import {EoaExecutor} from "../../src/base/EoaExecutor.s.sol";
 
 contract ClaimAdmin is EoaExecutor {
@@ -41,45 +40,41 @@ contract ClaimAdmin is EoaExecutor {
         address registryModuleOwnerCustom = config.registryModuleOwnerCustom;
         require(registryModuleOwnerCustom != address(0), "RegistryModuleOwnerCustom not configured for this network");
 
-        // Try to detect which admin function the token supports
-        address currentAdmin;
-        bool useCCIPAdmin = false;
-
-        // Try getCCIPAdmin() first
-        try IGetCCIPAdmin(tokenAddress).getCCIPAdmin() returns (address admin) {
-            currentAdmin = admin;
-            useCCIPAdmin = true;
-        } catch {
-            // If getCCIPAdmin() fails, try owner()
-            try IOwner(tokenAddress).owner() returns (address admin) {
-                currentAdmin = admin;
-                useCCIPAdmin = false;
-            } catch {
-                revert("Token must implement either getCCIPAdmin() or owner()");
-            }
-        }
+        // Detect which self-registration path the token supports (getCCIPAdmin() preferred, then
+        // owner(), then OZ AccessControl DEFAULT_ADMIN_ROLE).
+        (ClaimPathDetector.ClaimPath claimPath, address reportedAdmin) = ClaimPathDetector.detect(tokenAddress);
 
         // The account that must execute the claim: the Safe in safe mode, the broadcaster otherwise.
         address ccipAdminAddress = vm.envOr("CCIP_ADMIN_ADDRESS", executingAccount());
+
+        // The getCCIPAdmin()/owner() paths report a single current admin; the AccessControl path has no
+        // single-admin getter, so the expected role holder stands in for the log line.
+        address currentAdmin =
+            claimPath == ClaimPathDetector.ClaimPath.AccessControlDefaultAdmin ? ccipAdminAddress : reportedAdmin;
 
         console.log("Claim Admin Parameters:");
         console.log(string.concat("  Token:                        ", vm.toString(tokenAddress)));
         console.log(string.concat("  Current Admin:                ", vm.toString(currentAdmin)));
         console.log(string.concat("  Expected Admin:               ", vm.toString(ccipAdminAddress)));
         console.log(string.concat("  Registry Module:              ", vm.toString(registryModuleOwnerCustom)));
-        console.log(string.concat("  Admin Method:                 ", useCCIPAdmin ? "getCCIPAdmin()" : "owner()"));
+        console.log(string.concat("  Admin Method:                 ", ClaimPathDetector.methodLabel(claimPath)));
         console.log("");
 
-        require(currentAdmin == ccipAdminAddress, "Admin of token doesn't match the expected admin address");
+        ClaimPathDetector.requireExpectedAdmin(claimPath, tokenAddress, reportedAdmin, ccipAdminAddress);
 
         // Build the claim through the shared action layer and broadcast it as an EOA.
         CctActions.Call[] memory calls;
-        if (useCCIPAdmin) {
+        if (claimPath == ClaimPathDetector.ClaimPath.GetCCIPAdmin) {
             console.log(string.concat("\n[Step 1] Claiming admin for token via getCCIPAdmin() on ", chainName));
             calls = CctActions.registerAdminViaGetCCIPAdmin(registryModuleOwnerCustom, tokenAddress);
-        } else {
+        } else if (claimPath == ClaimPathDetector.ClaimPath.Owner) {
             console.log(string.concat("\n[Step 1] Claiming admin for token via owner() on ", chainName));
             calls = CctActions.registerAdminViaOwner(registryModuleOwnerCustom, tokenAddress);
+        } else {
+            console.log(
+                string.concat("\n[Step 1] Claiming admin for token via AccessControl DEFAULT_ADMIN_ROLE on ", chainName)
+            );
+            calls = CctActions.registerAccessControlDefaultAdmin(registryModuleOwnerCustom, tokenAddress);
         }
         executeCalls(calls);
         console.log(unicode"✅ Admin claimed successfully!");

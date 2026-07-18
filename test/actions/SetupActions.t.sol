@@ -14,6 +14,7 @@ import {
     IAccessControlDefaultAdminRules
 } from "@openzeppelin/contracts@5.3.0/access/extensions/IAccessControlDefaultAdminRules.sol";
 import {CctActions} from "../../src/actions/CctActions.sol";
+import {AccessControlOnlyToken} from "../fixtures/ClaimPathMocks.sol";
 import {ClaimAdmin} from "../../script/setup/ClaimAdmin.s.sol";
 import {AcceptAdminRole} from "../../script/setup/AcceptAdminRole.s.sol";
 import {SetPool} from "../../script/setup/SetPool.s.sol";
@@ -99,6 +100,19 @@ contract SetupActionsForkTest is BaseForkTest {
         assertEq(updates[0].remoteTokenAddress, SVM_REMOTE_TOKEN_BYTES, "SVM token bytes altered");
     }
 
+    function test_CctActions_RegisterAccessControlDefaultAdmin_CalldataParity() public view {
+        CctActions.Call[] memory calls = CctActions.registerAccessControlDefaultAdmin(address(registryModule), token);
+
+        assertEq(calls.length, 1, "registerAccessControlDefaultAdmin must be a single call");
+        assertEq(calls[0].target, address(registryModule), "target must be the registry module");
+        assertEq(calls[0].value, 0, "value must be zero");
+        assertEq(
+            calls[0].data,
+            abi.encodeCall(RegistryModuleOwnerCustom.registerAccessControlDefaultAdmin, (token)),
+            "AccessControl claim calldata mismatch vs hand-encoded expectation"
+        );
+    }
+
     function test_CctActions_SetPool_CalldataParity() public view {
         CctActions.Call[] memory calls = CctActions.setPool(address(registry), token, pool);
 
@@ -162,6 +176,32 @@ contract SetupActionsForkTest is BaseForkTest {
         }
         assertEq(registry.getTokenConfig(token).administrator, deployer, "one-batch registration must complete");
         assertEq(registry.getTokenConfig(token).pendingAdministrator, address(0), "pending must be cleared");
+    }
+
+    /// @dev A pure OZ AccessControl token, exposing only DEFAULT_ADMIN_ROLE and neither getCCIPAdmin() nor
+    ///      owner(), registers through the real RegistryModuleOwnerCustom + TokenAdminRegistry via the
+    ///      AccessControl claim path. Driven through _exec against the live fork's registry, with no
+    ///      global TOKEN env mutation. The claim scripts' end-to-end AccessControl run() glue is proven on
+    ///      a public testnet; here the action-layer pair is proven against the real on-chain registry.
+    function test_RegisterViaAccessControl_ForkStateParity() public {
+        AccessControlOnlyToken acToken = new AccessControlOnlyToken(deployer);
+
+        CctActions.Call[] memory calls = CctActions.registerAndAcceptAdminViaAccessControl(
+            address(registryModule), address(registry), address(acToken)
+        );
+        assertEq(calls.length, 2, "AccessControl registration pair must be two calls");
+        _exec(deployer, calls);
+
+        assertEq(
+            registry.getTokenConfig(address(acToken)).administrator,
+            deployer,
+            "AccessControl-only token must register the DEFAULT_ADMIN_ROLE holder as administrator"
+        );
+        assertEq(
+            registry.getTokenConfig(address(acToken)).pendingAdministrator,
+            address(0),
+            "pending must be cleared after the atomic pair"
+        );
     }
 
     /// @dev SetPool: a direct `registry.setPool(token, pool)` and the SetPool script land the same

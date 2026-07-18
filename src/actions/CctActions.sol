@@ -110,6 +110,18 @@ library CctActions {
         return _one(registryModule, abi.encodeCall(RegistryModuleOwnerCustom.registerAdminViaGetCCIPAdmin, (token)));
     }
 
+    /// @notice Claim the CCIP token admin via `RegistryModuleOwnerCustom.registerAccessControlDefaultAdmin`.
+    ///         The executing account must hold the token's OZ AccessControl `DEFAULT_ADMIN_ROLE` (the
+    ///         claim path for a token that exposes neither `getCCIPAdmin()` nor `owner()`).
+    function registerAccessControlDefaultAdmin(address registryModule, address token)
+        internal
+        pure
+        returns (Call[] memory)
+    {
+        return
+            _one(registryModule, abi.encodeCall(RegistryModuleOwnerCustom.registerAccessControlDefaultAdmin, (token)));
+    }
+
     /// @notice Accept the pending CCIP token admin role on the TokenAdminRegistry (step 2 of the claim).
     ///         The executing account must be the pending administrator.
     function acceptAdminRole(address tokenAdminRegistry, address token) internal pure returns (Call[] memory) {
@@ -136,6 +148,17 @@ library CctActions {
         returns (Call[] memory)
     {
         return concat(registerAdminViaGetCCIPAdmin(registryModule, token), acceptAdminRole(tokenAdminRegistry, token));
+    }
+
+    /// @notice Claim (via `registerAccessControlDefaultAdmin`) and accept the CCIP token admin as ONE atomic
+    ///         batch. Same pending-administrator reasoning as `registerAndAcceptAdminViaOwner`.
+    function registerAndAcceptAdminViaAccessControl(address registryModule, address tokenAdminRegistry, address token)
+        internal
+        pure
+        returns (Call[] memory)
+    {
+        return
+            concat(registerAccessControlDefaultAdmin(registryModule, token), acceptAdminRole(tokenAdminRegistry, token));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
