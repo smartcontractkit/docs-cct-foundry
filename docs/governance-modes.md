@@ -58,6 +58,11 @@ math, the `execTransaction` ABI, and MultiSend batching all hold against a Safe 
 canonical v1.5.0 stack, so adopting v1.5.0 later is a constants change in `SafeCanonical`, not a
 redesign.
 
+**After the roles handoff** ([roles.md → the ceremony](roles.md#the-eoa--safe-handoff-ceremony)) the
+Safe holds every privileged role, so every owner- or admin-gated command from that point on runs with
+`MODE=safe SAFE_ADDRESS=<safe>` — an EOA-mode run fails its authority preflight, by design. Read-only
+commands (`roles-check`, `doctor`, getters) are unaffected.
+
 ## Safe mode environment variables
 
 Read only when `MODE=safe`:

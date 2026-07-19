@@ -49,8 +49,15 @@ contract RolesAuditor {
     }
 
     /// @notice Audit against an EXPLICIT config JSON (lets tests reconcile a mutated declared state
-    /// without touching the real files). The active fork must be the chain itself.
+    /// without touching the real files). The active fork must be the chain itself. A non-empty `DENY`
+    /// env additionally runs the residual-holder sweep (`_denySweep`).
     function auditJson(string memory name, string memory json) external returns (Result memory) {
+        return this.auditJsonDeny(name, json, VM.envOr("DENY", address(0)));
+    }
+
+    /// @notice `auditJson` with an EXPLICIT denied address (the test seam: the `DENY` env is
+    /// process-wide, so parallel suites drive the sweep through this instead of `vm.setEnv`).
+    function auditJsonDeny(string memory name, string memory json, address deny) external returns (Result memory) {
         delete r;
         require(VM.keyExistsJson(json, ".roles"), string.concat("no roles{} declared for ", name));
 
@@ -68,6 +75,7 @@ contract RolesAuditor {
         _auditHooks(json);
         _auditRebalancer(json, pool);
         _auditGovernance(json);
+        if (deny != address(0)) _denySweep(json, deny);
 
         console.log(
             string.concat(
@@ -411,8 +419,6 @@ contract RolesAuditor {
         topics[1] = role;
         topics[0] = keccak256("RoleGranted(bytes32,address,address)");
         Vm.EthGetLogs[] memory granted = VM.eth_getLogs(fromBlock, block.number, token, topics);
-        topics[0] = keccak256("RoleRevoked(bytes32,address,address)");
-        Vm.EthGetLogs[] memory revoked = VM.eth_getLogs(fromBlock, block.number, token, topics);
         // A holder is live iff it was granted and holds the role now (a revoke, or a later re-grant, is
         // reconciled by the final hasRole check - cheaper and exact than replaying grant/revoke order).
         address[] memory candidates = new address[](granted.length);
@@ -423,8 +429,6 @@ contract RolesAuditor {
                 candidates[n++] = who;
             }
         }
-        // silence unused-variable lint: revoked is implicitly handled by the hasRole recheck above
-        revoked;
         assembly {
             mstore(candidates, n)
         }
@@ -482,6 +486,7 @@ contract RolesAuditor {
         } else {
             _skip("pool.owner", "not declared");
         }
+        _auditPendingOwner("pool", pool);
         if (VM.keyExistsJson(json, ".roles.pool.rateLimitAdmin")) {
             _checkAddress(
                 "pool.rateLimitAdmin", VM.parseJsonAddress(json, ".roles.pool.rateLimitAdmin"), rateLimitAdmin
@@ -511,11 +516,33 @@ contract RolesAuditor {
         }
     }
 
+    /// @dev Chainlink `Ownable2Step`/`ConfirmedOwner` keep `s_pendingOwner` private with no getter;
+    /// `RolesProbes.tryPendingOwner` reads it from storage, self-checked against the live `owner()`
+    /// (see its natspec). A non-zero pending is a WARN — an ownership transfer is in flight and the
+    /// declared owner can change the moment it is accepted. An unreadable layout is a visible SKIP,
+    /// never a silent gap. `pendingOwner` is live-read only; it is not a `roles{}` field.
+    function _auditPendingOwner(string memory label, address target) private {
+        (bool ok, address pending) = RolesProbes.tryPendingOwner(target);
+        string memory field = string.concat(label, ".pendingOwner");
+        if (!ok) {
+            _skip(field, "not readable (no typeAndVersion or unknown storage layout)");
+            return;
+        }
+        if (pending == address(0)) {
+            _pass(field, "none (no ownership transfer in flight)");
+        } else {
+            _warn(
+                field,
+                string.concat(VM.toString(pending), " - an ownership transfer is IN FLIGHT (accept or cancel it)")
+            );
+        }
+    }
+
     // ---------------------------------------------------------------- lockbox / hooks / rebalancer
 
     function _auditLockbox(string memory json, address pool) private {
         if (!VM.keyExistsJson(json, ".roles.lockbox")) {
-            _skip("lockbox", "no lockbox block declared (burnmint chain)");
+            _skip("lockbox", "no lockbox block declared (no v2 LockRelease lockbox on this chain)");
             return;
         }
         address declared = VM.parseJsonAddress(json, ".roles.lockbox.address");
@@ -523,6 +550,7 @@ contract RolesAuditor {
         if (has) _checkAddress("lockbox.address", declared, live);
         (, address owner_) = RolesProbes.tryAddress(declared, "owner()");
         _checkAddress("lockbox.owner", VM.parseJsonAddress(json, ".roles.lockbox.owner"), owner_);
+        _auditPendingOwner("lockbox", declared);
         (, address[] memory callers) =
             RolesProbes.tryAddressArray(declared, abi.encodeWithSignature("getAllAuthorizedCallers()"));
         _checkSet(
@@ -538,6 +566,7 @@ contract RolesAuditor {
         address hooks = VM.parseJsonAddress(json, ".roles.hooks.address");
         (, address owner_) = RolesProbes.tryAddress(hooks, "owner()");
         _checkAddress("hooks.owner", VM.parseJsonAddress(json, ".roles.hooks.owner"), owner_);
+        _auditPendingOwner("hooks", hooks);
         (, bool allowlistEnabled) = RolesProbes.tryBool(hooks, "getAllowListEnabled()");
         bool declaredEnabled = VM.parseJsonBool(json, ".roles.hooks.allowlistEnabled");
         if (declaredEnabled == allowlistEnabled) {
@@ -576,6 +605,195 @@ contract RolesAuditor {
             return;
         }
         _checkAddress("rebalancer", VM.parseJsonAddress(json, ".roles.rebalancer"), live);
+    }
+
+    // ---------------------------------------------------------------- DENY sweep (residual holders)
+
+    /// @dev The post-handoff residual sweep: FAIL every privileged slot the denied address (the
+    /// retired deployer EOA) still holds. Targets are enumerated LIVE from the project store's
+    /// `addresses{}` (active pointers + the deployments ledger) — never from the declared `roles{}`
+    /// keys — so a freshly deployed, not-yet-snapshotted contract is in scope. Every check is a plain
+    /// `eth_call` (single-holder getters, `hasRole`, Ownable-set membership, enumerable
+    /// authorized-caller sets); no event scan. A declared-holders `roles-check` alone cannot prove the
+    /// EOA lost a NON-ENUMERABLE role (e.g. a residual `MINTER_ROLE`); this sweep is what proves it.
+    function _denySweep(string memory json, address deny) private {
+        address[] memory targets = _denyTargets(json);
+        if (targets.length == 0) {
+            _warn("deny", "DENY set but addresses{} enumerates no contracts - nothing swept");
+            return;
+        }
+        address tar = VM.keyExistsJson(json, ".roles.tokenAdminRegistry.registry")
+            ? VM.parseJsonAddress(json, ".roles.tokenAdminRegistry.registry")
+            : address(0);
+        for (uint256 i = 0; i < targets.length; i++) {
+            _denySweepTarget(targets[i], deny, tar);
+        }
+    }
+
+    /// @dev Every distinct address under `addresses.active` and `addresses.deployments`, plus the
+    /// declared `roles{}` token/pool anchors (a hand-declared contract absent from `addresses{}` is
+    /// still in sweep scope). Values that do not parse as addresses (defensive: the sweep runs on
+    /// EVM chains only) are skipped.
+    function _denyTargets(string memory json) private view returns (address[] memory out) {
+        out = new address[](0);
+        out = _denyUnion(json, ".addresses.active", out);
+        out = _denyUnion(json, ".addresses.deployments", out);
+        out = _denyAnchor(json, ".roles.token.address", out);
+        out = _denyAnchor(json, ".roles.pool.address", out);
+        out = _denyAnchor(json, ".roles.lockbox.address", out);
+        out = _denyAnchor(json, ".roles.hooks.address", out);
+    }
+
+    function _denyAnchor(string memory json, string memory path, address[] memory acc)
+        private
+        view
+        returns (address[] memory)
+    {
+        if (!VM.keyExistsJson(json, path)) return acc;
+        address a = VM.parseJsonAddress(json, path);
+        if (a == address(0) || RolesProbes.contains(acc, a)) return acc;
+        address[] memory grown = new address[](acc.length + 1);
+        for (uint256 i = 0; i < acc.length; i++) {
+            grown[i] = acc[i];
+        }
+        grown[acc.length] = a;
+        return grown;
+    }
+
+    function _denyUnion(string memory json, string memory path, address[] memory acc)
+        private
+        view
+        returns (address[] memory)
+    {
+        if (!VM.keyExistsJson(json, path)) return acc;
+        string[] memory keys = VM.parseJsonKeys(json, path);
+        address[] memory grown = new address[](acc.length + keys.length);
+        uint256 n = 0;
+        for (uint256 i = 0; i < acc.length; i++) {
+            grown[n++] = acc[i];
+        }
+        for (uint256 i = 0; i < keys.length; i++) {
+            try this.parseAddressAt(json, string.concat(path, ".", keys[i])) returns (address a) {
+                if (a != address(0) && !RolesProbes.contains(_shrink(grown, n), a)) grown[n++] = a;
+            } catch {} // solhint-disable-line no-empty-blocks
+        }
+        assembly {
+            mstore(grown, n)
+        }
+        return grown;
+    }
+
+    /// @notice External for try/catch: parse a single address at `path`.
+    function parseAddressAt(string memory json, string memory path) external pure returns (address) {
+        return VM.parseJsonAddress(json, path);
+    }
+
+    /// @dev One target's full slot sweep. Tolerant probes: a slot the contract does not expose is
+    /// silently absent (the probe fails), so the same sweep covers tokens, pools, lockboxes and hooks.
+    function _denySweepTarget(address target, address deny, address tar) private {
+        uint256 held = _denySingleSlots(target, deny);
+        held += _denyRoleSlots(target, deny);
+        held += _denySetSlots(target, deny);
+        held += _denyTarSlots(target, deny, tar);
+        if (held == 0) {
+            _pass(_denyField(target, "clean"), "no privileged slot held by the denied address");
+        }
+    }
+
+    function _denySingleSlots(address target, address deny) private returns (uint256 held) {
+        held += _denyGetter(target, "owner()", "owner", deny);
+        held += _denyGetter(target, "pendingOwner()", "pendingOwner", deny);
+        held += _denyGetter(target, "defaultAdmin()", "defaultAdmin", deny);
+        held += _denyGetter(target, "pendingDefaultAdmin()", "pendingDefaultAdmin", deny);
+        held += _denyGetter(target, "getCCIPAdmin()", "ccipAdmin", deny);
+        held += _denyGetter(target, "getRebalancer()", "rebalancer", deny);
+        // Chainlink Ownable2Step/ConfirmedOwner have no pendingOwner getter - the storage probe
+        // covers them. A denied address left (or re-inserted) as pendingOwner can acceptOwnership()
+        // at will, so a claimable pending is as much a held slot as a current one.
+        (bool okPending, address storagePending) = RolesProbes.tryPendingOwner(target);
+        if (okPending) held += _denyValue(target, "pendingOwner", storagePending, deny);
+        (,, address rateLimitAdmin, address feeAdmin) = RolesProbes.readPoolAdmins(target);
+        held += _denyValue(target, "rateLimitAdmin", rateLimitAdmin, deny);
+        held += _denyValue(target, "feeAdmin", feeAdmin, deny);
+    }
+
+    function _denyRoleSlots(address target, address deny) private returns (uint256 held) {
+        held += _denyRole(target, "DEFAULT_ADMIN_ROLE", RolesProbes.DEFAULT_ADMIN_ROLE, deny);
+        held += _denyRole(
+            target, "MINTER_ROLE", RolesProbes.roleIdOrDefault(target, "MINTER_ROLE()", RolesProbes.MINTER_ROLE), deny
+        );
+        held += _denyRole(
+            target, "BURNER_ROLE", RolesProbes.roleIdOrDefault(target, "BURNER_ROLE()", RolesProbes.BURNER_ROLE), deny
+        );
+        held += _denyRole(
+            target,
+            "BURN_MINT_ADMIN_ROLE",
+            RolesProbes.roleIdOrDefault(target, "BURN_MINT_ADMIN_ROLE()", RolesProbes.BURN_MINT_ADMIN_ROLE),
+            deny
+        );
+    }
+
+    function _denySetSlots(address target, address deny) private returns (uint256 held) {
+        held += _denyOwnableSet(target, "isMinter(address)", "minters", deny);
+        held += _denyOwnableSet(target, "isBurner(address)", "burners", deny);
+        (bool hasCallers, address[] memory callers) =
+            RolesProbes.tryAddressArray(target, abi.encodeWithSignature("getAllAuthorizedCallers()"));
+        if (hasCallers && RolesProbes.contains(callers, deny)) {
+            _fail(_denyField(target, "authorizedCallers"), "denied address is an authorized caller");
+            held++;
+        }
+    }
+
+    function _denyTarSlots(address target, address deny, address tar) private returns (uint256 held) {
+        if (tar == address(0)) return 0;
+        (bool s, bytes memory ret) = tar.staticcall(abi.encodeWithSignature("getTokenConfig(address)", target));
+        if (!s || ret.length < 96) return 0;
+        (address admin, address pending,) = abi.decode(ret, (address, address, address));
+        held += _denyValue(target, "tokenAdminRegistry.administrator", admin, deny);
+        held += _denyValue(target, "tokenAdminRegistry.pendingAdministrator", pending, deny);
+    }
+
+    function _denyField(address target, string memory slot) private pure returns (string memory) {
+        return string.concat("deny.", VM.toString(target), ".", slot);
+    }
+
+    function _denyGetter(address target, string memory sig, string memory slot, address deny)
+        private
+        returns (uint256)
+    {
+        (bool ok, address val) = RolesProbes.tryAddress(target, sig);
+        if (ok && val == deny) {
+            _fail(_denyField(target, slot), "held by the denied address");
+            return 1;
+        }
+        return 0;
+    }
+
+    function _denyValue(address target, string memory slot, address val, address deny) private returns (uint256) {
+        if (val == deny) {
+            _fail(_denyField(target, slot), "held by the denied address");
+            return 1;
+        }
+        return 0;
+    }
+
+    function _denyRole(address target, string memory slot, bytes32 role, address deny) private returns (uint256) {
+        if (RolesProbes.hasRole(target, role, deny)) {
+            _fail(_denyField(target, slot), "denied address holds the role");
+            return 1;
+        }
+        return 0;
+    }
+
+    function _denyOwnableSet(address target, string memory sig, string memory slot, address deny)
+        private
+        returns (uint256)
+    {
+        if (RolesProbes.isInOwnableSet(target, sig, deny)) {
+            _fail(_denyField(target, slot), "denied address is in the set");
+            return 1;
+        }
+        return 0;
     }
 
     // ---------------------------------------------------------------- governance (OPTIONAL, three shapes)

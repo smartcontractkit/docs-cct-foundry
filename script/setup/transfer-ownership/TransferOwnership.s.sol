@@ -6,36 +6,28 @@ import {HelperConfig} from "../../HelperConfig.s.sol";
 import {CctActions} from "../../../src/actions/CctActions.sol";
 import {EoaExecutor} from "../../../src/base/EoaExecutor.s.sol";
 import {IOwnable} from "@chainlink/contracts/src/v0.8/shared/interfaces/IOwnable.sol";
-import {
-    IAccessControlDefaultAdminRules
-} from "@openzeppelin/contracts@5.3.0/access/extensions/IAccessControlDefaultAdminRules.sol";
-import {IAccessControl} from "@openzeppelin/contracts@5.3.0/access/IAccessControl.sol";
-import {Ownable2Step} from "@openzeppelin/contracts@5.3.0/access/Ownable2Step.sol";
 
 /**
- * @notice Initiates an ownership transfer for a token, token pool, pool hooks, or lockbox.
- * @dev This is step 1 of a two-step process — the new owner must run AcceptOwnership to complete it.
- *      For tokenPool, poolHooks, and lockBox: uses Chainlink's ConfirmedOwner (Ownable2Step) pattern.
- *      For token: auto-detects the token type and calls the appropriate function:
- *        - CrossChainToken (AccessControlDefaultAdminRules): beginDefaultAdminTransfer — step 1 of 2
- *        - OZ Ownable2Step:                                  transferOwnership         — step 1 of 2
- *        - ConfirmedOwner / plain Ownable:                   transferOwnership         — step 1 of 2
- *          Note: ConfirmedOwner requires AcceptOwnership; plain Ownable transfers immediately (no accept).
- *        - BurnMintERC20 v1 (plain AccessControl, no owner()): grantRole + revokeRole — 1-step, atomic
+ * @notice Initiates a two-step ownership transfer for a generic Ownable entity (a token pool, pool
+ *         hooks, or a lockbox).
+ * @dev This is step 1 of a two-step process. The new owner must run AcceptOwnership to complete it.
+ *      tokenPool, poolHooks, and lockBox all use Chainlink's ConfirmedOwner / Ownable2Step pattern:
+ *      the transfer is initiated here and does not take effect until the new owner accepts it. The
+ *      contract at ADDRESS is treated as a generic IOwnable and its transferOwnership is called.
+ *
+ *      To move a token's top-level admin (defaultAdmin / owner / DEFAULT_ADMIN_ROLE), use
+ *      script/setup/token-roles/TransferTokenAdmin.s.sol. This script does not handle tokens.
  *
  * Required env vars:
- *   ENTITY_TYPE — one of: token, tokenPool, poolHooks, lockBox
- *   ADDRESS     — contract address of the entity
- *   NEW_OWNER   — address of the new owner/admin
+ *   ENTITY_TYPE: one of tokenPool, poolHooks, lockBox (optional; omit for a generic IOwnable)
+ *   ADDRESS:     contract address of the entity
+ *   NEW_OWNER:   address of the new owner
  *
  * Usage:
  *   ADDRESS=0xYourPool NEW_OWNER=0xNewOwner \
  *     forge script script/setup/transfer-ownership/TransferOwnership.s.sol \
  *     --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account $KEYSTORE_NAME --broadcast
  *   ENTITY_TYPE=tokenPool ADDRESS=0xYourPool NEW_OWNER=0xNewOwner \
- *     forge script script/setup/transfer-ownership/TransferOwnership.s.sol \
- *     --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account $KEYSTORE_NAME --broadcast
- *   ENTITY_TYPE=token ADDRESS=0xYourToken NEW_OWNER=0xNewOwner \
  *     forge script script/setup/transfer-ownership/TransferOwnership.s.sol \
  *     --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account $KEYSTORE_NAME --broadcast
  *   ENTITY_TYPE=poolHooks ADDRESS=0xYourHooks NEW_OWNER=0xNewOwner \
@@ -56,20 +48,19 @@ contract TransferOwnership is EoaExecutor {
 
     function _entityLabel(string memory entityType) internal pure returns (string memory) {
         if (bytes(entityType).length == 0) return "Contract";
-        if (_eq(entityType, "token")) return "Token";
+        if (_eq(entityType, "token")) {
+            revert(
+                "ENTITY_TYPE=token is not handled here; move a token's top-level admin with script/setup/token-roles/TransferTokenAdmin.s.sol"
+            );
+        }
         if (_eq(entityType, "tokenPool")) return "Token Pool";
         if (_eq(entityType, "poolHooks")) return "Pool Hooks";
         if (_eq(entityType, "lockBox")) return "LockBox";
-        revert(
-            string.concat(
-                "Invalid ENTITY_TYPE \"", entityType, "\". Valid values: token, tokenPool, poolHooks, lockBox"
-            )
-        );
+        revert(string.concat("Invalid ENTITY_TYPE \"", entityType, "\". Valid values: tokenPool, poolHooks, lockBox"));
     }
 
     function _entityActionLabel(string memory entityType) internal pure returns (string memory) {
         if (bytes(entityType).length == 0) return "contract";
-        if (_eq(entityType, "token")) return "token";
         if (_eq(entityType, "tokenPool")) return "token pool";
         if (_eq(entityType, "poolHooks")) return "pool hooks";
         return "lockbox"; // lockBox
@@ -113,11 +104,7 @@ contract TransferOwnership is EoaExecutor {
         console.log("========================================");
         console.log("");
 
-        if (_eq(entityType, "token")) {
-            _transferTokenOwnership(chainId, chainName, entityAddress, newOwner);
-        } else {
-            _transferSimpleOwnership(chainId, chainName, entityType, label, entityAddress, newOwner);
-        }
+        _transferSimpleOwnership(chainId, chainName, entityType, label, entityAddress, newOwner);
     }
 
     function _transferSimpleOwnership(
@@ -185,133 +172,6 @@ contract TransferOwnership is EoaExecutor {
                 " to complete the transfer."
             )
         );
-        console.log("");
-    }
-
-    function _transferTokenOwnership(uint256 chainId, string memory chainName, address tokenAddress, address newOwner)
-        internal
-    {
-        // Auto-detect token type by probing view functions unique to each standard.
-        // 1. CrossChainToken (AccessControlDefaultAdminRules) — has pendingDefaultAdmin()
-        // 2. OZ Ownable2Step                                  — has pendingOwner() + owner()
-        // 3. ConfirmedOwner / plain Ownable                   — has owner() but no pendingOwner()
-        // 4. Old BurnMintERC20 v1 (plain AccessControl)       — has neither
-        bool isCrossChainToken = false;
-        bool isOwnable2Step = false;
-        bool isOwnable = false;
-        try IAccessControlDefaultAdminRules(tokenAddress).pendingDefaultAdmin() returns (address, uint48) {
-            isCrossChainToken = true;
-        } catch {}
-
-        if (!isCrossChainToken) {
-            try IOwnable(tokenAddress).owner() returns (address) {
-                // Has owner() — now check for pendingOwner() to distinguish Ownable2Step from plain Ownable/ConfirmedOwner
-                try Ownable2Step(tokenAddress).pendingOwner() returns (address) {
-                    isOwnable2Step = true;
-                } catch {
-                    isOwnable = true; // ConfirmedOwner or plain Ownable
-                }
-            } catch {}
-        }
-
-        address currentOwner;
-        if (isCrossChainToken) {
-            currentOwner = IAccessControlDefaultAdminRules(tokenAddress).defaultAdmin();
-        } else if (isOwnable2Step || isOwnable) {
-            currentOwner = IOwnable(tokenAddress).owner();
-        } // else: old AccessControl — validated inside broadcast via hasRole
-
-        if (isCrossChainToken) {
-            console.log(
-                unicode"ℹ️  Detection: CrossChainToken (AccessControlDefaultAdminRules) — using beginDefaultAdminTransfer (step 1 of 2)"
-            );
-        } else if (isOwnable2Step) {
-            console.log(unicode"ℹ️  Detection: OZ Ownable2Step — using transferOwnership (step 1 of 2)");
-        } else if (isOwnable) {
-            console.log(
-                unicode"ℹ️  Detection: Ownable (owner() only, no pendingOwner()) — ConfirmedOwner or plain Ownable"
-            );
-            console.log(
-                unicode"ℹ️  transferOwnership will be called. If ConfirmedOwner: run AcceptOwnership after. If plain Ownable: transfer completes immediately."
-            );
-        } else {
-            console.log(
-                unicode"ℹ️  Detection: AccessControl (BurnMintERC20 v1) — using grantRole + revokeRole (1-step, atomic, no accept required)"
-            );
-        }
-        console.log("");
-
-        console.log("Transfer Token Ownership Parameters:");
-        console.log(string.concat("  Token:         ", vm.toString(tokenAddress)));
-        if (isCrossChainToken || isOwnable2Step || isOwnable) {
-            console.log(string.concat("  Current Owner: ", vm.toString(currentOwner)));
-        }
-        console.log(string.concat("  New Owner:     ", vm.toString(newOwner)));
-
-        address signer = broadcaster();
-        console.log(string.concat("  Signer:        ", vm.toString(signer)));
-        console.log("");
-
-        if (isCrossChainToken || isOwnable2Step || isOwnable) {
-            require(
-                currentOwner == signer,
-                string.concat(
-                    "Signer (",
-                    vm.toString(signer),
-                    ") is not the current token owner/admin (",
-                    vm.toString(currentOwner),
-                    "). Only the current owner/admin can initiate an ownership transfer."
-                )
-            );
-        }
-
-        if (isCrossChainToken) {
-            console.log(string.concat("\n[Step 1] Initiating admin transfer (CrossChainToken) on ", chainName));
-            executeCalls(CctActions.beginDefaultAdminTransfer(tokenAddress, newOwner));
-            console.log(unicode"✅ Admin transfer initiated! New owner must run AcceptOwnership.");
-        } else if (isOwnable2Step || isOwnable) {
-            console.log(string.concat("\n[Step 1] Transferring token ownership on ", chainName));
-            executeCalls(CctActions.transferOwnership(tokenAddress, newOwner));
-            if (isOwnable2Step) {
-                console.log(unicode"✅ Ownership transfer initiated! New owner must run AcceptOwnership.");
-            } else {
-                console.log(
-                    unicode"✅ Ownership transfer initiated! If ConfirmedOwner: new owner must run AcceptOwnership. If plain Ownable: transfer is already complete."
-                );
-            }
-        } else {
-            // Old BurnMintERC20 v1: plain AccessControl — grant to new admin, revoke from self, atomically
-            // (one action-layer batch: grant first, then revoke).
-            bytes32 adminRole = bytes32(0); // DEFAULT_ADMIN_ROLE is always bytes32(0)
-            require(
-                IAccessControl(tokenAddress).hasRole(adminRole, signer),
-                string.concat("Signer (", vm.toString(signer), ") does not have DEFAULT_ADMIN_ROLE on this token.")
-            );
-            console.log(string.concat("\n[Step 1] Granting DEFAULT_ADMIN_ROLE to new owner on ", chainName));
-            console.log(string.concat("[Step 2] Revoking DEFAULT_ADMIN_ROLE from current admin on ", chainName));
-            executeCalls(CctActions.handOffRole(tokenAddress, adminRole, newOwner, signer));
-            console.log(unicode"✅ Admin role transferred atomically! No accept step required.");
-        }
-
-        console.log("");
-        console.log("========================================");
-        console.log(string.concat(unicode"✅ Token Ownership Transfer Complete on ", chainName, "!"));
-        console.log("========================================");
-        console.log(string.concat("Token:       ", helperConfig.getExplorerUrl(chainId, "/address/", tokenAddress)));
-        console.log(string.concat("New Owner:   ", vm.toString(newOwner)));
-        console.log("========================================");
-        console.log("");
-        if (isCrossChainToken || isOwnable2Step || isOwnable) {
-            console.log(
-                string.concat(
-                    unicode"ℹ️  The new owner (",
-                    vm.toString(newOwner),
-                    ") must run AcceptOwnership with ENTITY_TYPE=token ADDRESS=",
-                    vm.toString(tokenAddress),
-                    " to complete the transfer (unless this token uses plain Ownable, in which case transfer is already complete)."
-                )
-            );
-        }
         console.log("");
     }
 }

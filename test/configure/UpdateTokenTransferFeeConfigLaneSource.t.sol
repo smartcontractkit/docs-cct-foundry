@@ -403,7 +403,7 @@ contract UpdateTokenTransferFeeConfigLaneSourceTest is LaneReconcileScratch {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // F2: per-field range / downcast safety (guards a silently WRONG live fee)
+    // Per-field range / downcast safety (guards a silently WRONG live fee)
     // ─────────────────────────────────────────────────────────────────────────
 
     // A uint32 field one over its width reverts by name before the downcast truncates it. The

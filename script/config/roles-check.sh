@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # roles-check.sh [chain ...] — READ-ONLY authority reconcile wrapper around RolesCheck.run(string).
 #
-# Scoped by token group: GROUP/PROJECT_GROUP selects one; unset scans the default (flat) group AND every
-# project/<group>/ subdirectory, labelling each result line with its group. With no chain args it checks
-# every EVM chain whose group project store (project/[<group>/]<name>.json) DECLARES a roles{} block
-# (chains without one are listed as SKIP — bootstrap them with `make snapshot-chain CHAIN=<name>`). Chain
-# family comes from config/chains; the declared roles{} lives in the project store. Classifies the forge
+# Scoped by token group: PROJECT_GROUP selects one (`make roles-check GROUP=<g>` maps to it); unset
+# scans the default (flat) group AND every project/<group>/ subdirectory, labelling each result line
+# with its group. With no chain args it checks every EVM chain whose group project store
+# (project/[<group>/]<name>.json) DECLARES a roles{} block (chains without one are listed as SKIP —
+# bootstrap them with `make snapshot-chain CHAIN=<name>`). With explicit chain args the run stays in
+# the selected (or default) group — re-run per group to cover siblings. Chain family comes from
+# config/chains; the declared roles{} lives in the project store. Classifies the forge
 # output into the CI-ready exit-code contract (the contract belongs to THIS SCRIPT — GNU make remaps any
 # recipe failure to exit 2, so `make roles-check` is pass/fail only; CI calls the script directly, the
 # same lesson as sync-check.sh):
@@ -13,6 +15,11 @@
 #   1  ROLES_DRIFT      at least one declared holder/config mismatches (or a real config error)
 #   2  RPC_UNAVAILABLE  an RPC was unset/unreachable for at least one chain and NOTHING drifted
 #                       (flake/missing secret, not drift — CI should warn-and-pass, never go red)
+#
+# DENY=<addr> additionally runs the residual-holder sweep (RolesAuditor): every privileged slot on every
+# contract in the project store's addresses{} is point-checked live, and any slot still held by <addr>
+# is a FAIL — proof that a retired address lost every role, including the non-enumerable ones a
+# declared-holders reconcile cannot rule out.
 set -uo pipefail
 
 cd "$(dirname "$0")/../.."
@@ -43,6 +50,17 @@ group_file() { if [ -z "$1" ]; then echo "project/$2.json"; else echo "project/$
 group_label() { if [ -z "$1" ]; then echo "default"; else echo "$1"; fi; }
 
 requested_group="${PROJECT_GROUP:-}"
+
+# An explicit DENY must be a valid address, else the per-chain forge runs would fail and be
+# misclassified as ROLES_DRIFT. `cast to-check-sum-address` validates the format (any casing is
+# accepted) and the value is re-exported in canonical EIP-55 form for the forge runs.
+if [ -n "${DENY:-}" ]; then
+    if ! deny_checksummed="$(cast to-check-sum-address "$DENY" 2> /dev/null)"; then
+        echo "roles-check: invalid DENY '$DENY' - not a valid EVM address"
+        exit 1
+    fi
+    export DENY="$deny_checksummed"
+fi
 
 # An explicit group must be a valid name AND exist, else a typo (e.g. GROUP=usdxx) would find no files,
 # skip every chain, and report a false CLEAN (exit 0) for a token whose roles were never checked.
@@ -148,6 +166,13 @@ if [ $drift -ne 0 ]; then
 elif [ $unreachable -ne 0 ]; then
     echo "roles-check: RPC_UNAVAILABLE for: ${flaked[*]} - flake/missing secret, not drift; retry with the RPC env set"
     exit 2
+fi
+# A DENY sweep that reconciled zero chains proved nothing - "the retired address holds nothing"
+# must never be claimable from a run that never checked; without DENY the empty run stays an
+# informational CLEAN (bootstrap state).
+if [ -n "${DENY:-}" ] && [ "$reconciled" -eq 0 ]; then
+    echo "roles-check: DENY set but no chain was reconciled (none declares roles{} in scope) - the sweep checked nothing"
+    exit 1
 fi
 echo "roles-check: CLEAN - ${reconciled} chain(s) actually reconciled (declared authority matches the live chain)"
 if [ "$reconciled" -eq 0 ]; then

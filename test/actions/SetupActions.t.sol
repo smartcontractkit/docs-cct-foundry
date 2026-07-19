@@ -10,9 +10,6 @@ import {
 import {IBurnMintERC20} from "@chainlink/contracts-ccip/contracts/interfaces/IBurnMintERC20.sol";
 import {IGetCCIPAdmin} from "@chainlink/contracts-ccip/contracts/interfaces/IGetCCIPAdmin.sol";
 import {RateLimiter} from "@chainlink/contracts-ccip/contracts/libraries/RateLimiter.sol";
-import {
-    IAccessControlDefaultAdminRules
-} from "@openzeppelin/contracts@5.3.0/access/extensions/IAccessControlDefaultAdminRules.sol";
 import {CctActions} from "../../src/actions/CctActions.sol";
 import {AccessControlOnlyToken} from "../fixtures/ClaimPathMocks.sol";
 import {ClaimAdmin} from "../../script/setup/ClaimAdmin.s.sol";
@@ -236,7 +233,7 @@ contract SetupActionsForkTest is BaseForkTest {
     function test_Ownership_ForkStateParity_AllScenarios() public {
         _poolOwnershipTwoStepParity();
         _acceptOwnershipPoolScript();
-        _tokenDefaultAdminParity();
+        _tokenEntityTypeRejected();
     }
 
     /// @dev Pool ownership two-step: a direct `transferOwnership` + `acceptOwnership` and the
@@ -285,44 +282,29 @@ contract SetupActionsForkTest is BaseForkTest {
         assertEq(otherPool.owner(), deployer, "the AcceptOwnership script must complete the transfer");
     }
 
-    /// @dev Token default-admin two-step (CrossChainToken, AccessControlDefaultAdminRules): inline
-    ///      baseline `beginDefaultAdminTransfer` + warp past the transfer schedule +
-    ///      `acceptDefaultAdminTransfer` vs the TransferOwnership script and the action-layer accept
-    ///      builder. The accept before the schedule reverts AccessControlEnforcedDefaultAdminDelay,
-    ///      so both paths warp identically.
-    function _tokenDefaultAdminParity() internal {
-        IAccessControlDefaultAdminRules adminRules = IAccessControlDefaultAdminRules(token);
-        uint256 snapshot = vm.snapshotState();
-
-        // Direct calls: the two-step done inline.
-        vm.prank(deployer);
-        adminRules.beginDefaultAdminTransfer(NEW_OWNER);
-        (, uint48 directSchedule) = adminRules.pendingDefaultAdmin();
-        vm.warp(uint256(directSchedule) + 1);
-        vm.prank(NEW_OWNER);
-        adminRules.acceptDefaultAdminTransfer();
-        address directAdmin = adminRules.defaultAdmin();
-        assertEq(directAdmin, NEW_OWNER, "direct calls must complete the default-admin transfer");
-
-        vm.revertToState(snapshot);
-
-        // The TransferOwnership script plus the action-layer accept builder.
+    /// @dev The transfer-ownership scripts are scoped to generic Ownable entities (tokenPool, poolHooks,
+    ///      lockBox). ENTITY_TYPE=token is refused by both scripts with a pointer to
+    ///      TransferTokenAdmin, the single home for moving a token's top-level admin.
+    function _tokenEntityTypeRejected() internal {
         vm.setEnv("ENTITY_TYPE", "token");
         vm.setEnv("ADDRESS", vm.toString(token));
         vm.setEnv("NEW_OWNER", vm.toString(NEW_OWNER));
-        new TransferOwnership().run();
 
-        (address pendingAdmin, uint48 schedule) = adminRules.pendingDefaultAdmin();
-        assertEq(pendingAdmin, NEW_OWNER, "the TransferOwnership script must set the pending default admin");
-        vm.warp(uint256(schedule) + 1);
+        TransferOwnership transferScript = new TransferOwnership();
+        vm.expectRevert(
+            bytes(
+                "ENTITY_TYPE=token is not handled here; move a token's top-level admin with script/setup/token-roles/TransferTokenAdmin.s.sol"
+            )
+        );
+        transferScript.run();
 
-        // Step 2 through the action-layer builder, executed by the pending admin.
-        CctActions.Call[] memory calls = CctActions.acceptDefaultAdminTransfer(token);
-        vm.prank(NEW_OWNER);
-        (bool success,) = calls[0].target.call{value: calls[0].value}(calls[0].data);
-        assertTrue(success, "acceptDefaultAdminTransfer call failed");
-
-        assertEq(adminRules.defaultAdmin(), directAdmin, "the script path must land the same default admin");
+        AcceptOwnership acceptScript = new AcceptOwnership();
+        vm.expectRevert(
+            bytes(
+                "ENTITY_TYPE=token is not handled here; accept a token's top-level admin with script/setup/token-roles/TransferTokenAdmin.s.sol (set ACCEPT=1)"
+            )
+        );
+        acceptScript.run();
     }
 
     /// @dev The fixture token's CCIP admin is the deployer, which is what makes the ClaimAdmin probe

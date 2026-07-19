@@ -646,24 +646,17 @@ Full details: [Configuration](#configuration) overview, the per-field [`docs/con
 
 ## Ownership Management (Optional)
 
-The following scripts are not required for the core deployment flow but are useful when handing off control to a multisig or a different EOA after initial setup. All token ownership scripts auto-detect the correct ownership pattern — no configuration needed.
+The following scripts are not required for the core deployment flow but are useful when handing off control to a multisig or a different EOA after initial setup.
 
 ### Transfer Ownership
 
-Initiates an ownership transfer for a token, token pool, pool hooks, or lockbox. Use `ENTITY_TYPE` to specify which entity to transfer, and `ADDRESS` to specify the contract address. If `ENTITY_TYPE` is omitted, the contract is treated as a generic `IOwnable` — the same path used for `tokenPool`, `poolHooks`, and `lockBox`.
+Initiates a two-step ownership transfer for a generic Ownable entity (a token pool, pool hooks, or a lockbox). Use `ENTITY_TYPE` to specify which entity to transfer, and `ADDRESS` to specify the contract address. If `ENTITY_TYPE` is omitted, the contract is treated as a generic `IOwnable`, the same path used for `tokenPool`, `poolHooks`, and `lockBox`.
 
-For token transfers, the script auto-detects the token type and calls the appropriate function:
+For `tokenPool`, `poolHooks`, and `lockBox`, the entity uses Chainlink's `ConfirmedOwner` two-step pattern, so it always requires `AcceptOwnership` to complete the transfer.
 
-| Detection                            | Token type                                 | Transfer action                             | Accept required?                                                |
-| ------------------------------------ | ------------------------------------------ | ------------------------------------------- | --------------------------------------------------------------- |
-| `pendingDefaultAdmin()` succeeds     | CrossChainToken                            | `beginDefaultAdminTransfer`                 | Yes — run `AcceptOwnership`                                     |
-| `pendingOwner()` + `owner()` succeed | OZ `Ownable2Step`                          | `transferOwnership`                         | Yes — run `AcceptOwnership`                                     |
-| `owner()` only (no `pendingOwner()`) | `ConfirmedOwner` or plain `Ownable`        | `transferOwnership`                         | Yes for `ConfirmedOwner`; plain `Ownable` transfers immediately |
-| Neither                              | `BurnMintERC20` v1 (plain `AccessControl`) | `grantRole` + `revokeRole` (atomic, 1-step) | No                                                              |
+To move a token's top-level admin (defaultAdmin / owner / DEFAULT_ADMIN_ROLE), use `script/setup/token-roles/TransferTokenAdmin.s.sol`. The transfer-ownership scripts do not handle tokens.
 
-For `tokenPool`, `poolHooks`, and `lockBox`: uses Chainlink's `ConfirmedOwner` (two-step) — always requires `AcceptOwnership`.
-
-**Step 1 — initiate (run as current owner/admin):**
+**Step 1, initiate (run as current owner):**
 
 ```bash
 # Omit ENTITY_TYPE to use the generic IOwnable path (works for any tokenPool/poolHooks/lockBox)
@@ -677,14 +670,6 @@ ADDRESS=0xYourPool NEW_OWNER=0xNewOwner \
 # Or specify ENTITY_TYPE for a named label in the output
 # Token pool
 ENTITY_TYPE=tokenPool ADDRESS=0xYourPool NEW_OWNER=0xNewOwner \
-  forge script \
-  script/setup/transfer-ownership/TransferOwnership.s.sol \
-  --rpc-url $ETHEREUM_SEPOLIA_RPC_URL \
-  --account $KEYSTORE_NAME \
-  --broadcast
-
-# Token
-ENTITY_TYPE=token ADDRESS=0xYourToken NEW_OWNER=0xNewOwner \
   forge script \
   script/setup/transfer-ownership/TransferOwnership.s.sol \
   --rpc-url $ETHEREUM_SEPOLIA_RPC_URL \
@@ -708,7 +693,7 @@ ENTITY_TYPE=lockBox ADDRESS=0xYourLockBox NEW_OWNER=0xNewOwner \
   --broadcast
 ```
 
-**Step 2 — accept (run as `NEW_OWNER`):**
+**Step 2, accept (run as `NEW_OWNER`):**
 
 ```bash
 # Omit ENTITY_TYPE to use the generic IOwnable path
@@ -722,14 +707,6 @@ ADDRESS=0xYourPool \
 # Or specify ENTITY_TYPE for a named label in the output
 # Token pool
 ENTITY_TYPE=tokenPool ADDRESS=0xYourPool \
-  forge script \
-  script/setup/transfer-ownership/AcceptOwnership.s.sol \
-  --rpc-url $ETHEREUM_SEPOLIA_RPC_URL \
-  --account $KEYSTORE_NAME \
-  --broadcast
-
-# Token
-ENTITY_TYPE=token ADDRESS=0xYourToken \
   forge script \
   script/setup/transfer-ownership/AcceptOwnership.s.sol \
   --rpc-url $ETHEREUM_SEPOLIA_RPC_URL \
@@ -753,7 +730,24 @@ ENTITY_TYPE=lockBox ADDRESS=0xYourLockBox \
   --broadcast
 ```
 
-> For `BurnMintERC20` v1, step 2 exits early — the transfer was already atomic. For plain `Ownable`, step 1 completes immediately — step 2 will revert on-chain.
+### Transfer Token Admin
+
+Moves a token's INTERNAL top-level admin (its `defaultAdmin` / `owner` / `DEFAULT_ADMIN_ROLE`) with `script/setup/token-roles/TransferTokenAdmin.s.sol`. The script auto-detects the token template and picks the correct mechanism: a native two-step transfer for crosschain (`AccessControlDefaultAdminRules`) and factory (`Ownable2Step`) tokens (initiate here, then the new admin runs the same script with `ACCEPT=1`), and a grant-only `grantRole(DEFAULT_ADMIN_ROLE, NEW_ADMIN)` for burnmint (plain `AccessControl`) tokens. For a burnmint token, the grant leaves the old holder's `DEFAULT_ADMIN_ROLE` in place; a standalone full handoff is that grant followed by `RevokeTokenRole` (`ROLE=defaultAdmin`), run by the new admin, to remove the old holder.
+
+This is distinct from the two sections around it:
+
+- **Transfer Token Admin Role** (below) moves the TokenAdminRegistry administrator, the CCIP registry authority that controls a token's pool cutover, not the token's own admin.
+- **Transfer Ownership** (above) moves the `owner` of a pool, pool hooks, or lockbox, not a token.
+
+```bash
+# Burnmint token: grant DEFAULT_ADMIN_ROLE to the new admin (grant-only)
+NEW_ADMIN=0xNewAdmin \
+  forge script \
+  script/setup/token-roles/TransferTokenAdmin.s.sol \
+  --rpc-url $ETHEREUM_SEPOLIA_RPC_URL \
+  --account $KEYSTORE_NAME \
+  --broadcast
+```
 
 ### Transfer Token Admin Role
 
@@ -1701,6 +1695,17 @@ Governance-critical single-holder slots are verified by direct getter reads (rel
 does **not** prove its mint/burn rights are safe (see the honest-coverage caveat in `docs/roles.md`).
 The `VerifyRoles` reader (`script/governance/VerifyRoles.s.sol`) prints the current holder of every
 slot for an at-a-glance audit.
+
+Once setup is validated, production deployments move every privileged role from the deployer EOA to a
+Safe through the **[handoff ceremony](docs/roles.md#the-eoa--safe-handoff-ceremony)**: the
+`script/setup/token-roles/` primitives (`GrantTokenRole`, `RevokeTokenRole`, `TransferTokenAdmin`,
+`SetCCIPAdmin`) plus the existing ownership/TAR/dynamic-config scripts, composed as EOA-serial grants
+(step A), one atomic Safe accept batch (B), and one atomic Safe revoke batch (C), gated by
+`roles-check`. Completion is proven, not asserted: the post-ceremony
+`DENY=<deployerEOA> script/config/roles-check.sh <chain>` sweep point-checks every privileged slot on
+every contract in the store against the retired EOA and must exit `0`. After the handoff, deploy with
+`ROLES_RECIPIENT=$SAFE` and run every owner-gated command in
+[`MODE=safe`](docs/governance-modes.md).
 
 ### Project store — `project/<selectorName>.json` (the default)
 

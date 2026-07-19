@@ -19,6 +19,8 @@ import {IERC20} from "@openzeppelin/contracts@5.3.0/token/ERC20/IERC20.sol";
 import {EoaExecutor} from "../../src/base/EoaExecutor.s.sol";
 import {ISafe, SafeCanonical} from "../../src/base/ISafe.sol";
 import {SafeMode} from "../../src/base/SafeMode.sol";
+import {RolesProbes} from "../../src/roles/RolesProbes.sol";
+import {ChainHandlers} from "../../script/utils/ChainHandlers.s.sol";
 
 /// @dev Test-only: the real AcceptAdminRole script pinned to safe mode via the override (the `MODE`
 ///      env var is process-wide, see ExecutorHarness). Captures the built calls instead of
@@ -358,6 +360,96 @@ contract SafeModeForkTest is BaseForkTest {
             inboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0})
         });
         _assertBatchRoundTrip("remove-chain-v150", CctActions.applyChainUpdatesV150(pool, v150Removal));
+    }
+
+    /// @dev The token-roles / handoff builders extend the same byte-equality contract: every
+    ///      builder round-trips identically, and the COMPOSED ceremony batches (the step-A grant set,
+    ///      the step-B accept set, the step-C revoke set) round-trip from one shared fixture.
+    function test_ByteEquality_TokenRolesAndHandoffCatalog() public {
+        bytes32 minterRole = RolesProbes.MINTER_ROLE;
+        _assertBatchRoundTrip("grant-role", CctActions.grantRole(token, minterRole, address(safe)));
+        _assertBatchRoundTrip("revoke-role", CctActions.revokeRole(token, minterRole, deployer));
+        _assertBatchRoundTrip(
+            "grant-then-revoke", CctActions.handOffRole(token, RolesProbes.DEFAULT_ADMIN_ROLE, address(safe), deployer)
+        );
+        _assertBatchRoundTrip(
+            "begin-default-admin-transfer", CctActions.beginDefaultAdminTransfer(token, address(safe))
+        );
+        _assertBatchRoundTrip("accept-default-admin-transfer", CctActions.acceptDefaultAdminTransfer(token));
+        _assertBatchRoundTrip("set-ccip-admin", CctActions.setCCIPAdmin(token, address(safe)));
+        _assertBatchRoundTrip("grant-mint-role", CctActions.grantMintRole(token, address(safe)));
+        _assertBatchRoundTrip("grant-burn-role", CctActions.grantBurnRole(token, address(safe)));
+        _assertBatchRoundTrip("revoke-mint-role", CctActions.revokeMintRole(token, deployer));
+        _assertBatchRoundTrip("revoke-burn-role", CctActions.revokeBurnRole(token, deployer));
+
+        // The composed ceremony batches, from one shared fixture (token/pool/registry/safe above).
+        CctActions.Call[] memory stepA = CctActions.concat(
+            CctActions.concat(
+                CctActions.beginDefaultAdminTransfer(token, address(safe)),
+                CctActions.grantRole(token, RolesProbes.BURN_MINT_ADMIN_ROLE, address(safe))
+            ),
+            CctActions.concat(
+                CctActions.concat(
+                    CctActions.setCCIPAdmin(token, address(safe)),
+                    CctActions.transferAdminRole(address(registry), token, address(safe))
+                ),
+                CctActions.concat(
+                    CctActions.transferOwnership(pool, address(safe)),
+                    CctActions.setDynamicConfig(pool, networkConfig.router, address(safe), address(safe))
+                )
+            )
+        );
+        _assertBatchRoundTrip("handoff-step-a", stepA);
+        CctActions.Call[] memory stepB = CctActions.concat(
+            CctActions.concat(
+                CctActions.acceptDefaultAdminTransfer(token), CctActions.acceptAdminRole(address(registry), token)
+            ),
+            CctActions.acceptOwnership(pool)
+        );
+        _assertBatchRoundTrip("handoff-step-b", stepB);
+        CctActions.Call[] memory stepC = CctActions.concat(
+            CctActions.concat(
+                CctActions.revokeRole(token, RolesProbes.MINTER_ROLE, deployer),
+                CctActions.revokeRole(token, RolesProbes.BURNER_ROLE, deployer)
+            ),
+            CctActions.revokeRole(token, RolesProbes.BURN_MINT_ADMIN_ROLE, deployer)
+        );
+        _assertBatchRoundTrip("handoff-step-c", stepC);
+    }
+
+    /// @dev The SVM remote parity case: an `applyChainUpdates` for a Solana remote must carry the raw
+    ///      32-byte base58-decoded pool and token addresses IDENTICALLY in the EOA `Call[]`, the Safe
+    ///      Transaction Builder JSON, and the Mode B payload. The decode goes through the same
+    ///      `ChainHandlers.prepareChainAddressData` the ApplyChainUpdates script feeds from, pinned
+    ///      against an independent base58 oracle (StringStoreNonEvm's Python-decoded constant).
+    function test_ByteEquality_SvmRemoteLane() public {
+        bytes memory svmRemote = ChainHandlers.prepareChainAddressData(
+            "ALh3xpZtujrfYZSiURBEHpeBFnzZEH37nY4BA4EHiiB5", ChainHandlers.ChainFamily.SVM
+        );
+        assertEq(svmRemote.length, 32, "SVM remote must encode to exactly 32 raw bytes");
+        assertEq(
+            keccak256(svmRemote),
+            keccak256(hex"8ac480ec4e9718c0a011b0d5c542d42e8a4628f98d836f2f2acb4e9e2ac7e4d4"),
+            "encoded bytes != independent base58 decode"
+        );
+
+        uint64 svmSelector = 16423721717087811551; // Solana devnet
+        bytes[] memory remotePools = new bytes[](1);
+        remotePools[0] = svmRemote;
+        TokenPool.ChainUpdate[] memory updates = new TokenPool.ChainUpdate[](1);
+        updates[0] = TokenPool.ChainUpdate({
+            remoteChainSelector: svmSelector,
+            remotePoolAddresses: remotePools,
+            remoteTokenAddress: svmRemote,
+            outboundRateLimiterConfig: RateLimiter.Config({isEnabled: true, capacity: 1_000e18, rate: 0.1e18}),
+            inboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0})
+        });
+        CctActions.Call[] memory calls = CctActions.applyChainUpdates(pool, new uint64[](0), updates);
+        _assertBatchRoundTrip("apply-chain-updates-svm-remote", calls);
+        // The raw 32 bytes are embedded verbatim in the calldata every mode carries.
+        assertTrue(
+            vm.contains(vm.toString(calls[0].data), vm.replace(vm.toString(svmRemote), "0x", "")), "raw bytes embedded"
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────────────

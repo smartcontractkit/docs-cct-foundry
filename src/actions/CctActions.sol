@@ -68,6 +68,24 @@ interface ILockReleaseV1Liquidity {
     function getToken() external view returns (IERC20);
 }
 
+/// @notice Minimal view of the CCIP-admin setter (`setCCIPAdmin`). Present on `CrossChainToken`
+///         (DEFAULT_ADMIN_ROLE-gated) and the `BurnMintERC20` family (admin/owner-gated); no vendored
+///         interface exposes the setter (`IGetCCIPAdmin` is getter-only), so it is declared here as a
+///         shim, exactly like `ITokenPoolV150`.
+interface ISetCCIPAdmin {
+    function setCCIPAdmin(address newAdmin) external;
+}
+
+/// @notice Minimal view of the Ownable mint/burn set on factory-model tokens (`FactoryBurnMintERC20`,
+///         the wider `BurnMintERC677` family): owner-gated EnumerableSet grants — NOT OZ
+///         AccessControl `grantRole`, which those tokens do not expose for mint/burn.
+interface IOwnableMintBurn {
+    function grantMintRole(address minter) external;
+    function grantBurnRole(address burner) external;
+    function revokeMintRole(address minter) external;
+    function revokeBurnRole(address burner) external;
+}
+
 /// @title CctActions
 /// @notice The shared action layer: every CCT write operation is defined here exactly once, as a pure
 ///         builder that returns `Call[]` structs (`target`, `value`, `data`) encoded with `abi.encodeCall`
@@ -261,6 +279,36 @@ library CctActions {
         returns (Call[] memory)
     {
         return concat(grantRole(target, role, newHolder), revokeRole(target, role, oldHolder));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Token roles (CCIP admin / factory-model mint-burn set)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @notice Set the token's CCIP admin (`setCCIPAdmin`, one-step — no accept). On `CrossChainToken`
+    ///         the executing account must hold `DEFAULT_ADMIN_ROLE`; other templates apply their own gate.
+    function setCCIPAdmin(address token, address newAdmin) internal pure returns (Call[] memory) {
+        return _one(token, abi.encodeCall(ISetCCIPAdmin.setCCIPAdmin, (newAdmin)));
+    }
+
+    /// @notice Grant the mint role on a factory-model token (`grantMintRole`, onlyOwner Ownable set).
+    function grantMintRole(address token, address minter) internal pure returns (Call[] memory) {
+        return _one(token, abi.encodeCall(IOwnableMintBurn.grantMintRole, (minter)));
+    }
+
+    /// @notice Grant the burn role on a factory-model token (`grantBurnRole`, onlyOwner Ownable set).
+    function grantBurnRole(address token, address burner) internal pure returns (Call[] memory) {
+        return _one(token, abi.encodeCall(IOwnableMintBurn.grantBurnRole, (burner)));
+    }
+
+    /// @notice Revoke the mint role on a factory-model token (`revokeMintRole`, onlyOwner Ownable set).
+    function revokeMintRole(address token, address minter) internal pure returns (Call[] memory) {
+        return _one(token, abi.encodeCall(IOwnableMintBurn.revokeMintRole, (minter)));
+    }
+
+    /// @notice Revoke the burn role on a factory-model token (`revokeBurnRole`, onlyOwner Ownable set).
+    function revokeBurnRole(address token, address burner) internal pure returns (Call[] memory) {
+        return _one(token, abi.encodeCall(IOwnableMintBurn.revokeBurnRole, (burner)));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

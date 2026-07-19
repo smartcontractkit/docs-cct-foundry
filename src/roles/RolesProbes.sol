@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
+import {Vm} from "forge-std/Vm.sol";
+
 /// @title RolesProbes
 /// @notice Capability probes for the AUTHORITY surface — every read is a tolerant `staticcall`, so the
 /// snapshot/auditor can dispatch on what a contract ACTUALLY exposes (the same philosophy as
@@ -122,6 +124,111 @@ library RolesProbes {
     function roleIdOrDefault(address token, string memory sig, bytes32 fallbackRole) internal view returns (bytes32) {
         (bool ok, bytes32 id) = tryBytes32(token, sig);
         return ok ? id : fallbackRole;
+    }
+
+    /// @notice The grantable/revocable token roles the token-role primitives dispatch on
+    /// (`ROLE=minter|burner|burnMintAdmin|defaultAdmin`). `defaultAdmin` is the grant-model
+    /// (`burnmint`) template's multi-holder DEFAULT_ADMIN_ROLE — its step-C revoke of the retired
+    /// holder needs a primitive like every other role. On `crosschain` the single-holder default
+    /// admin moves ONLY through the two-step transfer (`TransferTokenAdmin`), and on `factory` the
+    /// top-level admin is the owner — both refuse `ROLE=defaultAdmin` by name.
+    enum TokenRole {
+        Minter,
+        Burner,
+        BurnMintAdmin,
+        DefaultAdmin
+    }
+
+    /// @notice Parse a `ROLE=` name; reverts on an unknown name so a typo is a config error, never a
+    /// silent grant of the wrong role.
+    function tokenRoleFromName(string memory name) internal pure returns (TokenRole) {
+        bytes32 h;
+        assembly {
+            h := keccak256(add(name, 0x20), mload(name))
+        }
+        if (h == keccak256(bytes("minter"))) return TokenRole.Minter;
+        if (h == keccak256(bytes("burner"))) return TokenRole.Burner;
+        if (h == keccak256(bytes("burnMintAdmin"))) return TokenRole.BurnMintAdmin;
+        if (h == keccak256(bytes("defaultAdmin"))) return TokenRole.DefaultAdmin;
+        revert(string.concat("unknown ROLE '", name, "' (minter|burner|burnMintAdmin|defaultAdmin)"));
+    }
+
+    /// @notice The `ROLE=` name for a token role.
+    function tokenRoleName(TokenRole role) internal pure returns (string memory) {
+        if (role == TokenRole.Minter) return "minter";
+        if (role == TokenRole.Burner) return "burner";
+        if (role == TokenRole.BurnMintAdmin) return "burnMintAdmin";
+        return "defaultAdmin";
+    }
+
+    /// @notice Validate a (template, role) pair BEFORE any state-changing call. `BURN_MINT_ADMIN_ROLE`
+    /// exists only on `CrossChainToken`: on any other AccessControl template `roleIdOrDefault` falls
+    /// back to the standard constant, whose admin defaults to `DEFAULT_ADMIN_ROLE` in plain OZ
+    /// AccessControl — a naive `grantRole` would SUCCEED on-chain and move nothing. `defaultAdmin`
+    /// exists only on `burnmint` (grant-model): `crosschain` forbids grant/revoke of its default
+    /// admin (two-step transfer only) and `factory` has an owner instead. A BYO token's internal
+    /// roles are never movable through the primitives (the honest-coverage boundary).
+    function requireRoleOnTemplate(TokenTemplate t, TokenRole role) internal pure {
+        if (t == TokenTemplate.BYO) {
+            revert("byo token: token-internal role moves are not supported (unknown template, complete:false surface)");
+        }
+        if (role == TokenRole.BurnMintAdmin && t != TokenTemplate.CrossChainToken) {
+            revert(
+                string.concat(
+                    "ROLE=burnMintAdmin exists only on crosschain (CrossChainToken); this token probes as ",
+                    templateName(t)
+                )
+            );
+        }
+        if (role == TokenRole.DefaultAdmin && t != TokenTemplate.BurnMintERC20) {
+            revert(
+                string.concat(
+                    "ROLE=defaultAdmin exists only on burnmint (grant-model AccessControl); this token probes as ",
+                    templateName(t),
+                    t == TokenTemplate.CrossChainToken
+                        ? " - move its default admin with TransferTokenAdmin (two-step)"
+                        : " - move its owner with TransferTokenAdmin"
+                )
+            );
+        }
+    }
+
+    /// @notice The resolved role id for an AccessControl-model token role (crosschain/burnmint). The
+    /// factory template manages mint/burn through its Ownable set, not a role id — callers dispatch
+    /// on the template before reaching for this.
+    function tokenRoleId(address token, TokenRole role) internal view returns (bytes32) {
+        if (role == TokenRole.Minter) return roleIdOrDefault(token, "MINTER_ROLE()", MINTER_ROLE);
+        if (role == TokenRole.Burner) return roleIdOrDefault(token, "BURNER_ROLE()", BURNER_ROLE);
+        if (role == TokenRole.BurnMintAdmin) {
+            return roleIdOrDefault(token, "BURN_MINT_ADMIN_ROLE()", BURN_MINT_ADMIN_ROLE);
+        }
+        return DEFAULT_ADMIN_ROLE;
+    }
+
+    /// @notice The pending owner of a Chainlink `Ownable2Step`/`ConfirmedOwner` contract, read from
+    /// storage — those bases keep `s_pendingOwner` PRIVATE with no getter, but the slot pair is fixed
+    /// per compiled contract: {pendingOwner, owner} on `Ownable2Step` (pool 1.5.1+/2.0.0, lockbox,
+    /// hooks) and the mirror {owner, pendingOwner} on `ConfirmedOwner` (1.5.0). The read is
+    /// self-checked: the contract must expose `typeAndVersion()` (the known-Chainlink gate) and one
+    /// of the two slots must equal the live `owner()` getter — the OTHER slot is then the pending.
+    /// Neither matching means an unknown layout: refuse `(false, 0)` rather than return a value that
+    /// merely looks like an answer. Forge-side only (`vm.load` needs an active fork).
+    function tryPendingOwner(address target) internal view returns (bool ok, address pending) {
+        Vm vmCheat = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+        (bool hasTv, bytes memory tv) = target.staticcall(abi.encodeWithSignature("typeAndVersion()"));
+        if (!hasTv || tv.length < 64) return (false, address(0));
+        (bool hasOwner, address owner_) = tryAddress(target, "owner()");
+        if (!hasOwner) return (false, address(0));
+        bytes32 raw0 = vmCheat.load(target, bytes32(uint256(0)));
+        bytes32 raw1 = vmCheat.load(target, bytes32(uint256(1)));
+        // Both slots must be pure address words (upper 96 bits zero) - a packed or non-address slot
+        // that happens to carry the owner's bytes in its low 160 bits must refuse, not misread.
+        if (uint256(raw0) >> 160 != 0 || uint256(raw1) >> 160 != 0) return (false, address(0));
+        address slot0 = address(uint160(uint256(raw0)));
+        address slot1 = address(uint160(uint256(raw1)));
+        if (slot1 == owner_) return (true, slot0);
+        if (slot0 == owner_) return (true, slot1);
+        return (false, address(0));
     }
 
     /// @notice Tolerant `hasRole` — false when the target has no AccessControl surface.
