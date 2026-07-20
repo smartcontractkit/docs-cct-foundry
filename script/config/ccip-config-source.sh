@@ -61,10 +61,23 @@ esac
 
 # Key mapping API -> repo schema: rmn -> rmnProxy, registryModule -> registryModuleOwnerCustom,
 # link = the feeTokens entry with tokenSymbol "LINK".
+#
+# CORE vs OPTIONAL contracts. `act(k)` REQUIRES an active entry for the four contracts a token issuer
+# needs to onboard a chain: router and rmn (the Risk Management Network proxy) to deploy a pool, and
+# tokenAdminRegistry and registryModule to register the token. A chain missing any of these is not
+# onboardable, so it fails loudly rather than have a zero written for a routing or security contract.
+# `optAct(k)`/the `link` fallback emit the zero address for the rest - feeQuoter (fee quoting), the
+# CCT-era tokenPoolFactory, and a LINK fee token - which are commonly absent on live testnets; the sync
+# writes zero and the Solidity side logs a WARN (see _warnZeroedOptionalContracts) so the gap is visible.
+# Trade-off: a renamed optional API key is indistinguishable from an absent one (writes zero silently);
+# a renamed REQUIRED key still hard-fails, so a wholesale API shape change is always caught.
 jq -c '
+  def zero: "0x0000000000000000000000000000000000000000";
   .chainConfig as $c
   | def act(k): (($c[k] // []) | ((map(select(.isActive == true))[0]) // .[0])
       | (.address // error("no active \(k) entry in chainConfig")));
+    def optAct(k): (($c[k] // []) | ((map(select(.isActive == true))[0]) // .[0])
+      | (.address // zero));
   {
     apiName: (.chain.name // error("no .chain.name in API body")),
     chainId: ((.chain.chainId | tostring) // error("no .chain.chainId in API body")),
@@ -77,13 +90,12 @@ jq -c '
     rmnProxy: act("rmn"),
     tokenAdminRegistry: act("tokenAdminRegistry"),
     registryModuleOwnerCustom: act("registryModule"),
-    feeQuoter: act("feeQuoter"),
-    tokenPoolFactory: act("tokenPoolFactory"),
-    link: ((($c.feeTokens // []) | map(select(.tokenSymbol == "LINK")) | .[0].tokenAddress)
-      // error("no LINK fee token in chainConfig.feeTokens")),
+    feeQuoter: optAct("feeQuoter"),
+    tokenPoolFactory: optAct("tokenPoolFactory"),
+    link: ((($c.feeTokens // []) | map(select(.tokenSymbol == "LINK")) | .[0].tokenAddress) // zero),
     feeTokens: [ (($c.feeTokens // [])[] | .tokenAddress) ]
   }
 ' "$body_file" || {
-    err "BAD_BODY: chainConfig for selector ${SELECTOR} is missing an active entry (see jq error above) - partial or non-EVM chain? Non-EVM chains are not API-syncable"
+    err "BAD_BODY: chainConfig for selector ${SELECTOR} is missing a CORE active entry - router, rmn, tokenAdminRegistry or registryModule (see jq error above). This chain cannot be onboarded yet; 'make discover' lists valid selectors"
     exit 6
 }

@@ -155,9 +155,10 @@ its `deployments.<name>` entry.
 refused, and forge's `.env` autoload silently stops parsing the file at the first digit-leading key
 (silently dropping every later line). Pass such overrides inline via `env` instead:
 `env '0G_GALILEO_TESTNET_TOKEN_POOL=0x...' forge script ...` (its `rpcEnv` is the shell-safe
-`ZERO_G_TESTNET_RPC_URL` and belongs in `.env` as usual). The deeper fix - a shell-safe
-`chainNameIdentifier` alias for the bundled chain - is a breaking rename, out of scope here; new chains
-pick one up front via `CHAIN_NAME_IDENTIFIER=` at `add-chain` time.
+`ZERO_G_TESTNET_RPC_URL` and belongs in `.env` as usual). This is specific to the bundled
+`0g-testnet-galileo-1`, frozen before the auto-fix existed: a NEW digit-leading chain has `add-chain`
+prefix a `_` (so `_0G_TESTNET_GALILEO_1`, a valid shell identifier), and the doctor WARNs on a
+non-exportable `rpcEnv`. Override any derived name up front via `CHAIN_NAME_IDENTIFIER=` at `add-chain` time.
 
 **Env overrides are group-agnostic.** Steps 1-2 of the ladder sit **above** the group-scoped registry, so an
 exported `{CHAIN}_TOKEN` / inline `TOKEN=` wins over **every** group's `active.<role>` at once. With two

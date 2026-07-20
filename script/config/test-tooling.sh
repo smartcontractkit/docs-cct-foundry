@@ -36,6 +36,11 @@ SVM_META_SELECTOR="16423721717087811551"
 FUJI_CHAIN="avalanche-testnet-fuji"
 FUJI_FILE="config/chains/${FUJI_CHAIN}.json"
 FUJI_SELECTOR="14767482510784806043"
+# Underscore selectorName (BNB testnet): the add-chain-accepts-underscore case (7d). Real, non-bundled,
+# throwaway config removed inline + in cleanup() (same discipline as FUJI above).
+US_CHAIN="binance_smart_chain-testnet"
+US_FILE="config/chains/${US_CHAIN}.json"
+US_SELECTOR="13264668187771770619"
 # Token groups: PROJECT_GROUP moves a chain's project file to
 # project/<group>/<selectorName>.json. The env-driven group() is exercised here (a real GROUP=<g> make
 # subprocess) since the in-process forge seam cannot set PROJECT_GROUP. Two gitignored scratch group
@@ -81,13 +86,15 @@ restore_env() {
 
 cleanup() {
     restore_env
-    rm -f "$TMP_FILE" "$TMP_FILE_B" "$FUJI_FILE" "$PROJECT_FILE" "$PROJECT_FILE_B" "$SVM_FILE"
+    rm -f "$TMP_FILE" "$TMP_FILE_B" "$FUJI_FILE" "$US_FILE" "$PROJECT_FILE" "$PROJECT_FILE_B" "$SVM_FILE"
     rm -f "$CLEANX_PROJECT" "$CLEANX_CONFIG"
     rm -f "$MANUAL_FILE" "$MANUAL_PROJECT" "$XPLANE_API_FILE" "project/$XPLANE_API_CHAIN.json"
     rm -f "$TYPO_FILE" "project/$TYPO_CHAIN.json"
     rm -rf "$CLEANX_GRPDIR" "$CLEANX_HISTDIR"
     # Glob both scratch group-dir classes so a mid-test revert never strands one (invisible to git status).
     rm -rf project/zz-scratch-*/ project/zz-tt-*/ "project/$GRP_X" "project/$GRP_Y" "project/$SVM_CHAIN.json"
+    # Onboarding-guard scratch configs (section 12e): glob every zz-scratch config + project file.
+    rm -f config/chains/zz-scratch-*.json project/zz-scratch-*.json
     [ -n "$server_pid" ] && kill "$server_pid" 2> /dev/null
     [ -n "$server_dir" ] && rm -rf "$server_dir"
 }
@@ -245,6 +252,27 @@ if live_enabled; then
         echo "$out" | tail -8 | sed 's/^/       | /'
     fi
     rm -f "$FUJI_FILE"
+fi
+
+# 7d. add-chain accepts an underscore selectorName end-to-end. The CCIP API serves names like
+#     `binance_smart_chain-testnet` (which `make discover` prints verbatim), so add-chain must accept
+#     them and store `.name` byte-identical to the API selectorName (the sync join key). Throwaway,
+#     removed here and in cleanup().
+if live_enabled; then
+    rm -f "$US_FILE"
+    out="$(sync_script --sig "init(string,uint256)" "$US_CHAIN" "$US_SELECTOR" 2>&1)"
+    status=$?
+    name="$(jq -r '.name' "$US_FILE" 2> /dev/null)"
+    if [ $status -eq 0 ] && [ "$name" = "$US_CHAIN" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] add-chain accepts an underscore selectorName and stores it byte-identical"
+    else
+        fail=$((fail + 1))
+        failures+=("underscore-name add-chain")
+        echo "[FAIL] underscore-name add-chain (exit=$status, name=$name)"
+        echo "$out" | tail -6 | sed 's/^/       | /'
+    fi
+    rm -f "$US_FILE" "project/$US_CHAIN.json"
 fi
 
 # 8. API down (CCIP_API_BASE override) -> distinct API_UNREACHABLE error
@@ -462,6 +490,112 @@ if offline_enabled; then
         fail=$((fail + 1))
         failures+=("non-EVM sync churn")
         echo "[FAIL] non-EVM sync mutated config/chains/solana-devnet.json on a no-drift refresh"
+    fi
+fi
+
+# 12e. Onboarding regression guards (add-chain path): the non-EVM zeroed skeleton (a freshly
+#      add-chain'd non-EVM config passes doctor), the required-vs-optional contract split (a missing
+#      OPTIONAL contract syncs to 0x0 + a [sync] WARN; a missing CORE contract is a BAD_BODY error), and
+#      the no-orphan guarantee (a failed add-chain leaves NO partial file). Driven fully offline: scratch
+#      API bodies derived from the committed sepolia/solana fixtures are served from the same fixture
+#      server. All names are zz-scratch-* (gitignored) and removed inline + in cleanup().
+if offline_enabled; then
+    OPT_SEL="9900030000000000001"
+    OPT_CHAIN="zz-scratch-optmiss"
+    OPT_FILE="config/chains/$OPT_CHAIN.json"
+    CORE_SEL="9900030000000000002"
+    CORE_CHAIN="zz-scratch-coremiss"
+    CORE_FILE="config/chains/$CORE_CHAIN.json"
+    SVM_SEL="9900030000000000003"
+    SVMO_CHAIN="zz-scratch-svm-onboard"
+    SVMO_FILE="config/chains/$SVMO_CHAIN.json"
+    python3 -c "
+import json
+sep = json.load(open('$FIXTURE')); sol = json.load(open('$SVM_FIXTURE'))
+opt = json.loads(json.dumps(sep))
+opt['chain']['name'] = '$OPT_CHAIN'; opt['chain']['chainSelector'] = '$OPT_SEL'
+opt['chainConfig']['tokenPoolFactory'] = []          # optional contract absent -> optAct returns zero
+json.dump(opt, open('$server_dir/chains/$OPT_SEL','w'))
+core = json.loads(json.dumps(sep))
+core['chain']['name'] = '$CORE_CHAIN'; core['chain']['chainSelector'] = '$CORE_SEL'
+core['chainConfig']['router'] = []                   # core contract absent -> act() errors -> BAD_BODY
+json.dump(core, open('$server_dir/chains/$CORE_SEL','w'))
+svm = json.loads(json.dumps(sol))
+svm['chain']['name'] = '$SVMO_CHAIN'; svm['chain']['chainSelector'] = '$SVM_SEL'
+json.dump(svm, open('$server_dir/chains/$SVM_SEL','w'))
+"
+    # A freshly add-chain'd non-EVM chain gets the 8-key zeroed ccip skeleton and passes doctor.
+    rm -f "$SVMO_FILE"
+    run_case "add-chain non-EVM generates the config" zero "generated config/chains/$SVMO_CHAIN.json" -- \
+        env CCIP_API_BASE="http://127.0.0.1:$port" bash -c \
+        "FOUNDRY_PROFILE=sync forge script script/config/SyncCcipConfig.s.sol --sig 'init(string,uint256)' $SVMO_CHAIN $SVM_SEL"
+    out="$(python3 -c "
+import json
+c = json.load(open('$SVMO_FILE'))['ccip']
+addr = ['router','rmnProxy','tokenAdminRegistry','registryModuleOwnerCustom','link','feeQuoter','tokenPoolFactory']
+assert sorted(c.keys()) == sorted(addr + ['feeTokens']), ('wrong ccip keys', sorted(c.keys()))
+assert all(c[k] == '0x0000000000000000000000000000000000000000' for k in addr), ('not all zero', c)
+assert c['feeTokens'] == [], c['feeTokens']
+print('SKELETON_OK')
+" 2>&1)"
+    if grep -q SKELETON_OK <<< "$out"; then
+        pass=$((pass + 1))
+        echo "[PASS] add-chain non-EVM ccip block is the 8-key zeroed skeleton (matches solana-devnet.json)"
+    else
+        fail=$((fail + 1))
+        failures+=("non-EVM skeleton shape")
+        echo "[FAIL] non-EVM skeleton shape: $out"
+    fi
+    run_case "doctor passes the freshly add-chain'd non-EVM config (0 FAIL)" zero "check-chain $SVMO_CHAIN: 0 FAIL" -- \
+        env CCIP_API_BASE="http://127.0.0.1:$port" bash -c \
+        "FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig 'run(string)' $SVMO_CHAIN"
+    rm -f "$SVMO_FILE" "project/$SVMO_CHAIN.json"
+
+    # Optional contract absent: a missing tokenPoolFactory syncs to 0x0 AND emits the [sync] WARN.
+    rm -f "$OPT_FILE"
+    out="$(env CCIP_API_BASE="http://127.0.0.1:$port" FOUNDRY_PROFILE=sync \
+        forge script script/config/SyncCcipConfig.s.sol --sig "init(string,uint256)" "$OPT_CHAIN" "$OPT_SEL" 2>&1)"
+    tpf="$(jq -r '.ccip.tokenPoolFactory' "$OPT_FILE" 2> /dev/null)"
+    if grep -q "\[sync\] WARN $OPT_CHAIN: no active tokenPoolFactory" <<< "$out" \
+        && [ "$tpf" = "0x0000000000000000000000000000000000000000" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] optional contract: a missing tokenPoolFactory syncs to 0x0 + emits the [sync] WARN"
+    else
+        fail=$((fail + 1))
+        failures+=("optional-contract zero+warn")
+        echo "[FAIL] optional-contract zero+warn (tokenPoolFactory=$tpf)"
+        echo "$out" | tail -6 | sed 's/^/       | /'
+    fi
+    rm -f "$OPT_FILE" "project/$OPT_CHAIN.json"
+
+    # Core contract absent: a missing router is a BAD_BODY error AND leaves no partial file.
+    rm -f "$CORE_FILE"
+    run_case "core contract: a missing router is a BAD_BODY naming a CORE entry" nonzero "missing a CORE active entry" -- \
+        env CCIP_API_BASE="http://127.0.0.1:$port" bash -c \
+        "FOUNDRY_PROFILE=sync forge script script/config/SyncCcipConfig.s.sol --sig 'init(string,uint256)' $CORE_CHAIN $CORE_SEL"
+    if [ ! -f "$CORE_FILE" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] no-orphan: a core-missing add-chain failure leaves NO config file"
+    else
+        fail=$((fail + 1))
+        failures+=("orphan on core-missing")
+        echo "[FAIL] orphan check: a core-missing add-chain left an orphan $CORE_FILE"
+        rm -f "$CORE_FILE"
+    fi
+
+    # No-orphan on NOT_FOUND: an unknown selector (no fixture served) reverts before any write.
+    rm -f "config/chains/zz-scratch-notfound.json"
+    run_case "no-orphan: a NOT_FOUND selector reverts with no file" nonzero "NOT_FOUND" -- \
+        env CCIP_API_BASE="http://127.0.0.1:$port" bash -c \
+        "FOUNDRY_PROFILE=sync forge script script/config/SyncCcipConfig.s.sol --sig 'init(string,uint256)' zz-scratch-notfound 9900030000000000009"
+    if [ ! -f "config/chains/zz-scratch-notfound.json" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] no-orphan: a NOT_FOUND add-chain failure leaves NO config file"
+    else
+        fail=$((fail + 1))
+        failures+=("orphan on notfound")
+        echo "[FAIL] orphan check: a NOT_FOUND add-chain left an orphan"
+        rm -f "config/chains/zz-scratch-notfound.json"
     fi
 fi
 

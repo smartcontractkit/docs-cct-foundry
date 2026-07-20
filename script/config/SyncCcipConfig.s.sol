@@ -26,30 +26,31 @@ import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 ///     (or `bash script/config/sync-check.sh`, which owns the 0 clean / 1 drift / 2 api-down
 ///      exit-code contract across all configured chains)
 ///   - add a lane:    ... --sig "addLane(string,string,uint256,uint256)" <local> <remote> <cap> <rate>
-///     (`make add-lane` - writes ONLY the `lanes{}` policy subtree; no API fetch); with an inbound
+///     (`make add-lane` — writes ONLY the `lanes{}` policy subtree; no API fetch); with an inbound
 ///     policy block: --sig "addLane(string,string,uint256,uint256,uint256,uint256)" ... <inCap> <inRate>
 ///     (`make add-lane ... INBOUND_CAPACITY=<wei> INBOUND_RATE=<wei>`)
 ///
-/// @dev What the sync OWNS (overwrites): every API-served field. That is the `ccip{}` object - the
+/// @dev What the sync OWNS (overwrites): every API-served field. That is the `ccip{}` object — the
 /// API-syncable, directory-canonical addresses (`router`, `rmnProxy`, `tokenAdminRegistry`,
-/// `registryModuleOwnerCustom`, `link`, `feeQuoter`, `tokenPoolFactory`, `feeTokens[]`) - AND the
+/// `registryModuleOwnerCustom`, `link`, `feeQuoter`, `tokenPoolFactory`, `feeTokens[]`) — AND the
 /// API-served identity + metadata fields (`displayName`, `chainFamily`, `environment`, `explorerUrl`,
 /// `nativeCurrencySymbol`), all of which `GET /v2/chains/{selector}` serves, so none is hand-typed.
 /// What it PRESERVES (never touches): the genuinely hand-authored keys the API serves nothing for
 /// (`chainNameIdentifier`, `rpcEnv`, and the optional `verifier{}` block) and the immutable join keys
 /// (`name`/`chainSelector`/`chainId`) which are GUARD-validated, not rewritten. One writer per field.
-/// Project state (`lanes{}`, `roles{}`, deployed `addresses{}`) is NOT in this file - it lives in
+/// Project state (`lanes{}`, `roles{}`, deployed `addresses{}`) is NOT in this file — it lives in
 /// `project/<selectorName>.json`, so the sync never touches it (config/chains is pure API/chain facts).
 ///
 /// Guards (each verified by `script/config/test-tooling.sh`):
-///   - SELECTOR MISMATCH: after every fetch the API's chainId must equal the local file's chainId -
+///   - SELECTOR MISMATCH: after every fetch the API's chainId must equal the local file's chainId —
 ///     a wrong-but-valid selector can never silently write another chain's contracts.
-///   - non-EVM SKIP: non-EVM chain families (e.g. solana-devnet) skip the EVM `ccip{}` transform - an
-///     SVM file keeps its zeroed `ccip{}` block - but their chain-level identity + metadata (served
+///   - non-EVM SKIP: non-EVM chain families (e.g. solana-devnet) skip the EVM `ccip{}` transform — an
+///     SVM file keeps its zeroed `ccip{}` block — but their chain-level identity + metadata (served
 ///     for every family) ARE validated + refreshed. The guard is Solidity-side so every entrypoint
 ///     is covered.
 ///   - chain-name validation: config names become file paths and shell arguments, so `init` only
-///     accepts `[a-z0-9][a-z0-9-]*` (no path traversal, no spaces).
+///     accepts `[a-z0-9][a-z0-9_-]*` (dash + underscore, both used by canonical selectorNames like
+///     `binance_smart_chain-mainnet`; no path traversal, no spaces, no shell metacharacters).
 contract SyncCcipConfig is Script {
     string private constant META_HELPER = "script/config/ccip-chain-meta.sh";
 
@@ -92,18 +93,18 @@ contract SyncCcipConfig is Script {
     function _skipManual(string memory name, string memory json) internal view returns (bool) {
         // Fail CLOSED on an unrecognized value: an unknown configSource must NOT fall back to "api" and
         // overwrite the addresses. Refuse the sync and name the fix (the doctor's schema rung agrees).
-        if (!ChainConfig._isKnownConfigSource(json)) {
+        if (!ChainConfig.isKnownConfigSource(json)) {
             revert(
                 string.concat(
                     "[sync] ",
                     name,
                     " has an unknown configSource \"",
-                    ChainConfig._configSource(json),
+                    ChainConfig.configSource(json),
                     "\" - use \"api\" or \"manual\"; refusing to sync so the addresses are not overwritten"
                 )
             );
         }
-        if (ChainConfig._isManual(json)) {
+        if (ChainConfig.isManual(json)) {
             console.log(
                 string.concat(
                     "[sync] SKIP ",
@@ -166,7 +167,7 @@ contract SyncCcipConfig is Script {
     }
 
     /// @dev The SELECTOR MISMATCH guard: the API row fetched BY SELECTOR must describe the same
-    /// chainId the local file claims - otherwise the selector is a valid-but-WRONG one and syncing
+    /// chainId the local file claims — otherwise the selector is a valid-but-WRONG one and syncing
     /// would silently write another chain's contracts into this file. After the chainId check it
     /// also asserts the config `name` equals the canonical selectorName (`_requireSelectorName`).
     function _requireIdentity(string memory name, string memory localJson, string memory flat) internal pure {
@@ -193,10 +194,10 @@ contract SyncCcipConfig is Script {
 
     /// @dev The SELECTOR NAME guard: the config's lowercase `name` MUST equal the canonical CCIP
     /// **selectorName** the chain-selectors registry (and the REST API `name` field) assign to this
-    /// selector - the one universal key the CCIP API and
-    /// `ccip-cli` share (e.g. `ethereum-testnet-sepolia`, not the bespoke `ethereum-sepolia`).
+    /// selector — the one universal key the CCIP API, CLD, Atlas, the directory URL leaf, and
+    /// `ccip-cli` all share (e.g. `ethereum-testnet-sepolia`, not the bespoke `ethereum-sepolia`).
     /// Unlike the chainId guard this ALSO validates non-EVM chains, whose config carries a
-    /// placeholder `chainId: "0"` the chainId check can never verify - for those the selectorName is
+    /// placeholder `chainId: "0"` the chainId check can never verify — for those the selectorName is
     /// the only real identity. `apiName` is the API `.chain.name` (== the registry `name`) the
     /// fetch helpers already surface, so no extra round-trip is needed on the EVM sync path.
     function _requireSelectorName(string memory name, string memory localName, string memory apiName) internal pure {
@@ -221,7 +222,7 @@ contract SyncCcipConfig is Script {
     }
 
     // ================================================================
-    // preview / run - fetch + (optionally) write the ccip{} block
+    // preview / run — fetch + (optionally) write the ccip{} block
     // ================================================================
 
     /// @notice Fetch + log a chain's active CCIP config WITHOUT writing (dry run).
@@ -240,7 +241,7 @@ contract SyncCcipConfig is Script {
     /// @notice Sync ONE chain: overwrite its API-served fields from the API; preserve every
     /// hand-authored key. The API-sync writer now owns the `ccip{}` address block AND the API-served
     /// identity + metadata fields (`displayName`, `chainFamily`, `environment`, `explorerUrl`,
-    /// `nativeCurrencySymbol`) - all of which the CCIP REST API serves, so none of them should be
+    /// `nativeCurrencySymbol`) — all of which the CCIP REST API serves, so none of them should be
     /// hand-typed. The hand-authored keys (`chainNameIdentifier`, `rpcEnv`, the optional `verifier{}`) and
     /// the immutable join keys (`name`/`chainSelector`/`chainId`, guarded, not rewritten) are preserved
     /// untouched; project state (`lanes{}`/`roles{}`/`addresses{}`) is not in this file. Non-EVM chains
@@ -266,6 +267,7 @@ contract SyncCcipConfig is Script {
 
         string memory flat = _source().fetchActiveCcipConfig(selector);
         _requireIdentity(name, json, flat);
+        _warnZeroedOptionalContracts(name, flat);
 
         // Refresh the API-served metadata fields, then replace ONLY the `.ccip` subtree; every
         // hand-authored key is preserved untouched (the merge rule).
@@ -276,8 +278,8 @@ contract SyncCcipConfig is Script {
 
     /// @notice THE single list of API-served metadata fields the sync MAINTAINS alongside `ccip{}`
     /// (shared by the `run` write and the `check` drift-compare). Every one is served by
-    /// `GET /v2/chains/{selector}` - `displayName`/`chainFamily`/`environment` from `.chain`,
-    /// `explorerUrl`/`nativeCurrencySymbol` from `.chainMetadata` - so none is hand-authored. NOT in
+    /// `GET /v2/chains/{selector}` — `displayName`/`chainFamily`/`environment` from `.chain`,
+    /// `explorerUrl`/`nativeCurrencySymbol` from `.chainMetadata` — so none is hand-authored. NOT in
     /// this list (genuinely hand-authored, the API serves nothing for them): `chainNameIdentifier`,
     /// `rpcEnv`, the optional `verifier{}` block.
     function metadataKeys() public pure returns (string[5] memory) {
@@ -310,6 +312,42 @@ contract SyncCcipConfig is Script {
         return vm.serializeAddress(obj, "feeTokens", vm.parseJsonAddressArray(flat, ".feeTokens"));
     }
 
+    /// @dev Serialize a fully ZEROED `ccip{}` object (every address key `address(0)`, `feeTokens`
+    /// empty). This is the add-chain stub for EVERY family: a non-EVM chain keeps it as its final
+    /// block (the API serves no EVM-shaped addresses for non-EVM families, so `run` refreshes only
+    /// metadata and preserves it), and an EVM chain has it replaced wholesale by `run`'s API fetch.
+    /// It matches the committed non-EVM fixture (config/chains/solana-devnet.json) key-for-key, so the
+    /// doctor's schema rung, which requires all eight `.ccip.*` keys for every family, passes on a
+    /// freshly generated non-EVM config instead of failing on an empty `{}`.
+    function _zeroedCcipJson(string memory name) internal returns (string memory) {
+        string memory obj = string.concat("ccip-zero-", name);
+        string[7] memory keys = ccipAddressKeys();
+        for (uint256 i = 0; i < keys.length; i++) {
+            vm.serializeAddress(obj, keys[i], address(0));
+        }
+        return vm.serializeAddress(obj, "feeTokens", new address[](0));
+    }
+
+    /// @dev The optional ccip contracts (feeQuoter, tokenPoolFactory, link) are written as address(0)
+    /// when the API serves no active entry for the chain (the four required contracts hard-fail the
+    /// fetch instead). This list must match the `optAct(...)` call sites in `ccip-config-source.sh`,
+    /// which own the required-vs-optional split; if they drift the doctor's on-chain rung is the
+    /// backstop (it re-flags the same zeros). Log a WARN per zeroed contract so a token issuer sees the
+    /// gap at sync time: a
+    /// zero feeQuoter means fees cannot be quoted here, a zero tokenPoolFactory means no
+    /// factory-assisted deploy, a zero link means no LINK fee token. The doctor's on-chain rung flags
+    /// the same zeros later, keyed off the RPC.
+    function _warnZeroedOptionalContracts(string memory name, string memory flat) internal pure {
+        string[3] memory optional = ["feeQuoter", "tokenPoolFactory", "link"];
+        for (uint256 i = 0; i < optional.length; i++) {
+            if (vm.parseJsonAddress(flat, string.concat(".", optional[i])) == address(0)) {
+                console.log(
+                    string.concat("[sync] WARN ", name, ": no active ", optional[i], " on this chain (wrote 0x0)")
+                );
+            }
+        }
+    }
+
     /// @notice THE single list of API-synced `ccip{}` address fields (shared by the `run` write and
     /// the `check` drift-compare; also pinned by the fixture test).
     function ccipAddressKeys() public pure returns (string[7] memory) {
@@ -325,19 +363,21 @@ contract SyncCcipConfig is Script {
     }
 
     // ================================================================
-    // init - add-chain: generate config/chains/<name>.json FROM the API
+    // init — add-chain: generate config/chains/<name>.json FROM the API
     // ================================================================
 
-    /// @notice Generate `config/chains/<localName>.json` from the API row for `selector`, then sync
-    /// its `ccip{}` block in the same invocation. The SELECTOR is the numeric lookup key; the
-    /// supplied name MUST be the canonical CCIP selectorName the API/registry assign to that
-    /// selector (`_requireSelectorName` enforces this for every family, incl. non-EVM), so the file
-    /// basename and `.name` are always the universal selectorName (e.g. `ethereum-testnet-sepolia`).
+    /// @notice Generate `config/chains/<localName>.json` from the API row for `selector`. The whole
+    /// file (identity + metadata + the `ccip{}` address block) is built in memory and written ONCE: the
+    /// EVM ccip fetch, the one step that can fail, runs before the write, so a failure leaves no partial
+    /// file behind. The SELECTOR is the numeric lookup key; the supplied name MUST be the canonical CCIP
+    /// selectorName the API/registry assign to that selector (`_requireSelectorName` enforces this for
+    /// every family, incl. non-EVM), so the file basename and `.name` are always the universal
+    /// selectorName (e.g. `ethereum-testnet-sepolia`).
     /// @dev Refuses to overwrite an existing file (refresh an existing chain with `run` instead).
     /// `chainNameIdentifier` defaults to UPPER_SNAKE(localName) and `rpcEnv` to
     /// `<chainNameIdentifier>_RPC_URL`; override per-run with the `CHAIN_NAME_IDENTIFIER` / `RPC_ENV`
-    /// environment variables. Repo extras that the API does not carry (`explorerUrl`,
-    /// `nativeCurrencySymbol`) are written as review-me defaults.
+    /// environment variables. `explorerUrl` / `nativeCurrencySymbol` are sourced from the API's
+    /// chainMetadata.
     function init(string memory localName, uint256 selector) public {
         _requireSyncProfile();
         require(
@@ -345,7 +385,7 @@ contract SyncCcipConfig is Script {
             string.concat(
                 "[add-chain] invalid chain name '",
                 localName,
-                "' - use lowercase letters, digits and dashes only ([a-z0-9][a-z0-9-]*); the name becomes a file path"
+                "' - use lowercase letters, digits, dashes and underscores only ([a-z0-9][a-z0-9_-]*); the name becomes a file path so '/', '..', spaces and shell metacharacters are refused"
             )
         );
         string memory path = _path(localName);
@@ -373,6 +413,24 @@ contract SyncCcipConfig is Script {
         string memory rpcEnv = vm.envOr("RPC_ENV", string(""));
         if (bytes(rpcEnv).length == 0) rpcEnv = string.concat(chainNameId, "_RPC_URL");
 
+        // Fetch the ccip address block BEFORE writing anything. For an EVM chain this is the call that
+        // can fail (a chain missing a core contract, or the API being unreachable); doing it first means
+        // a failure reverts with nothing written to disk, so there is no orphan stub to wedge a retry
+        // behind the "already exists" guard and no cleanup to get right. A non-EVM chain has no
+        // EVM-shaped ccip block to fetch, so it gets the zeroed skeleton (all eight keys present, every
+        // address zero), which the doctor's schema rung requires for every family.
+        string memory ccipBlock;
+        if (isEvm) {
+            string memory flat = _source().fetchActiveCcipConfig(uint64(selector));
+            _warnZeroedOptionalContracts(localName, flat);
+            ccipBlock = _buildCcipJson(localName, flat);
+        } else {
+            ccipBlock = _zeroedCcipJson(localName);
+        }
+
+        // Build the whole file in memory, then write it ONCE. lanes{}/roles{} + deployed addresses live
+        // in project/<name>.json (seeded on the first add-lane / snapshot-chain / deploy), NOT here:
+        // config/chains is pure API/chain facts.
         string memory root = string.concat("chain-", localName);
         vm.serializeString(root, "name", localName);
         vm.serializeString(root, "displayName", vm.parseJsonString(meta, ".displayName"));
@@ -380,26 +438,19 @@ contract SyncCcipConfig is Script {
         vm.serializeString(root, "chainFamily", fam);
         vm.serializeString(root, "environment", vm.parseJsonString(meta, ".environment"));
         // chainId: API-sourced for EVM; a "0" placeholder for non-EVM (the API's non-EVM chainId is a
-        // base58/hash string, not the numeric id the repo keys addresses on - selectorName is the
+        // base58/hash string, not the numeric id the repo keys addresses on, so selectorName is the
         // portable identity there).
         vm.serializeString(root, "chainId", isEvm ? vm.parseJsonString(meta, ".chainId") : "0");
         vm.serializeString(root, "chainSelector", vm.parseJsonString(meta, ".chainSelector"));
         vm.serializeString(root, "rpcEnv", rpcEnv);
-        // explorerUrl/nativeCurrencySymbol are seeded empty here but the `run(localName)` call below
-        // sources them from the API's chainMetadata in the same invocation.
-        vm.serializeString(root, "explorerUrl", "");
-        vm.serializeString(root, "nativeCurrencySymbol", "");
-        // `vm.writeJson` cannot CREATE keys, so the stub ships an (empty) ccip object the sync fills
-        // below. lanes{}/roles{} + deployed addresses now live in project/<name>.json (seeded on the
-        // first add-lane / snapshot-chain / deploy), NOT here: config/chains is pure API/chain facts.
-        string memory stub = vm.serializeString(root, "ccip", "{}");
-        vm.writeFile(path, stub);
+        // explorerUrl/nativeCurrencySymbol come from the API's chainMetadata (served for every family).
+        vm.serializeString(root, "explorerUrl", vm.parseJsonString(meta, ".explorerUrl"));
+        vm.serializeString(root, "nativeCurrencySymbol", vm.parseJsonString(meta, ".nativeCurrencySymbol"));
+        string memory complete = vm.serializeString(root, "ccip", ccipBlock);
+        vm.writeFile(path, complete);
         console.log(
             string.concat("[add-chain] generated ", path, " from API row ", vm.parseJsonString(meta, ".apiName"))
         );
-
-        // fill .ccip in the same invocation (non-EVM chains get the SKIP log + keep the empty block).
-        run(localName);
 
         _logNextSteps(localName, chainNameId, rpcEnv, isEvm);
     }
@@ -418,32 +469,43 @@ contract SyncCcipConfig is Script {
         return string(r.stdout);
     }
 
-    /// @notice Validates a local chain short name: `[a-z0-9][a-z0-9-]*`. Names become file paths
-    /// (`config/chains/<name>.json`) and shell/script arguments, so anything else is refused.
+    /// @notice Validates a local chain short name: `[a-z0-9][a-z0-9_-]*`. Names become file paths
+    /// (`config/chains/<name>.json`) and shell/script arguments, so anything else is refused. Dash AND
+    /// underscore are both allowed because the canonical CCIP selectorName uses both (e.g.
+    /// `binance_smart_chain-mainnet`, `gnosis_chain-testnet-chiado`), and the config `name` MUST stay
+    /// byte-identical to that selectorName (the sync join key). Underscore is a portable, traversal-safe
+    /// filename character with no shell-metacharacter meaning, so it adds no attack surface: the path
+    /// separator `/`, the `..` traversal sequence, spaces, and shell metacharacters all stay rejected.
     function isValidChainName(string memory name) public pure returns (bool) {
         bytes memory b = bytes(name);
         if (b.length == 0) return false;
         for (uint256 i = 0; i < b.length; i++) {
             bytes1 ch = b[i];
             bool lowerAlnum = (ch >= "a" && ch <= "z") || (ch >= "0" && ch <= "9");
-            if (i == 0 ? !lowerAlnum : !(lowerAlnum || ch == "-")) return false;
+            if (i == 0 ? !lowerAlnum : !(lowerAlnum || ch == "-" || ch == "_")) return false;
         }
         return true;
     }
 
     /// @notice Derives the default `chainNameIdentifier` (the `{CHAIN}_*` env-var prefix) from the
-    /// selectorName: UPPER_SNAKE, e.g. "ethereum-testnet-sepolia" -> "ETHEREUM_TESTNET_SEPOLIA".
-    /// Review it - the repo usually prefers a shorter identifier (e.g. `ETHEREUM_SEPOLIA` /
-    /// `ETHEREUM_SEPOLIA_RPC_URL`, or `0G_GALILEO_TESTNET` with `ZERO_G_TESTNET_RPC_URL`); override
-    /// with `CHAIN_NAME_IDENTIFIER` / `RPC_ENV`.
+    /// selectorName: UPPER_SNAKE, e.g. "ethereum-testnet-sepolia" -> "ETHEREUM_TESTNET_SEPOLIA". A
+    /// leading digit is prefixed with `_` because a POSIX shell env-var name cannot start with a digit
+    /// (`export 0G_..._RPC_URL=` is rejected as "not a valid identifier"), so "0g-testnet-galileo-1" ->
+    /// "_0G_TESTNET_GALILEO_1" and its rpcEnv "_0G_TESTNET_GALILEO_1_RPC_URL" is settable. Review it:
+    /// the repo usually prefers a shorter identifier (e.g. `ETHEREUM_SEPOLIA` / `ETHEREUM_SEPOLIA_RPC_URL`,
+    /// or a spelled-out `ZERO_G_TESTNET` / `ZERO_G_TESTNET_RPC_URL`); override with
+    /// `CHAIN_NAME_IDENTIFIER` / `RPC_ENV`.
     function chainNameIdentifierFor(string memory localName) public pure returns (string memory) {
         bytes memory b = bytes(localName);
-        bytes memory out = new bytes(b.length);
+        bool leadingDigit = b.length > 0 && b[0] >= "0" && b[0] <= "9";
+        uint256 offset = leadingDigit ? 1 : 0;
+        bytes memory out = new bytes(b.length + offset);
+        if (leadingDigit) out[0] = "_";
         for (uint256 i = 0; i < b.length; i++) {
             bytes1 ch = b[i];
-            if (ch == "-") out[i] = "_";
-            else if (ch >= "a" && ch <= "z") out[i] = bytes1(uint8(ch) - 32);
-            else out[i] = ch;
+            if (ch == "-") out[i + offset] = "_";
+            else if (ch >= "a" && ch <= "z") out[i + offset] = bytes1(uint8(ch) - 32);
+            else out[i + offset] = ch;
         }
         return string(out);
     }
@@ -502,15 +564,15 @@ contract SyncCcipConfig is Script {
     }
 
     // ================================================================
-    // check - READ-ONLY drift detection (`bash script/config/sync-check.sh`)
+    // check — READ-ONLY drift detection (`bash script/config/sync-check.sh`)
     // ================================================================
 
-    /// @notice Compare the on-disk `ccip{}` block field-by-field against the live API - NO writes.
+    /// @notice Compare the on-disk `ccip{}` block field-by-field against the live API — NO writes.
     /// Reverts `CONFIG_DRIFT` if any field differs (greppable `DRIFT <chain> .ccip.<field>` lines
     /// first); a fetch failure reverts with the fetch script's named error (NOT_FOUND /
     /// API_UNREACHABLE), so `script/config/sync-check.sh` can classify its exit-code contract:
     /// 0 clean / 1 drift-or-config-error / 2 api-down.
-    /// @dev Field-by-field via the same `vm.parseJson*` paths `ChainConfig._load` uses - never a
+    /// @dev Field-by-field via the same `vm.parseJson*` paths `ChainConfig.load` uses — never a
     /// string-compare of serialized JSON (key reordering would false-positive). Reuses
     /// `ccipAddressKeys` so check and write cannot diverge.
     function check(string memory name) public {
@@ -641,7 +703,7 @@ contract SyncCcipConfig is Script {
     }
 
     // ================================================================
-    // addLane - `make add-lane`: append a lanes{} policy entry
+    // addLane — `make add-lane`: append a lanes{} policy entry
     // ================================================================
 
     /// @notice Append a `.lanes.<remote>` entry (remote selector + outbound rate-limit policy) to the
@@ -720,34 +782,34 @@ contract SyncCcipConfig is Script {
         // Reject an unknown configSource on either side first, so two unrecognized values cannot read
         // as a matching "api" pair and slip past the cross-plane check below.
         require(
-            ChainConfig._isKnownConfigSource(localConfig),
+            ChainConfig.isKnownConfigSource(localConfig),
             string.concat("[add-lane] ", local, " has an unknown configSource - use \"api\" or \"manual\"")
         );
         require(
-            ChainConfig._isKnownConfigSource(remoteConfig),
+            ChainConfig.isKnownConfigSource(remoteConfig),
             string.concat("[add-lane] ", remote, " has an unknown configSource - use \"api\" or \"manual\"")
         );
         // Cross-plane refusal: a lane must connect two chains on the SAME address plane. One chain
         // sourced from the API and the other hand-maintained (`configSource: "manual"`) would wire a
         // lane across two different address directories, so refuse by name stating both planes.
         require(
-            ChainConfig._isManual(localConfig) == ChainConfig._isManual(remoteConfig),
+            ChainConfig.isManual(localConfig) == ChainConfig.isManual(remoteConfig),
             string.concat(
                 "[add-lane] cross-plane lane refused: ",
                 local,
                 " (configSource=",
-                ChainConfig._configSource(localConfig),
+                ChainConfig.configSource(localConfig),
                 ") and ",
                 remote,
                 " (configSource=",
-                ChainConfig._configSource(remoteConfig),
+                ChainConfig.configSource(remoteConfig),
                 ") are on different address planes - a lane must connect two chains on the same plane"
             )
         );
 
         // Seed the project skeleton on first touch so the targeted `.lanes` write never raw-reverts.
-        ProjectStore._seedIfAbsent(local);
-        string memory projectPath = ProjectStore._path(local);
+        ProjectStore.seedIfAbsent(local);
+        string memory projectPath = ProjectStore.path(local);
         string memory projectJson = vm.readFile(projectPath);
         if (vm.keyExistsJson(projectJson, string.concat(".lanes.", remote))) {
             string memory lanePath = string.concat(".lanes.", remote);
@@ -760,7 +822,7 @@ contract SyncCcipConfig is Script {
                         " -> ",
                         remote,
                         " already exists - no-op (edit ",
-                        ProjectStore._display(local),
+                        ProjectStore.display(local),
                         " to change policy)"
                     )
                 );
@@ -996,16 +1058,16 @@ contract SyncCcipConfig is Script {
     }
 
     /// @dev WARN (not fail) when the remote chain has no `tokenPool` in its project store
-    /// (`project/<remote>.json` `addresses.active.tokenPool`) - the lane can be declared ahead of the
+    /// (`project/<remote>.json` `addresses.active.tokenPool`) — the lane can be declared ahead of the
     /// deploy, but the transfer scripts cannot execute against it until the pool exists. Also covers
     /// non-EVM remotes: the store holds their base58 pool (via `adopt-token`'s non-EVM path), so a
     /// Solana remote with a declared pool does not trip this WARN.
     function _warnPlaceholderPool(string memory remote, string memory) internal view {
-        if (bytes(RegistryWriter._readString(remote, "tokenPool")).length == 0) {
+        if (bytes(RegistryWriter.readString(remote, "tokenPool")).length == 0) {
             console.log(
                 string.concat(
                     "[add-lane] WARN: no tokenPool in ",
-                    ProjectStore._display(remote),
+                    ProjectStore.display(remote),
                     " (addresses.active.tokenPool) - deploy one (script/deploy/DeployBurnMintTokenPool.s.sol or DeployLockReleaseTokenPool.s.sol), or for a non-EVM remote declare it (make adopt-token), before executing transfers over this lane"
                 )
             );
@@ -1013,7 +1075,7 @@ contract SyncCcipConfig is Script {
     }
 
     // ================================================================
-    // removeLane - `make remove-lane`: remove a lanes{} policy entry
+    // removeLane — `make remove-lane`: remove a lanes{} policy entry
     // ================================================================
 
     /// @notice Remove the `.lanes.<remote>` entry from the LOCAL chain's project store - the undo of
@@ -1035,7 +1097,7 @@ contract SyncCcipConfig is Script {
     function removeLane(string memory local, string memory remote) public {
         _requireSyncProfile();
         _requireConfigExists(local); // the chain must be onboarded
-        string memory projectPath = ProjectStore._path(local);
+        string memory projectPath = ProjectStore.path(local);
         string memory lanePath = string.concat(".lanes.", remote);
         if (!vm.exists(projectPath) || !vm.keyExistsJson(vm.readFile(projectPath), lanePath)) {
             console.log(
@@ -1045,7 +1107,7 @@ contract SyncCcipConfig is Script {
                     " -> ",
                     remote,
                     " is not declared - no-op (",
-                    ProjectStore._display(local),
+                    ProjectStore.display(local),
                     " unchanged)"
                 )
             );
@@ -1062,7 +1124,7 @@ contract SyncCcipConfig is Script {
         }
         vm.writeJson(lanesJson, projectPath, ".lanes");
         console.log(
-            string.concat("[remove-lane] removed lane ", local, " -> ", remote, " from ", ProjectStore._display(local))
+            string.concat("[remove-lane] removed lane ", local, " -> ", remote, " from ", ProjectStore.display(local))
         );
         console.log(
             string.concat(
