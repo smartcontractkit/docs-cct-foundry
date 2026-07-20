@@ -96,8 +96,8 @@ abstract contract BaseForkTest is Test {
         vm.stopBroadcast();
     }
 
-    /// @dev Executes a `CctActions.Call[]` in order, each pranked as `sender` — the exact `Call[]` the
-    /// scripts hand to `EoaExecutor.executeCalls`, so a test proves the action-layer calldata
+    /// @dev Executes a `CctActions.Call[]` in order, each pranked as `sender` - the exact `Call[]` the
+    /// scripts hand to `EoaExecutor._executeCalls`, so a test proves the action-layer calldata
     /// against on-chain getters. Reverts (with the underlying reason) on the first failing call.
     function _exec(address sender, CctActions.Call[] memory calls) internal {
         for (uint256 i = 0; i < calls.length; i++) {

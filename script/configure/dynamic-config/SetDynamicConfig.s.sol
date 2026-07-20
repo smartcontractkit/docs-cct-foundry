@@ -64,7 +64,7 @@ contract SetDynamicConfig is EoaExecutor {
         console.log("");
 
         // Defaults: env var → current on-chain value → broadcaster (as last resort if unset)
-        address broadcasterAddr = broadcaster();
+        address broadcasterAddr = _broadcaster();
         address router = vm.envOr("ROUTER", currentRouter);
         address rateLimitAdmin =
             vm.envOr("RATE_LIMIT_ADMIN", currentRateLimitAdmin != address(0) ? currentRateLimitAdmin : broadcasterAddr);
@@ -77,7 +77,7 @@ contract SetDynamicConfig is EoaExecutor {
         console.log("");
         console.log(string.concat("[Step 1] Setting dynamic config on ", chainName));
 
-        executeCalls(CctActions.setDynamicConfig(tokenPoolAddress, router, rateLimitAdmin, feeAdmin));
+        _executeCalls(CctActions._setDynamicConfig(tokenPoolAddress, router, rateLimitAdmin, feeAdmin));
 
         console.log(unicode"✅ Dynamic config updated successfully!");
         console.log("");

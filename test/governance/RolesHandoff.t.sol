@@ -32,7 +32,7 @@ import {SafeMode} from "../../src/base/SafeMode.sol";
 // ─────────────────────────────────────────────────────────────────────────────
 // Script harnesses: pin the token / role / holder / admin inputs via the virtual
 // seams (the env vars are process-wide; `vm.setEnv` would race parallel suites).
-// EOA mode broadcasts from the default script sender — the deployer EOA, exactly
+// EOA mode broadcasts from the default script sender - the deployer EOA, exactly
 // the ceremony's step-A executor.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -60,7 +60,7 @@ contract GrantTokenRoleHarness is GrantTokenRole {
     }
 }
 
-/// @dev Safe-mode capture variant: preflights against the Safe (`executingAccount()`), captures the
+/// @dev Safe-mode capture variant: preflights against the Safe (`_executingAccount()`), captures the
 ///      built calls instead of emitting/broadcasting.
 contract GrantTokenRoleSafeCapture is GrantTokenRoleHarness {
     CctActions.Call[] public captured;
@@ -71,7 +71,7 @@ contract GrantTokenRoleSafeCapture is GrantTokenRoleHarness {
         return "safe";
     }
 
-    function executeCalls(CctActions.Call[] memory calls) internal override {
+    function _executeCalls(CctActions.Call[] memory calls) internal override {
         for (uint256 i = 0; i < calls.length; i++) {
             captured.push(calls[i]);
         }
@@ -158,7 +158,7 @@ contract SetCCIPAdminSafeCapture is SetCCIPAdminHarness {
         return "safe";
     }
 
-    function executeCalls(CctActions.Call[] memory calls) internal override {
+    function _executeCalls(CctActions.Call[] memory calls) internal override {
         for (uint256 i = 0; i < calls.length; i++) {
             captured.push(calls[i]);
         }
@@ -170,7 +170,7 @@ contract SetCCIPAdminSafeCapture is SetCCIPAdminHarness {
 }
 
 /// @dev A faithful factory-model (Ownable) token SURFACE: two-step ownership, owner-gated Ownable
-///      mint/burn sets with enumerable getters, owner-gated setCCIPAdmin — the `FactoryBurnMintERC20`
+///      mint/burn sets with enumerable getters, owner-gated setCCIPAdmin - the `FactoryBurnMintERC20`
 ///      shape without vendoring it. Detection keys on `owner()` answering while `DEFAULT_ADMIN_ROLE()`
 ///      does not.
 contract FactoryModelToken {
@@ -262,12 +262,12 @@ contract FactoryModelToken {
     }
 }
 
-/// @dev A contract with none of the admin surfaces — the BYO/unknown detection shape.
+/// @dev A contract with none of the admin surfaces - the BYO/unknown detection shape.
 contract ByoShapeToken {
     uint256 public x;
 }
 
-/// @dev The v1.x LockRelease rebalancer surface (`getRebalancer`/`setRebalancer`) — the real 1.5.x
+/// @dev The v1.x LockRelease rebalancer surface (`getRebalancer`/`setRebalancer`) - the real 1.5.x
 ///      pool is not in the vendored 2.0.0 package, so a shim stands in, like `ILockReleaseV1Liquidity`.
 contract MockV1LockReleasePool {
     address private s_rebalancer;
@@ -281,7 +281,7 @@ contract MockV1LockReleasePool {
     }
 }
 
-/// @dev typeAndVersion + owner(), but NEITHER of the first two storage slots holds the owner — the
+/// @dev typeAndVersion + owner(), but NEITHER of the first two storage slots holds the owner - the
 ///      unknown-layout shape the pending-owner storage probe must refuse rather than misread.
 contract MockUnknownLayoutOwnable {
     uint256 private s_gap0 = 1;
@@ -340,7 +340,7 @@ abstract contract RolesHandoffBase is BaseForkTest {
 
     /// @dev external shim so expectRevert applies to the whole Mode B execution.
     function execDirectExternal(ISafe execSafe, CctActions.Call[] memory calls) external {
-        SafeMode.execDirect(execSafe, calls);
+        SafeMode._execDirect(execSafe, calls);
     }
 
     /// @dev The pre-C completion gate, exactly what `roles-check` exit 0 means: `RolesCheck.s.sol`
@@ -350,11 +350,11 @@ abstract contract RolesHandoffBase is BaseForkTest {
     }
 }
 
-/// @title RolesHandoffForkTest — fixture (a): the default burnmint chain (CrossChainToken + v2
+/// @title RolesHandoffForkTest - fixture (a): the default burnmint chain (CrossChainToken + v2
 /// BurnMintTokenPool), full EOA→Safe ceremony in the documented A→gate→B→gate→C order.
 /// @notice The four NEW primitives are driven through their run() entry points (harnesses pin inputs
 /// via the virtual seams); the pre-existing primitives' legs (TAR transfer, pool ownership, dynamic
-/// config) are driven through their `CctActions` builders — the exact calldata those scripts execute
+/// config) are driven through their `CctActions` builders - the exact calldata those scripts execute
 /// (the ExecuteBatch.t.sol precedent; the scripts' env shells are exercised against live testnets).
 /// Batches B and C execute through the `ExecuteBatch` composition (emit → loadMany → one
 /// `execTransaction`) with the Safe as executor, never pranked-as-EOA.
@@ -372,14 +372,14 @@ contract RolesHandoffForkTest is RolesHandoffBase {
         registryModule = networkConfig.registryModuleOwnerCustom;
         _setUpSafe();
         // Pre-ceremony state: the deployer EOA is registered as the token's TAR administrator.
-        _exec(deployer, CctActions.registerAndAcceptAdminViaGetCCIPAdmin(registryModule, address(registry), token));
+        _exec(deployer, CctActions._registerAndAcceptAdminViaGetCCIPAdmin(registryModule, address(registry), token));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Ceremony steps
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @dev Step A — EOA-executed, serial, grant/begin-only. Every call is safe to repeat.
+    /// @dev Step A - EOA-executed, serial, grant/begin-only. Every call is safe to repeat.
     function _stepA() internal {
         _stepAWithoutBurnMintAdminGrant();
         new GrantTokenRoleHarness(token, "burnMintAdmin", safeAddr).run();
@@ -388,25 +388,25 @@ contract RolesHandoffForkTest is RolesHandoffBase {
     function _stepAWithoutBurnMintAdminGrant() internal {
         new TransferTokenAdminHarness(token, safeAddr, false).run(); // beginDefaultAdminTransfer(Safe)
         new SetCCIPAdminHarness(token, safeAddr).run(); // one-step: ccipAdmin -> Safe
-        _exec(deployer, CctActions.transferAdminRole(address(registry), token, safeAddr));
-        _exec(deployer, CctActions.transferOwnership(pool, safeAddr));
+        _exec(deployer, CctActions._transferAdminRole(address(registry), token, safeAddr));
+        _exec(deployer, CctActions._transferOwnership(pool, safeAddr));
         // Router-preservation rule: read the live router, pass it back unchanged.
-        (, address routerBefore,,) = RolesProbes.readPoolAdmins(pool);
-        _exec(deployer, CctActions.setDynamicConfig(pool, routerBefore, safeAddr, safeAddr));
-        (, address routerAfter,,) = RolesProbes.readPoolAdmins(pool);
+        (, address routerBefore,,) = RolesProbes._readPoolAdmins(pool);
+        _exec(deployer, CctActions._setDynamicConfig(pool, routerBefore, safeAddr, safeAddr));
+        (, address routerAfter,,) = RolesProbes._readPoolAdmins(pool);
         assertEq(routerAfter, routerBefore, "setDynamicConfig must preserve the router byte-identically");
     }
 
     function _stepBCalls() internal view returns (CctActions.Call[] memory) {
-        return CctActions.concat(
-            CctActions.concat(
-                CctActions.acceptDefaultAdminTransfer(token), CctActions.acceptAdminRole(address(registry), token)
+        return CctActions._concat(
+            CctActions._concat(
+                CctActions._acceptDefaultAdminTransfer(token), CctActions._acceptAdminRole(address(registry), token)
             ),
-            CctActions.acceptOwnership(pool)
+            CctActions._acceptOwnership(pool)
         );
     }
 
-    /// @dev Step B — the Safe's accepts, composed via the ExecuteBatch mechanism (emit each primitive's
+    /// @dev Step B - the Safe's accepts, composed via the ExecuteBatch mechanism (emit each primitive's
     ///      batch, loadMany, ONE atomic execTransaction). `tag` keeps the emitted batch filenames
     ///      unique per test: forge runs a suite's tests in PARALLEL, so a shared name would be
     ///      written and read concurrently (a mid-truncation read parses as empty JSON).
@@ -416,36 +416,36 @@ contract RolesHandoffForkTest is RolesHandoffBase {
         // advances blocks between A and B anyway).
         vm.warp(block.timestamp + 1);
         string[] memory paths = new string[](3);
-        paths[0] = SafeMode.emitBatch(
-            string.concat("handoff-", tag, "-b-accept-admin"), safeAddr, CctActions.acceptDefaultAdminTransfer(token)
+        paths[0] = SafeMode._emitBatch(
+            string.concat("handoff-", tag, "-b-accept-admin"), safeAddr, CctActions._acceptDefaultAdminTransfer(token)
         );
-        paths[1] = SafeMode.emitBatch(
+        paths[1] = SafeMode._emitBatch(
             string.concat("handoff-", tag, "-b-accept-tar"),
             safeAddr,
-            CctActions.acceptAdminRole(address(registry), token)
+            CctActions._acceptAdminRole(address(registry), token)
         );
-        paths[2] = SafeMode.emitBatch(
-            string.concat("handoff-", tag, "-b-accept-pool"), safeAddr, CctActions.acceptOwnership(pool)
+        paths[2] = SafeMode._emitBatch(
+            string.concat("handoff-", tag, "-b-accept-pool"), safeAddr, CctActions._acceptOwnership(pool)
         );
-        CctActions.Call[] memory merged = SafeBatchLoader.loadMany(paths, block.chainid, safeAddr);
-        SafeMode.execDirect(safe, merged);
+        CctActions.Call[] memory merged = SafeBatchLoader._loadMany(paths, block.chainid, safeAddr);
+        SafeMode._execDirect(safe, merged);
     }
 
     function _stepCCalls() internal view returns (CctActions.Call[] memory) {
-        return CctActions.concat(
-            CctActions.concat(
-                CctActions.revokeRole(token, _roleId("MINTER_ROLE()", RolesProbes.MINTER_ROLE), deployer),
-                CctActions.revokeRole(token, _roleId("BURNER_ROLE()", RolesProbes.BURNER_ROLE), deployer)
+        return CctActions._concat(
+            CctActions._concat(
+                CctActions._revokeRole(token, _roleId("MINTER_ROLE()", RolesProbes.MINTER_ROLE), deployer),
+                CctActions._revokeRole(token, _roleId("BURNER_ROLE()", RolesProbes.BURNER_ROLE), deployer)
             ),
-            CctActions.revokeRole(token, _roleId("BURN_MINT_ADMIN_ROLE()", RolesProbes.BURN_MINT_ADMIN_ROLE), deployer)
+            CctActions._revokeRole(token, _roleId("BURN_MINT_ADMIN_ROLE()", RolesProbes.BURN_MINT_ADMIN_ROLE), deployer)
         );
     }
 
-    /// @dev Step C — the Safe's atomic revoke batch, LAST, only after the gate passed.
+    /// @dev Step C - the Safe's atomic revoke batch, LAST, only after the gate passed.
     function _stepC(string memory tag) internal {
         string[] memory paths = new string[](1);
-        paths[0] = SafeMode.emitBatch(string.concat("handoff-", tag, "-c-revokes"), safeAddr, _stepCCalls());
-        SafeMode.execDirect(safe, SafeBatchLoader.loadMany(paths, block.chainid, safeAddr));
+        paths[0] = SafeMode._emitBatch(string.concat("handoff-", tag, "-c-revokes"), safeAddr, _stepCCalls());
+        SafeMode._execDirect(safe, SafeBatchLoader._loadMany(paths, block.chainid, safeAddr));
     }
 
     function _fullCeremony(string memory tag) internal {
@@ -456,12 +456,12 @@ contract RolesHandoffForkTest is RolesHandoffBase {
     }
 
     function _roleId(string memory sig, bytes32 fallbackRole) internal view returns (bytes32) {
-        return RolesProbes.roleIdOrDefault(token, sig, fallbackRole);
+        return RolesProbes._roleIdOrDefault(token, sig, fallbackRole);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // The committed declaration (fixture a has no enumerable sets, so the
-    // intermediate and final declarations coincide — the three buckets:
+    // intermediate and final declarations coincide - the three buckets:
     // single-holder slots = Safe with pendings 0x0; non-enumerable admin lists
     // = [Safe]; non-enumerable minters/burners = the final [pool].
     // ─────────────────────────────────────────────────────────────────────────
@@ -525,7 +525,7 @@ contract RolesHandoffForkTest is RolesHandoffBase {
     // Step-A grant-only invariant: the escape hatch
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @dev Step A must be grant-only — the direct regression guard against an atomic handOffRole
+    /// @dev Step A must be grant-only - the direct regression guard against an atomic handOffRole
     ///      leg leaking into TransferTokenAdmin: after ALL of step A, (a) the EOA still
     ///      holds every two-step pending / grant-model slot, and (b) for each one-step slot already
     ///      moved to the Safe, the EOA still holds the CONTROLLING PARENT that can reverse it.
@@ -534,18 +534,18 @@ contract RolesHandoffForkTest is RolesHandoffBase {
 
         // (a) the escape-hatch slots are still the EOA's.
         assertEq(CrossChainToken(token).defaultAdmin(), deployer, "defaultAdmin must NOT move in step A");
-        (, address pendingDa) = RolesProbes.tryAddress(token, "pendingDefaultAdmin()");
+        (, address pendingDa) = RolesProbes._tryAddress(token, "pendingDefaultAdmin()");
         assertEq(pendingDa, safeAddr, "the default-admin transfer must be pending to the Safe");
         assertTrue(
-            RolesProbes.hasRole(token, _roleId("BURN_MINT_ADMIN_ROLE()", RolesProbes.BURN_MINT_ADMIN_ROLE), deployer),
+            RolesProbes._hasRole(token, _roleId("BURN_MINT_ADMIN_ROLE()", RolesProbes.BURN_MINT_ADMIN_ROLE), deployer),
             "the EOA keeps BURN_MINT_ADMIN_ROLE until batch C"
         );
         assertTrue(
-            RolesProbes.hasRole(token, _roleId("MINTER_ROLE()", RolesProbes.MINTER_ROLE), deployer),
+            RolesProbes._hasRole(token, _roleId("MINTER_ROLE()", RolesProbes.MINTER_ROLE), deployer),
             "the EOA keeps MINTER_ROLE until batch C"
         );
         assertTrue(
-            RolesProbes.hasRole(token, _roleId("BURNER_ROLE()", RolesProbes.BURNER_ROLE), deployer),
+            RolesProbes._hasRole(token, _roleId("BURNER_ROLE()", RolesProbes.BURNER_ROLE), deployer),
             "the EOA keeps BURNER_ROLE until batch C"
         );
         assertEq(registry.getTokenConfig(token).administrator, deployer, "TAR administrator must NOT move in step A");
@@ -559,15 +559,15 @@ contract RolesHandoffForkTest is RolesHandoffBase {
 
         // (b) one-step slots DID move in A, and the EOA holds each slot's controlling parent.
         assertEq(CrossChainToken(token).getCCIPAdmin(), safeAddr, "ccipAdmin is a one-step move in A");
-        (,, address rla, address fee) = RolesProbes.readPoolAdmins(pool);
+        (,, address rla, address fee) = RolesProbes._readPoolAdmins(pool);
         assertEq(rla, safeAddr, "rateLimitAdmin is a one-step move in A");
         assertEq(fee, safeAddr, "feeAdmin is a one-step move in A");
         uint256 snapshot = vm.snapshotState();
-        vm.prank(deployer); // DEFAULT_ADMIN_ROLE (still the EOA's) gates setCCIPAdmin — reversible.
+        vm.prank(deployer); // DEFAULT_ADMIN_ROLE (still the EOA's) gates setCCIPAdmin - reversible.
         CrossChainToken(token).setCCIPAdmin(deployer);
         assertEq(CrossChainToken(token).getCCIPAdmin(), deployer, "the EOA can still reverse the ccipAdmin move");
-        (, address router,,) = RolesProbes.readPoolAdmins(pool);
-        vm.prank(deployer); // pool owner (still the EOA) gates setDynamicConfig — reversible.
+        (, address router,,) = RolesProbes._readPoolAdmins(pool);
+        vm.prank(deployer); // pool owner (still the EOA) gates setDynamicConfig - reversible.
         TokenPool(pool).setDynamicConfig(router, deployer, deployer);
         vm.revertToState(snapshot);
     }
@@ -578,7 +578,7 @@ contract RolesHandoffForkTest is RolesHandoffBase {
 
     /// @dev The gate (not primitive-internal checks) enforces revoke-before-accept refusal: while any
     ///      pending is outstanding or an owner still reads the EOA, the gate exits 1 naming the field;
-    ///      once B's accepts complete, the SAME gate on the SAME declaration returns clean — the
+    ///      once B's accepts complete, the SAME gate on the SAME declaration returns clean - the
     ///      positive leg that authorizes C.
     function test_handoff_revokeBeforeAccept_refuses() public {
         _stepA();
@@ -595,7 +595,7 @@ contract RolesHandoffForkTest is RolesHandoffBase {
 
     /// @dev The non-enumerable admin-list declaration is load-bearing: withhold the step-A
     ///      BURN_MINT_ADMIN_ROLE grant and the gate
-    ///      must FAIL naming that field — proving the declared [Safe] admin list VERIFIES the grant
+    ///      must FAIL naming that field - proving the declared [Safe] admin list VERIFIES the grant
     ///      landed rather than SKIPping it (batch C's revokes need that role, so a SKIP would let the
     ///      whole atomic C revert).
     function test_handoff_gate_preC_failsWhenSafeGrantMissing() public {
@@ -617,7 +617,7 @@ contract RolesHandoffForkTest is RolesHandoffBase {
         assertEq(registry.getTokenConfig(token).administrator, safeAddr, "TAR administrator == Safe");
         assertEq(registry.getTokenConfig(token).pendingAdministrator, address(0), "no TAR pending");
         assertEq(TokenPool(pool).owner(), safeAddr, "pool owner == Safe");
-        (,, address rla, address fee) = RolesProbes.readPoolAdmins(pool);
+        (,, address rla, address fee) = RolesProbes._readPoolAdmins(pool);
         assertEq(rla, safeAddr, "rateLimitAdmin == Safe");
         assertEq(fee, safeAddr, "feeAdmin == Safe");
         // Post-C proof: the final declaration reconciles clean AND the DENY sweep is clean.
@@ -656,7 +656,7 @@ contract RolesHandoffForkTest is RolesHandoffBase {
         vm.prank(deployer);
         vm.expectRevert();
         TokenPool(pool).transferOwnership(stranger); // pool owner moved
-        (, address router,,) = RolesProbes.readPoolAdmins(pool);
+        (, address router,,) = RolesProbes._readPoolAdmins(pool);
         vm.prank(deployer);
         vm.expectRevert();
         TokenPool(pool).setDynamicConfig(router, deployer, deployer); // pool owner moved
@@ -670,46 +670,48 @@ contract RolesHandoffForkTest is RolesHandoffBase {
 
     function _assertGovernancePathWorks(address stranger, bytes32 minterRole, address router) internal {
         uint256 snapshot = vm.snapshotState();
-        SafeMode.execDirect(safe, CctActions.grantRole(token, minterRole, stranger));
-        assertTrue(RolesProbes.hasRole(token, minterRole, stranger), "Safe can grant mint");
+        SafeMode._execDirect(safe, CctActions._grantRole(token, minterRole, stranger));
+        assertTrue(RolesProbes._hasRole(token, minterRole, stranger), "Safe can grant mint");
         vm.revertToState(snapshot);
 
         snapshot = vm.snapshotState();
-        SafeMode.execDirect(safe, CctActions.beginDefaultAdminTransfer(token, stranger));
+        SafeMode._execDirect(safe, CctActions._beginDefaultAdminTransfer(token, stranger));
         vm.revertToState(snapshot);
 
         snapshot = vm.snapshotState();
-        SafeMode.execDirect(safe, CctActions.setCCIPAdmin(token, stranger));
+        SafeMode._execDirect(safe, CctActions._setCCIPAdmin(token, stranger));
         assertEq(CrossChainToken(token).getCCIPAdmin(), stranger, "Safe can set ccipAdmin");
         vm.revertToState(snapshot);
 
         snapshot = vm.snapshotState();
         // Day-2 mint under governance: grant-to-self + mint as ONE atomic Safe batch.
-        SafeMode.execDirect(
+        SafeMode._execDirect(
             safe,
-            CctActions.concat(CctActions.grantRole(token, minterRole, safeAddr), CctActions.mint(token, safeAddr, 1e18))
+            CctActions._concat(
+                CctActions._grantRole(token, minterRole, safeAddr), CctActions._mint(token, safeAddr, 1e18)
+            )
         );
         assertEq(IERC20(token).balanceOf(safeAddr), 1e18, "Safe can mint via grant+mint batch");
         vm.revertToState(snapshot);
 
         snapshot = vm.snapshotState();
-        SafeMode.execDirect(safe, CctActions.transferAdminRole(address(registry), token, stranger));
+        SafeMode._execDirect(safe, CctActions._transferAdminRole(address(registry), token, stranger));
         assertEq(registry.getTokenConfig(token).pendingAdministrator, stranger, "Safe can move the TAR admin");
         vm.revertToState(snapshot);
 
         snapshot = vm.snapshotState();
-        SafeMode.execDirect(safe, CctActions.transferOwnership(pool, stranger));
+        SafeMode._execDirect(safe, CctActions._transferOwnership(pool, stranger));
         vm.revertToState(snapshot);
 
         snapshot = vm.snapshotState();
-        SafeMode.execDirect(safe, CctActions.setDynamicConfig(pool, router, safeAddr, safeAddr));
-        (, address routerAfter,,) = RolesProbes.readPoolAdmins(pool);
+        SafeMode._execDirect(safe, CctActions._setDynamicConfig(pool, router, safeAddr, safeAddr));
+        (, address routerAfter,,) = RolesProbes._readPoolAdmins(pool);
         assertEq(routerAfter, router, "the governance setDynamicConfig preserves the router");
         vm.revertToState(snapshot);
     }
 
     /// @dev CrossChainToken's forbidden mechanism: grantRole(DEFAULT_ADMIN_ROLE, ...) always reverts
-    ///      (AccessControlDefaultAdminRules forbids it — the two-step transfer is the ONLY path).
+    ///      (AccessControlDefaultAdminRules forbids it - the two-step transfer is the ONLY path).
     function test_handoff_crosschain_grantDefaultAdmin_reverts() public {
         vm.prank(deployer);
         vm.expectRevert();
@@ -721,12 +723,12 @@ contract RolesHandoffForkTest is RolesHandoffBase {
     ///      must read: none before A, the Safe after A (the step-A action is VISIBLE, not inferred),
     ///      none again after B's accept. The auditor surfaces the in-flight window as a WARN.
     function test_handoff_pendingOwnerProbe_tracksCeremony() public {
-        (bool ok0, address pending0) = RolesProbes.tryPendingOwner(pool);
+        (bool ok0, address pending0) = RolesProbes._tryPendingOwner(pool);
         assertTrue(ok0, "the probe must read a known pool layout");
         assertEq(pending0, address(0), "no transfer pending before step A");
 
         _stepA();
-        (bool okA, address pendingA) = RolesProbes.tryPendingOwner(pool);
+        (bool okA, address pendingA) = RolesProbes._tryPendingOwner(pool);
         assertTrue(okA, "probe readable after A");
         assertEq(pendingA, safeAddr, "step A's transferOwnership is pending to the Safe");
         // The auditor shows the in-flight window: audit a declaration matching the LIVE mid-ceremony
@@ -736,7 +738,7 @@ contract RolesHandoffForkTest is RolesHandoffBase {
         assertGt(r.warns, 0, "the in-flight pending owner is a WARN");
 
         _stepB("pending-probe");
-        (bool okB, address pendingB) = RolesProbes.tryPendingOwner(pool);
+        (bool okB, address pendingB) = RolesProbes._tryPendingOwner(pool);
         assertTrue(okB, "probe readable after B");
         assertEq(pendingB, address(0), "the accept cleared the pending owner");
     }
@@ -766,7 +768,7 @@ contract RolesHandoffForkTest is RolesHandoffBase {
     // Resume / idempotence / atomicity
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @dev Crash after A: the committed declaration's field diff IS the resume point — resume with B
+    /// @dev Crash after A: the committed declaration's field diff IS the resume point - resume with B
     ///      and C from live state, ending in the identical end state as an uninterrupted run.
     function test_handoff_partialResume() public {
         _stepA();
@@ -793,8 +795,8 @@ contract RolesHandoffForkTest is RolesHandoffBase {
     }
 
     function _stateDigest() internal view returns (bytes32) {
-        (, address pendingDa) = RolesProbes.tryAddress(token, "pendingDefaultAdmin()");
-        (,, address rla, address fee) = RolesProbes.readPoolAdmins(pool);
+        (, address pendingDa) = RolesProbes._tryAddress(token, "pendingDefaultAdmin()");
+        (,, address rla, address fee) = RolesProbes._readPoolAdmins(pool);
         return keccak256(
             abi.encode(
                 CrossChainToken(token).defaultAdmin(),
@@ -820,7 +822,7 @@ contract RolesHandoffForkTest is RolesHandoffBase {
         assertEq(_stateDigest(), before, "a re-run accept batch must leave zero state change");
     }
 
-    /// @dev Batch B through the ExecuteBatch composition consumes exactly ONE Safe nonce — the atomic
+    /// @dev Batch B through the ExecuteBatch composition consumes exactly ONE Safe nonce - the atomic
     ///      execution is itself the proof the Safe can execute before anything is revoked.
     function test_handoff_acceptBatchB_oneNonce_viaExecuteBatchComposition() public {
         _stepA();
@@ -834,8 +836,8 @@ contract RolesHandoffForkTest is RolesHandoffBase {
     function test_handoff_neverGrantedRole() public {
         _fullCeremony("never-granted");
         address neverHolder = makeAddr("never-granted");
-        SafeMode.execDirect(
-            safe, CctActions.revokeRole(token, _roleId("MINTER_ROLE()", RolesProbes.MINTER_ROLE), neverHolder)
+        SafeMode._execDirect(
+            safe, CctActions._revokeRole(token, _roleId("MINTER_ROLE()", RolesProbes.MINTER_ROLE), neverHolder)
         );
         assertEq(_gate(_declaration(false)).fails, 0, "revoking an unheld role never breaks the end state");
     }
@@ -844,12 +846,12 @@ contract RolesHandoffForkTest is RolesHandoffBase {
     // The DENY sweep
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @dev Seed ONE residual EOA slot (a MINTER_ROLE re-grant — a non-enumerable role a plain
+    /// @dev Seed ONE residual EOA slot (a MINTER_ROLE re-grant - a non-enumerable role a plain
     ///      roles-check cannot rule out) and the sweep must FAIL naming exactly that slot.
     function test_denyCheck_reportsResidualHolder() public {
         _fullCeremony("deny-residual");
-        SafeMode.execDirect(
-            safe, CctActions.grantRole(token, _roleId("MINTER_ROLE()", RolesProbes.MINTER_ROLE), deployer)
+        SafeMode._execDirect(
+            safe, CctActions._grantRole(token, _roleId("MINTER_ROLE()", RolesProbes.MINTER_ROLE), deployer)
         );
         RolesAuditor.Result memory r = auditor.auditJsonDeny("ethereum-testnet-sepolia", _declaration(true), deployer);
         assertGt(r.fails, 0, "a residual MINTER_ROLE must FAIL the sweep");
@@ -866,9 +868,9 @@ contract RolesHandoffForkTest is RolesHandoffBase {
 
     /// @dev Post-handoff regression: a FRESH deploy grants MINTER/BURNER to the deployer again (the
     ///      ROLES_RECIPIENT default), and the DENY sweep catches it because it enumerates from
-    ///      addresses{} — a freshly deployed, not-yet-snapshotted token is in scope. With the roles
+    ///      addresses{} - a freshly deployed, not-yet-snapshotted token is in scope. With the roles
     ///      granted to the Safe instead, the sweep stays clean. (The second token is deployed directly
-    ///      with the Safe as recipient rather than via DeployToken with ROLES_RECIPIENT env — that env
+    ///      with the Safe as recipient rather than via DeployToken with ROLES_RECIPIENT env - that env
     ///      is process-wide and would poison parallel suites' fixtures; live-testnet runs drive the
     ///      documented `ROLES_RECIPIENT=$SAFE` command for real.)
     function test_postHandoff_freshDeploy_defaultRecipient_failsDenyCheck() public {
@@ -905,15 +907,15 @@ contract RolesHandoffForkTest is RolesHandoffBase {
         freshSafe.setCCIPAdmin(safeAddr);
         vm.stopPrank();
         vm.warp(block.timestamp + 1); // the accept schedule must have strictly passed
-        SafeMode.execDirect(safe, CctActions.acceptDefaultAdminTransfer(address(freshSafe)));
-        SafeMode.execDirect(
+        SafeMode._execDirect(safe, CctActions._acceptDefaultAdminTransfer(address(freshSafe)));
+        SafeMode._execDirect(
             safe,
-            CctActions.concat(
-                CctActions.concat(
-                    CctActions.revokeRole(address(freshSafe), freshSafe.MINTER_ROLE(), deployer),
-                    CctActions.revokeRole(address(freshSafe), freshSafe.BURNER_ROLE(), deployer)
+            CctActions._concat(
+                CctActions._concat(
+                    CctActions._revokeRole(address(freshSafe), freshSafe.MINTER_ROLE(), deployer),
+                    CctActions._revokeRole(address(freshSafe), freshSafe.BURNER_ROLE(), deployer)
                 ),
-                CctActions.revokeRole(address(freshSafe), freshSafe.BURN_MINT_ADMIN_ROLE(), deployer)
+                CctActions._revokeRole(address(freshSafe), freshSafe.BURN_MINT_ADMIN_ROLE(), deployer)
             )
         );
         RolesAuditor.Result memory r2 = auditor.auditJsonDeny(
@@ -923,7 +925,7 @@ contract RolesHandoffForkTest is RolesHandoffBase {
     }
 
     function _declarationWithExtraDeployment(address extra) internal view returns (string memory) {
-        // The fixture declaration plus a deployments{} entry for the extra token — the sweep reads
+        // The fixture declaration plus a deployments{} entry for the extra token - the sweep reads
         // active AND deployments, so the not-yet-snapshotted token is in scope.
         return string.concat(
             "{\"addresses\":{\"active\":{\"token\":",
@@ -951,10 +953,10 @@ contract RolesHandoffForkTest is RolesHandoffBase {
     }
 }
 
-/// @title RolesHandoffLockboxHooksForkTest — fixture (b): a v2 LockRelease chain with an ERC20LockBox
+/// @title RolesHandoffLockboxHooksForkTest - fixture (b): a v2 LockRelease chain with an ERC20LockBox
 /// and AdvancedPoolHooks attached, driving the lockbox/hooks owner + authorizedCallers rows (the
 /// enumerable surfaces fixture (a) does not have). The contracts are constructed directly (pranked as
-/// the deployer EOA) — the deploy-script env names (`ETHEREUM_SEPOLIA_LOCK_BOX`, `ALLOWLIST`) are
+/// the deployer EOA) - the deploy-script env names (`ETHEREUM_SEPOLIA_LOCK_BOX`, `ALLOWLIST`) are
 /// process-wide and suite-specific values would poison the parallel Lockbox/Hooks suites.
 contract RolesHandoffLockboxHooksForkTest is RolesHandoffBase {
     address internal token;
@@ -992,65 +994,66 @@ contract RolesHandoffLockboxHooksForkTest is RolesHandoffBase {
     // ─────────────────────────────────────────────────────────────────────────
 
     function _stepA() internal {
-        _exec(deployer, CctActions.transferOwnership(address(pool), safeAddr));
-        _exec(deployer, CctActions.transferOwnership(address(lockbox), safeAddr));
-        _exec(deployer, CctActions.transferOwnership(address(hooks), safeAddr));
-        (, address router,,) = RolesProbes.readPoolAdmins(address(pool));
-        _exec(deployer, CctActions.setDynamicConfig(address(pool), router, safeAddr, safeAddr));
+        _exec(deployer, CctActions._transferOwnership(address(pool), safeAddr));
+        _exec(deployer, CctActions._transferOwnership(address(lockbox), safeAddr));
+        _exec(deployer, CctActions._transferOwnership(address(hooks), safeAddr));
+        (, address router,,) = RolesProbes._readPoolAdmins(address(pool));
+        _exec(deployer, CctActions._setDynamicConfig(address(pool), router, safeAddr, safeAddr));
     }
 
-    /// @dev `tag` keeps batch filenames unique per test — forge runs a suite's tests in parallel.
+    /// @dev `tag` keeps batch filenames unique per test - forge runs a suite's tests in parallel.
     function _stepB(string memory tag) internal {
         string[] memory paths = new string[](3);
-        paths[0] = SafeMode.emitBatch(
-            string.concat("lbhandoff-", tag, "-b-accept-pool"), safeAddr, CctActions.acceptOwnership(address(pool))
+        paths[0] = SafeMode._emitBatch(
+            string.concat("lbhandoff-", tag, "-b-accept-pool"), safeAddr, CctActions._acceptOwnership(address(pool))
         );
-        paths[1] = SafeMode.emitBatch(
+        paths[1] = SafeMode._emitBatch(
             string.concat("lbhandoff-", tag, "-b-accept-lockbox"),
             safeAddr,
-            CctActions.acceptOwnership(address(lockbox))
+            CctActions._acceptOwnership(address(lockbox))
         );
-        paths[2] = SafeMode.emitBatch(
-            string.concat("lbhandoff-", tag, "-b-accept-hooks"), safeAddr, CctActions.acceptOwnership(address(hooks))
+        paths[2] = SafeMode._emitBatch(
+            string.concat("lbhandoff-", tag, "-b-accept-hooks"), safeAddr, CctActions._acceptOwnership(address(hooks))
         );
-        SafeMode.execDirect(safe, SafeBatchLoader.loadMany(paths, block.chainid, safeAddr));
+        SafeMode._execDirect(safe, SafeBatchLoader._loadMany(paths, block.chainid, safeAddr));
     }
 
     function _stepC(string memory tag) internal {
         address[] memory removes = new address[](1);
         removes[0] = deployer;
-        CctActions.Call[] memory calls = CctActions.concat(
-            CctActions.applyAuthorizedCallerUpdates(address(lockbox), new address[](0), removes),
-            CctActions.applyAuthorizedCallerUpdates(address(hooks), new address[](0), removes)
+        CctActions.Call[] memory calls = CctActions._concat(
+            CctActions._applyAuthorizedCallerUpdates(address(lockbox), new address[](0), removes),
+            CctActions._applyAuthorizedCallerUpdates(address(hooks), new address[](0), removes)
         );
         string[] memory paths = new string[](1);
-        paths[0] = SafeMode.emitBatch(string.concat("lbhandoff-", tag, "-c-callers"), safeAddr, calls);
-        SafeMode.execDirect(safe, SafeBatchLoader.loadMany(paths, block.chainid, safeAddr));
+        paths[0] = SafeMode._emitBatch(string.concat("lbhandoff-", tag, "-c-callers"), safeAddr, calls);
+        SafeMode._execDirect(safe, SafeBatchLoader._loadMany(paths, block.chainid, safeAddr));
     }
 
     /// @dev The token's own handoff (this fixture's ceremony covers the lockbox/hooks rows; the deny
     ///      sweep covers EVERY anchored contract, so the sweep-asserting tests move the token too).
     function _handOffTokenSlots() internal {
-        bytes32 bmaRole = RolesProbes.roleIdOrDefault(token, "BURN_MINT_ADMIN_ROLE()", RolesProbes.BURN_MINT_ADMIN_ROLE);
+        bytes32 bmaRole =
+            RolesProbes._roleIdOrDefault(token, "BURN_MINT_ADMIN_ROLE()", RolesProbes.BURN_MINT_ADMIN_ROLE);
         vm.startPrank(deployer);
         CrossChainToken(token).grantRole(bmaRole, safeAddr);
         CrossChainToken(token).setCCIPAdmin(safeAddr);
         CrossChainToken(token).beginDefaultAdminTransfer(safeAddr);
         vm.stopPrank();
         vm.warp(block.timestamp + 1);
-        SafeMode.execDirect(safe, CctActions.acceptDefaultAdminTransfer(token));
-        SafeMode.execDirect(
+        SafeMode._execDirect(safe, CctActions._acceptDefaultAdminTransfer(token));
+        SafeMode._execDirect(
             safe,
-            CctActions.concat(
-                CctActions.concat(
-                    CctActions.revokeRole(
-                        token, RolesProbes.roleIdOrDefault(token, "MINTER_ROLE()", RolesProbes.MINTER_ROLE), deployer
+            CctActions._concat(
+                CctActions._concat(
+                    CctActions._revokeRole(
+                        token, RolesProbes._roleIdOrDefault(token, "MINTER_ROLE()", RolesProbes.MINTER_ROLE), deployer
                     ),
-                    CctActions.revokeRole(
-                        token, RolesProbes.roleIdOrDefault(token, "BURNER_ROLE()", RolesProbes.BURNER_ROLE), deployer
+                    CctActions._revokeRole(
+                        token, RolesProbes._roleIdOrDefault(token, "BURNER_ROLE()", RolesProbes.BURNER_ROLE), deployer
                     )
                 ),
-                CctActions.revokeRole(token, bmaRole, deployer)
+                CctActions._revokeRole(token, bmaRole, deployer)
             )
         );
     }
@@ -1126,31 +1129,31 @@ contract RolesHandoffLockboxHooksForkTest is RolesHandoffBase {
     // Intermediate-declaration satisfiability + the post-C crash window
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @dev The pre-C gate passes with the EOA still a LIVE member of the enumerable sets — proving the
+    /// @dev The pre-C gate passes with the EOA still a LIVE member of the enumerable sets - proving the
     ///      intermediate declaration is satisfiable (a declaration already excluding the EOA would
     ///      deadlock the ceremony against its own runbook).
     function test_handoff_gate_passesPreC_withEoaInEnumerableSet() public {
         _stepA();
         // The pending-owner storage probe makes step A's three transfers VISIBLE (no getter exists):
         // pool, lockbox and hooks all pending to the Safe before the accepts run.
-        (bool okPool, address pendingPool) = RolesProbes.tryPendingOwner(address(pool));
-        (bool okLb, address pendingLb) = RolesProbes.tryPendingOwner(address(lockbox));
-        (bool okHooks, address pendingHooks) = RolesProbes.tryPendingOwner(address(hooks));
+        (bool okPool, address pendingPool) = RolesProbes._tryPendingOwner(address(pool));
+        (bool okLb, address pendingLb) = RolesProbes._tryPendingOwner(address(lockbox));
+        (bool okHooks, address pendingHooks) = RolesProbes._tryPendingOwner(address(hooks));
         assertTrue(okPool && okLb && okHooks, "all three known layouts are readable");
         assertEq(pendingPool, safeAddr, "pool ownership pending to the Safe after A");
         assertEq(pendingLb, safeAddr, "lockbox ownership pending to the Safe after A");
         assertEq(pendingHooks, safeAddr, "hooks ownership pending to the Safe after A");
 
         _stepB("eoa-in-set");
-        assertTrue(RolesProbes.contains(lockbox.getAllAuthorizedCallers(), deployer), "the EOA is still a live member");
+        assertTrue(RolesProbes._contains(lockbox.getAllAuthorizedCallers(), deployer), "the EOA is still a live member");
         RolesAuditor.Result memory r = _gate(_intermediateDeclaration());
         assertEq(r.fails, 0, "the pre-C gate must pass with the EOA in the enumerable sets");
-        (, address clearedLb) = RolesProbes.tryPendingOwner(address(lockbox));
+        (, address clearedLb) = RolesProbes._tryPendingOwner(address(lockbox));
         assertEq(clearedLb, address(0), "the lockbox accept cleared its pending owner");
     }
 
     /// @dev The after-C-before-final-commit crash window: the STALE intermediate declaration fails with
-    ///      EXACTLY the enumerable EOA-membership rows and nothing else — the machine-readable "now
+    ///      EXACTLY the enumerable EOA-membership rows and nothing else - the machine-readable "now
     ///      commit the final declaration" fingerprint (the declaration is behind the chain; the fix is
     ///      the commit, never on-chain remediation toward the intermediate state).
     function test_handoff_postC_staleIntermediateDeclaration_failsOnlyOnEnumerableEoaRows() public {
@@ -1206,11 +1209,11 @@ contract RolesHandoffLockboxHooksForkTest is RolesHandoffBase {
 
         // Governance path works for the same surfaces.
         uint256 snapshot = vm.snapshotState();
-        SafeMode.execDirect(safe, CctActions.setThresholdAmount(address(hooks), 1e18));
+        SafeMode._execDirect(safe, CctActions._setThresholdAmount(address(hooks), 1e18));
         vm.revertToState(snapshot);
         snapshot = vm.snapshotState();
-        SafeMode.execDirect(safe, CctActions.applyAuthorizedCallerUpdates(address(hooks), adds, new address[](0)));
-        assertTrue(RolesProbes.contains(hooks.getAllAuthorizedCallers(), deployer), "Safe can edit the callers set");
+        SafeMode._execDirect(safe, CctActions._applyAuthorizedCallerUpdates(address(hooks), adds, new address[](0)));
+        assertTrue(RolesProbes._contains(hooks.getAllAuthorizedCallers(), deployer), "Safe can edit the callers set");
         vm.revertToState(snapshot);
 
         // End state: DENY sweep on the lockbox/hooks/pool surface is clean.
@@ -1219,7 +1222,7 @@ contract RolesHandoffLockboxHooksForkTest is RolesHandoffBase {
     }
 
     /// @dev A claimable pending is as much a held slot as a current one: leave (or re-insert) the
-    ///      retired EOA as the lockbox's pending owner post-ceremony and the sweep must FAIL — the
+    ///      retired EOA as the lockbox's pending owner post-ceremony and the sweep must FAIL - the
     ///      EOA could acceptOwnership() at will, and Chainlink Ownable2Step exposes no getter, so
     ///      only the storage probe can see it.
     function test_denyCheck_reportsResidualPendingOwner() public {
@@ -1230,9 +1233,9 @@ contract RolesHandoffLockboxHooksForkTest is RolesHandoffBase {
         RolesAuditor.Result memory clean = auditor.auditJsonDeny("ethereum-testnet-sepolia", _denyDoc(), deployer);
         assertEq(clean.fails, 0, "post-ceremony baseline sweeps clean");
 
-        // The Safe (current owner) starts a transfer back to the retired EOA — pending, not accepted.
-        SafeMode.execDirect(safe, CctActions.transferOwnership(address(lockbox), deployer));
-        (bool ok, address pending) = RolesProbes.tryPendingOwner(address(lockbox));
+        // The Safe (current owner) starts a transfer back to the retired EOA - pending, not accepted.
+        SafeMode._execDirect(safe, CctActions._transferOwnership(address(lockbox), deployer));
+        (bool ok, address pending) = RolesProbes._tryPendingOwner(address(lockbox));
         assertTrue(ok && pending == deployer, "precondition: the EOA is the claimable pending owner");
 
         RolesAuditor.Result memory r = auditor.auditJsonDeny("ethereum-testnet-sepolia", _denyDoc(), deployer);
@@ -1250,7 +1253,7 @@ contract RolesHandoffLockboxHooksForkTest is RolesHandoffBase {
         _handOffTokenSlots();
         address[] memory adds = new address[](1);
         adds[0] = deployer;
-        SafeMode.execDirect(safe, CctActions.applyAuthorizedCallerUpdates(address(lockbox), adds, new address[](0)));
+        SafeMode._execDirect(safe, CctActions._applyAuthorizedCallerUpdates(address(lockbox), adds, new address[](0)));
 
         RolesAuditor.Result memory r = auditor.auditJsonDeny("ethereum-testnet-sepolia", _denyDoc(), deployer);
         assertGt(r.fails, 0, "a residual enumerable membership must FAIL the sweep");
@@ -1284,7 +1287,7 @@ contract RolesHandoffLockboxHooksForkTest is RolesHandoffBase {
     }
 }
 
-/// @title TokenRoleTemplatesForkTest — the per-template mini-ceremonies (burnmint grant/revoke model,
+/// @title TokenRoleTemplatesForkTest - the per-template mini-ceremonies (burnmint grant/revoke model,
 /// factory Ownable model), the BYO refusal shape, the role×template mismatch guards, and the
 /// default-actor (executingAccount) regression guards.
 contract TokenRoleTemplatesForkTest is RolesHandoffBase {
@@ -1327,15 +1330,15 @@ contract TokenRoleTemplatesForkTest is RolesHandoffBase {
         );
         acceptLeg.run();
 
-        // Step C (the Safe revokes every residual EOA power) — the Safe, as the new admin, executes it.
-        SafeMode.execDirect(
+        // Step C (the Safe revokes every residual EOA power) - the Safe, as the new admin, executes it.
+        SafeMode._execDirect(
             safe,
-            CctActions.concat(
-                CctActions.concat(
-                    CctActions.revokeRole(address(bm), bm.MINTER_ROLE(), deployer),
-                    CctActions.revokeRole(address(bm), bm.BURNER_ROLE(), deployer)
+            CctActions._concat(
+                CctActions._concat(
+                    CctActions._revokeRole(address(bm), bm.MINTER_ROLE(), deployer),
+                    CctActions._revokeRole(address(bm), bm.BURNER_ROLE(), deployer)
                 ),
-                CctActions.revokeRole(address(bm), RolesProbes.DEFAULT_ADMIN_ROLE, deployer)
+                CctActions._revokeRole(address(bm), RolesProbes.DEFAULT_ADMIN_ROLE, deployer)
             )
         );
 
@@ -1354,16 +1357,16 @@ contract TokenRoleTemplatesForkTest is RolesHandoffBase {
         bm.setCCIPAdmin(stranger); // DEFAULT_ADMIN revoked
 
         // Forbidden mechanism: burnmint has NO owner() surface.
-        (bool hasOwner,) = RolesProbes.tryAddress(address(bm), "owner()");
+        (bool hasOwner,) = RolesProbes._tryAddress(address(bm), "owner()");
         assertFalse(hasOwner, "BurnMintERC20 must expose no owner()");
 
         // Governance path works, role by role.
         uint256 snapshot = vm.snapshotState();
-        SafeMode.execDirect(safe, CctActions.grantRole(address(bm), bm.MINTER_ROLE(), stranger));
+        SafeMode._execDirect(safe, CctActions._grantRole(address(bm), bm.MINTER_ROLE(), stranger));
         assertTrue(bm.hasRole(bm.MINTER_ROLE(), stranger), "Safe can grant mint");
         vm.revertToState(snapshot);
         snapshot = vm.snapshotState();
-        SafeMode.execDirect(safe, CctActions.setCCIPAdmin(address(bm), stranger));
+        SafeMode._execDirect(safe, CctActions._setCCIPAdmin(address(bm), stranger));
         assertEq(bm.getCCIPAdmin(), stranger, "Safe can set ccipAdmin");
         vm.revertToState(snapshot);
     }
@@ -1421,15 +1424,15 @@ contract TokenRoleTemplatesForkTest is RolesHandoffBase {
         assertEq(factory.pendingOwner(), safeAddr, "ownership pending to the Safe");
 
         // Step B: the Safe accepts (the ExecuteBatch composition path).
-        SafeMode.execDirect(safe, CctActions.acceptOwnership(address(factory)));
+        SafeMode._execDirect(safe, CctActions._acceptOwnership(address(factory)));
         assertEq(factory.owner(), safeAddr, "Safe owns the factory token after B");
 
         // Step C: the Safe revokes the EOA's mint/burn set memberships.
-        SafeMode.execDirect(
+        SafeMode._execDirect(
             safe,
-            CctActions.concat(
-                CctActions.revokeMintRole(address(factory), deployer),
-                CctActions.revokeBurnRole(address(factory), deployer)
+            CctActions._concat(
+                CctActions._revokeMintRole(address(factory), deployer),
+                CctActions._revokeBurnRole(address(factory), deployer)
             )
         );
 
@@ -1450,7 +1453,7 @@ contract TokenRoleTemplatesForkTest is RolesHandoffBase {
 
         // Governance path works.
         uint256 snapshot = vm.snapshotState();
-        SafeMode.execDirect(safe, CctActions.grantMintRole(address(factory), stranger));
+        SafeMode._execDirect(safe, CctActions._grantMintRole(address(factory), stranger));
         assertTrue(factory.isMinter(stranger), "Safe can grant mint on the Ownable set");
         vm.revertToState(snapshot);
 
@@ -1493,7 +1496,7 @@ contract TokenRoleTemplatesForkTest is RolesHandoffBase {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @dev `burnMintAdmin` exists only on CrossChainToken: on any other template the fallback role id
-    ///      would grant a role that admins nothing — refused by name BEFORE any state-changing call.
+    ///      would grant a role that admins nothing - refused by name BEFORE any state-changing call.
     function test_tokenRole_roleNotOnTemplate_refusesNamed() public {
         GrantTokenRoleHarness onBurnmint = new GrantTokenRoleHarness(address(bm), "burnMintAdmin", safeAddr);
         vm.expectRevert(
@@ -1555,20 +1558,20 @@ contract TokenRoleTemplatesForkTest is RolesHandoffBase {
     ///      merely looks like an answer: no typeAndVersion (not a known Chainlink shape); an owner()
     ///      that matches neither of the two storage slots (unknown layout).
     function test_pendingOwnerProbe_refusesUnknownShapes() public {
-        (bool okFactory,) = RolesProbes.tryPendingOwner(address(factory));
+        (bool okFactory,) = RolesProbes._tryPendingOwner(address(factory));
         assertFalse(okFactory, "no typeAndVersion - refused even though owner() answers");
 
         MockUnknownLayoutOwnable unknown = new MockUnknownLayoutOwnable();
-        (bool okUnknown, address pending) = RolesProbes.tryPendingOwner(address(unknown));
+        (bool okUnknown, address pending) = RolesProbes._tryPendingOwner(address(unknown));
         assertFalse(okUnknown, "owner() matches neither slot - unknown layout refused");
         assertEq(pending, address(0), "a refused probe returns no value");
 
-        (bool okByo,) = RolesProbes.tryPendingOwner(address(byo));
+        (bool okByo,) = RolesProbes._tryPendingOwner(address(byo));
         assertFalse(okByo, "no surface at all - refused");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Default actor/recipient == executingAccount() + the HOLDER refusal
+    // Default actor/recipient == _executingAccount() + the HOLDER refusal
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @dev Under MODE=safe the grant/set primitives' default recipient is the EXECUTING account
@@ -1630,7 +1633,7 @@ contract TokenRoleTemplatesForkTest is RolesHandoffBase {
     ///      rebalancer rung reconciling it, and the drift FAIL naming the field.
     function test_handoff_v1Rebalancer_moveAndReconcile() public {
         MockV1LockReleasePool lr = new MockV1LockReleasePool();
-        _exec(address(this), CctActions.setRebalancer(address(lr), safeAddr));
+        _exec(address(this), CctActions._setRebalancer(address(lr), safeAddr));
         assertEq(lr.getRebalancer(), safeAddr, "rebalancer moved to the Safe");
 
         string memory doc = string.concat(
@@ -1683,23 +1686,23 @@ contract BurnMintERC677TemplatesForkTest is RolesHandoffBase {
     ///      storage pending-owner probe needs, so that probe honestly refuses rather than misreads.
     function test_erc677_detectsAsFactory() public view {
         assertEq(
-            uint256(RolesProbes.detectTemplate(address(token))),
+            uint256(RolesProbes._detectTemplate(address(token))),
             uint256(RolesProbes.TokenTemplate.FactoryBurnMintERC20),
             "BurnMintERC677 must classify as the factory template"
         );
-        assertEq(RolesProbes.templateName(RolesProbes.detectTemplate(address(token))), "factory", "templateName");
+        assertEq(RolesProbes._templateName(RolesProbes._detectTemplate(address(token))), "factory", "templateName");
 
-        (bool hasOwner,) = RolesProbes.tryAddress(address(token), "owner()");
+        (bool hasOwner,) = RolesProbes._tryAddress(address(token), "owner()");
         assertTrue(hasOwner, "owner() answers");
-        (bool hasAcl,) = RolesProbes.tryBytes32(address(token), "DEFAULT_ADMIN_ROLE()");
+        (bool hasAcl,) = RolesProbes._tryBytes32(address(token), "DEFAULT_ADMIN_ROLE()");
         assertFalse(hasAcl, "no OZ AccessControl surface");
-        (bool hasDefaultAdmin,) = RolesProbes.tryAddress(address(token), "defaultAdmin()");
+        (bool hasDefaultAdmin,) = RolesProbes._tryAddress(address(token), "defaultAdmin()");
         assertFalse(hasDefaultAdmin, "no AccessControlDefaultAdminRules surface");
-        (bool hasCcipAdmin,) = RolesProbes.tryAddress(address(token), "getCCIPAdmin()");
+        (bool hasCcipAdmin,) = RolesProbes._tryAddress(address(token), "getCCIPAdmin()");
         assertFalse(hasCcipAdmin, "no getCCIPAdmin slot");
 
         // ConfirmedOwner exposes no typeAndVersion, so the storage pending-owner probe refuses it.
-        (bool okProbe,) = RolesProbes.tryPendingOwner(address(token));
+        (bool okProbe,) = RolesProbes._tryPendingOwner(address(token));
         assertFalse(okProbe, "the storage pending-owner probe refuses a token without typeAndVersion");
     }
 
@@ -1715,7 +1718,7 @@ contract BurnMintERC677TemplatesForkTest is RolesHandoffBase {
         assertEq(token.owner(), deployer, "grant-only: ownership does NOT move in the transfer leg");
 
         // The pending slot is set to the Safe: proven behaviorally because the Safe can accept.
-        SafeMode.execDirect(safe, CctActions.acceptOwnership(address(token)));
+        SafeMode._execDirect(safe, CctActions._acceptOwnership(address(token)));
         assertEq(token.owner(), safeAddr, "the accept leg moved owner() to the Safe");
 
         // The pending slot was cleared by the accept: a second accept reverts.
@@ -1772,8 +1775,8 @@ contract BurnMintERC677TemplatesForkTest is RolesHandoffBase {
 
         assertTrue(token.isMinter(minter), "the granted minter is in the minter set");
         assertTrue(token.isBurner(burner), "the granted burner is in the burner set");
-        assertTrue(RolesProbes.contains(token.getMinters(), minter), "getMinters() enumerates the new minter");
-        assertTrue(RolesProbes.contains(token.getBurners(), burner), "getBurners() enumerates the new burner");
+        assertTrue(RolesProbes._contains(token.getMinters(), minter), "getMinters() enumerates the new minter");
+        assertTrue(RolesProbes._contains(token.getBurners(), burner), "getBurners() enumerates the new burner");
 
         // The granted minter can mint; a non-minter cannot.
         address recipient = makeAddr("erc677-recipient");
@@ -1787,7 +1790,7 @@ contract BurnMintERC677TemplatesForkTest is RolesHandoffBase {
         // RevokeTokenRole removes the minter from the Ownable set.
         new RevokeTokenRoleHarness(address(token), "minter", minter).run();
         assertFalse(token.isMinter(minter), "RevokeTokenRole removed the minter");
-        assertFalse(RolesProbes.contains(token.getMinters(), minter), "getMinters() no longer enumerates it");
+        assertFalse(RolesProbes._contains(token.getMinters(), minter), "getMinters() no longer enumerates it");
     }
 
     /// @dev The default grant recipient is the executing account: a HOLDER-less grant lands on the owner.

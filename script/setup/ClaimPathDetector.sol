@@ -25,7 +25,7 @@ library ClaimPathDetector {
     /// @return admin The single admin the token reports for the `getCCIPAdmin()` / `owner()` paths.
     ///         `address(0)` for the AccessControl path, whose admin is any `DEFAULT_ADMIN_ROLE` holder
     ///         rather than a single getter, so the caller checks role membership instead.
-    function detect(address token) internal view returns (ClaimPath path, address admin) {
+    function _detect(address token) internal view returns (ClaimPath path, address admin) {
         // getCCIPAdmin() is preferred.
         try IGetCCIPAdmin(token).getCCIPAdmin() returns (address ccipAdmin) {
             return (ClaimPath.GetCCIPAdmin, ccipAdmin);
@@ -47,7 +47,7 @@ library ClaimPathDetector {
     }
 
     /// @notice The operator-facing label for a claim path, used in the claim scripts' console output.
-    function methodLabel(ClaimPath path) internal pure returns (string memory) {
+    function _methodLabel(ClaimPath path) internal pure returns (string memory) {
         if (path == ClaimPath.GetCCIPAdmin) {
             return "getCCIPAdmin()";
         }
@@ -66,7 +66,7 @@ library ClaimPathDetector {
     /// @param reportedAdmin The admin the token reported for the `getCCIPAdmin()` / `owner()` paths
     ///        (ignored for the AccessControl path).
     /// @param expectedAdmin The account expected to register the token (the executing account by default).
-    function requireExpectedAdmin(ClaimPath path, address token, address reportedAdmin, address expectedAdmin)
+    function _requireExpectedAdmin(ClaimPath path, address token, address reportedAdmin, address expectedAdmin)
         internal
         view
     {

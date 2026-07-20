@@ -9,7 +9,7 @@ import {HelperConfig} from "../HelperConfig.s.sol";
 /// (i.e. does not inherit ITypeAndVersion).
 ///
 /// Required env vars:
-///   ADDRESS — contract address to query
+///   ADDRESS - contract address to query
 ///
 /// Usage example:
 ///   ADDRESS=0xYourContract forge script script/setup/GetTypeAndVersion.s.sol \

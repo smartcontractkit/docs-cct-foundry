@@ -12,7 +12,7 @@ import {DeployLockReleaseTokenPool} from "../../script/deploy/DeployLockReleaseT
 import {BaseForkTest} from "../BaseForkTest.t.sol";
 
 /// @notice LockRelease + ERC20LockBox fork fixture. The fixture is built with the
-/// repo's OWN deploy scripts in the README order — lockbox first, then the LockReleaseTokenPool, then the
+/// repo's OWN deploy scripts in the README order - lockbox first, then the LockReleaseTokenPool, then the
 /// pool is authorized on the lockbox via the authorized-callers action. It proves the invariant that a
 /// lockbox deposit/withdraw succeeds ONLY after the caller is authorized, and exercises both README
 /// LockRelease topologies (single-lock-chain and lock-and-lock) at the shared local lock/release layer.
@@ -35,7 +35,7 @@ contract LockboxOpsForkTest is BaseForkTest {
         owner = _scriptBroadcaster();
         vm.setEnv("TOKEN", vm.toString(token));
 
-        // README order, step 1: deploy the lockbox (no authorized callers yet — the gate is proven below).
+        // README order, step 1: deploy the lockbox (no authorized callers yet - the gate is proven below).
         uint256 nonceBox = vm.getNonce(owner);
         new DeployERC20LockBox().run();
         lockBox = ERC20LockBox(vm.computeCreateAddress(owner, nonceBox));
@@ -70,7 +70,7 @@ contract LockboxOpsForkTest is BaseForkTest {
     function test_AuthorizePoolOnLockBox() public {
         address[] memory adds = new address[](1);
         adds[0] = address(pool);
-        _exec(owner, CctActions.applyAuthorizedCallerUpdates(address(lockBox), adds, new address[](0)));
+        _exec(owner, CctActions._applyAuthorizedCallerUpdates(address(lockBox), adds, new address[](0)));
 
         address[] memory callers = lockBox.getAllAuthorizedCallers();
         assertEq(callers.length, 1, "pool authorized");
@@ -82,8 +82,8 @@ contract LockboxOpsForkTest is BaseForkTest {
     function test_Deposit_RevertsBeforeAuthorization() public {
         address operator = makeAddr("operatorUnauth");
         deal(token, operator, AMOUNT);
-        CctActions.Call[] memory dep = CctActions.lockboxDeposit(address(lockBox), token, AMOUNT);
-        // approve (call 0) succeeds; the deposit (call 1) must revert — unauthorized caller.
+        CctActions.Call[] memory dep = CctActions._lockboxDeposit(address(lockBox), token, AMOUNT);
+        // approve (call 0) succeeds; the deposit (call 1) must revert - unauthorized caller.
         vm.prank(operator);
         (bool okApprove,) = dep[0].target.call(dep[0].data);
         assertTrue(okApprove, "approve ok");
@@ -93,14 +93,14 @@ contract LockboxOpsForkTest is BaseForkTest {
         assertEq(bytes4(ret), bytes4(keccak256("UnauthorizedCaller(address)")), "UnauthorizedCaller");
     }
 
-    /// @dev Pattern 1 — single-lock-chain: this chain LOCKs (deposit) and RELEASEs (withdraw); the remote
+    /// @dev Pattern 1 - single-lock-chain: this chain LOCKs (deposit) and RELEASEs (withdraw); the remote
     ///      chain burns/mints. An authorized operator round-trips liquidity through the lockbox.
     function test_Pattern_SingleLockChain_DepositWithdrawRoundTrip() public {
         _wireLane(SINGLE_LOCK_CHAIN_SELECTOR, address(0xB0740B), address(0x70CE0A));
         _authorizeAndRoundTrip();
     }
 
-    /// @dev Pattern 2 — lock-and-lock: BOTH chains lock/release; locally the mechanics are the same
+    /// @dev Pattern 2 - lock-and-lock: BOTH chains lock/release; locally the mechanics are the same
     ///      deposit(lock)/withdraw(release) through the lockbox, which is what we exercise here.
     function test_Pattern_LockAndLock_DepositWithdrawRoundTrip() public {
         _wireLane(LOCK_AND_LOCK_SELECTOR, address(0x10C11A), address(0x70CE1B));
@@ -120,7 +120,7 @@ contract LockboxOpsForkTest is BaseForkTest {
             outboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0}),
             inboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0})
         });
-        _exec(owner, CctActions.applyChainUpdates(address(pool), new uint64[](0), updates));
+        _exec(owner, CctActions._applyChainUpdates(address(pool), new uint64[](0), updates));
         assertTrue(pool.isSupportedChain(selector), "lane wired");
     }
 
@@ -132,19 +132,19 @@ contract LockboxOpsForkTest is BaseForkTest {
 
         address[] memory adds = new address[](1);
         adds[0] = operator;
-        _exec(owner, CctActions.applyAuthorizedCallerUpdates(address(lockBox), adds, new address[](0)));
+        _exec(owner, CctActions._applyAuthorizedCallerUpdates(address(lockBox), adds, new address[](0)));
 
         uint256 boxBefore = IERC20(token).balanceOf(address(lockBox));
 
         // LOCK: approve + deposit as one batch.
-        CctActions.Call[] memory dep = CctActions.lockboxDeposit(address(lockBox), token, AMOUNT);
+        CctActions.Call[] memory dep = CctActions._lockboxDeposit(address(lockBox), token, AMOUNT);
         assertEq(dep.length, 2, "deposit batch = approve + deposit");
         _exec(operator, dep);
         assertEq(IERC20(token).balanceOf(address(lockBox)), boxBefore + AMOUNT, "lock landed in lockbox");
         assertEq(IERC20(token).balanceOf(operator), 0, "operator liquidity locked");
 
         // RELEASE: withdraw back to the operator.
-        _exec(operator, CctActions.lockboxWithdraw(address(lockBox), token, AMOUNT, operator));
+        _exec(operator, CctActions._lockboxWithdraw(address(lockBox), token, AMOUNT, operator));
         assertEq(IERC20(token).balanceOf(address(lockBox)), boxBefore, "lockbox balance conserved after release");
         assertEq(IERC20(token).balanceOf(operator), AMOUNT, "release returned liquidity");
     }

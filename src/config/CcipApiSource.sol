@@ -5,7 +5,7 @@ import {Vm} from "forge-std/Vm.sol";
 import {IConfigSource} from "./IConfigSource.sol";
 
 /// @title CcipApiSource
-/// @notice CCIP REST API v2 implementation of the config-sync seam — fetches the ACTIVE CCIP
+/// @notice CCIP REST API v2 implementation of the config-sync seam - fetches the ACTIVE CCIP
 /// infrastructure addresses from `https://api.ccip.chain.link/v2`. Foundry cannot HTTP-GET
 /// directly, so the fetch + `isActive` selection is delegated via `vm.tryFfi` to
 /// `script/config/ccip-config-source.sh` (curl + jq), which returns the normalized flat JSON
@@ -24,7 +24,7 @@ contract CcipApiSource is IConfigSource {
     /// @inheritdoc IConfigSource
     /// @dev Uses `vm.tryFfi` so the helper's exit-code contract surfaces as a NAMED revert: the
     /// script writes a diagnostic to stderr (NOT_FOUND / API_UNREACHABLE / BAD_BODY / MISSING_TOOL)
-    /// and that stderr becomes the revert reason here — never a raw "FFI failed" or a silent null.
+    /// and that stderr becomes the revert reason here - never a raw "FFI failed" or a silent null.
     function fetchActiveCcipConfig(uint64 chainSelector) external returns (string memory flatJson) {
         string[] memory cmd = new string[](3);
         cmd[0] = "bash";

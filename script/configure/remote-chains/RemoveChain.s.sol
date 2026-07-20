@@ -101,14 +101,14 @@ contract RemoveChain is EoaExecutor {
         // ── Resolve the version BEFORE any version-shaped read ─────────────
         // A 1.5.0 pool has only the SINGULAR getRemotePool; reading the plural getRemotePools before
         // dispatch would raw-revert it and never reach the 1.5.0 encoding below. Resolve first, then
-        // read through the version-safe helper (singular on 1.5.0, plural from 1.5.1) — the same
+        // read through the version-safe helper (singular on 1.5.0, plural from 1.5.1) - the same
         // fence-before-read ordering RemoveRemotePool uses.
-        (PoolVersions.Version poolVersion, string memory poolTypeAndVersion) = PoolVersion.resolve(tokenPoolAddress);
+        (PoolVersions.Version poolVersion, string memory poolTypeAndVersion) = PoolVersion._resolve(tokenPoolAddress);
         console.log(string.concat("Pool contract: ", poolTypeAndVersion));
         console.log("");
 
         // ── Show current remote pools for the lane being torn down ─────────
-        bytes[] memory currentPools = PoolVersion.remotePools(tokenPoolAddress, poolVersion, remoteChainSelector);
+        bytes[] memory currentPools = PoolVersion._remotePools(tokenPoolAddress, poolVersion, remoteChainSelector);
         console.log(string.concat("Current Remote Pools on this lane: ", vm.toString(currentPools.length)));
         for (uint256 i = 0; i < currentPools.length; i++) {
             if (currentPools[i].length == 32) {
@@ -123,7 +123,7 @@ contract RemoveChain is EoaExecutor {
 
         console.log(string.concat("[Step 1] Removing remote chain on ", sourceChainName));
 
-        executeCalls(_buildChainRemovalCalls(poolVersion, tokenPoolAddress, remoteChainSelector));
+        _executeCalls(_buildChainRemovalCalls(poolVersion, tokenPoolAddress, remoteChainSelector));
 
         console.log(unicode"✅ Remote chain removed successfully!");
         console.log("");
@@ -145,7 +145,7 @@ contract RemoveChain is EoaExecutor {
     /// @dev The exhaustive version switch for a whole-chain removal, matching ApplyChainUpdates'
     ///      lane-update dispatch: 1.5.0 takes the single-argument encoding with one `allowed:false`
     ///      entry, every later cataloged version takes the modern (removes[], adds[]) encoding with
-    ///      the selector in removes[] and no adds[]. `PoolVersion.resolve` refuses uncataloged
+    ///      the selector in removes[] and no adds[]. `PoolVersion._resolve` refuses uncataloged
     ///      versions before this switch runs, and a version added to the catalog without a branch
     ///      here fails loudly instead of falling through to the modern encoding.
     function _buildChainRemovalCalls(PoolVersions.Version version, address poolAddress, uint64 remoteChainSelector)
@@ -164,7 +164,7 @@ contract RemoveChain is EoaExecutor {
                 outboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0}),
                 inboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0})
             });
-            return CctActions.applyChainUpdatesV150(poolAddress, removals);
+            return CctActions._applyChainUpdatesV150(poolAddress, removals);
         }
         if (
             version == PoolVersions.Version.V1_5_1 || version == PoolVersions.Version.V1_6_1
@@ -173,7 +173,7 @@ contract RemoveChain is EoaExecutor {
             uint64[] memory removes = new uint64[](1);
             removes[0] = remoteChainSelector;
             TokenPool.ChainUpdate[] memory noAdds = new TokenPool.ChainUpdate[](0);
-            return CctActions.applyChainUpdates(poolAddress, removes, noAdds);
+            return CctActions._applyChainUpdates(poolAddress, removes, noAdds);
         }
         revert(
             "RemoveChain: pool version has no chain-removal dispatch branch; extend the switch here and the catalog in src/PoolVersions.sol"

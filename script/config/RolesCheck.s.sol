@@ -8,17 +8,17 @@ import {RolesAuditor} from "../../src/roles/RolesAuditor.sol";
 import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 
 /// @title RolesCheck
-/// @notice **`make roles-check CHAIN=<name>` — READ-ONLY reconcile of the declared `roles{}` against
+/// @notice **`make roles-check CHAIN=<name>` - READ-ONLY reconcile of the declared `roles{}` against
 /// the live chain.** It never writes a file and never broadcasts; the only outputs are the aligned
 /// [PASS]/[FAIL]/[WARN]/[SKIP] lines from `RolesAuditor` and the exit status. The CI-ready exit-code
 /// contract (0 clean / 1 roles-drift / 2 rpc-unavailable) belongs to the wrapper
-/// `script/config/roles-check.sh`, which classifies this script's output — GNU make remaps any
+/// `script/config/roles-check.sh`, which classifies this script's output - GNU make remaps any
 /// failing recipe to its own exit 2, so `make roles-check` is pass/fail only; CI calls the script
 /// directly (the same lesson as `sync-check.sh`).
 /// @dev Sentinels this script prints for the wrapper to classify:
-///   - `NO_ROLES_DECLARED` — the chain has no `roles{}` block (SKIP; bootstrap with snapshot-chain)
-///   - `RPC_UNAVAILABLE`   — the chain's rpcEnv is unset or the fork failed (flake, not drift)
-///   - `ROLES_DRIFT`       — at least one declared field mismatches the live chain
+///   - `NO_ROLES_DECLARED` - the chain has no `roles{}` block (SKIP; bootstrap with snapshot-chain)
+///   - `RPC_UNAVAILABLE`   - the chain's rpcEnv is unset or the fork failed (flake, not drift)
+///   - `ROLES_DRIFT`       - at least one declared field mismatches the live chain
 contract RolesCheck is Script {
     function run(string memory name) public {
         // Chain FACTS come from config/chains (pure API); the DECLARED roles{} comes from the project store.
@@ -30,10 +30,10 @@ contract RolesCheck is Script {
             string.concat("[roles-check] ", name, " is not an EVM chain - roles{} reconcile covers EVM only")
         );
 
-        ProjectStore.requireSchema(name); // named error on a wrong-schema/corrupt project file
-        string memory projectPath = ProjectStore.path(name);
+        ProjectStore._requireSchema(name); // named error on a wrong-schema/corrupt project file
+        string memory projectPath = ProjectStore._path(name);
         if (!vm.exists(projectPath) || !vm.keyExistsJson(vm.readFile(projectPath), ".roles.token")) {
-            string memory grp = ProjectStore.group();
+            string memory grp = ProjectStore._group();
             console.log(
                 string.concat(
                     "[roles-check] NO_ROLES_DECLARED for ",

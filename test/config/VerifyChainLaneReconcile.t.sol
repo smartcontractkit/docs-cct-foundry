@@ -21,10 +21,10 @@ abstract contract LaneReconcileScratch is Test {
     }
 
     function _projPath(string memory name) internal view returns (string memory) {
-        return ProjectStore.path(name);
+        return ProjectStore._path(name);
     }
 
-    /// @dev Writes a scratch chain config in the committed shape (all API/chain-fact schema keys —
+    /// @dev Writes a scratch chain config in the committed shape (all API/chain-fact schema keys -
     /// NO `lanes`/`roles`/`ccipBnM`, which live in `project/`), keyed by a fake-but-valid
     /// chainId/selector no other test uses.
     function _writeScratchChain(string memory name, uint256 chainId, uint64 selector) internal {
@@ -75,7 +75,7 @@ abstract contract LaneReconcileScratch is Test {
     /// blocks (`inbound{}`, `v2{}`) exactly. Seeds the project skeleton first so the targeted `.lanes`
     /// write never raw-reverts. This is where the lane SOURCE (`LanePolicySource`) and the doctor read.
     function _declareLane(string memory name, string memory remoteName, string memory laneEntryJson) internal {
-        ProjectStore.seedIfAbsent(name);
+        ProjectStore._seedIfAbsent(name);
         vm.writeJson(string.concat("{\"", remoteName, "\":", laneEntryJson, "}"), _projPath(name), ".lanes");
     }
 
@@ -100,7 +100,7 @@ abstract contract LaneReconcileScratch is Test {
     }
 
     /// @dev Declares the scratch chain's `poolPolicy{}` block (pool-scoped policy: `ccvThreshold`,
-    /// `finality{}`) by authoring the WHOLE schema-3 project file in canonical sorted-key order —
+    /// `finality{}`) by authoring the WHOLE schema-3 project file in canonical sorted-key order -
     /// the hand-edit simulation. Production has no `poolPolicy` writer (the block's one writer is a
     /// reviewed hand edit) and the targeted 3-arg `vm.writeJson` cannot create a missing key, so
     /// tests write the full document. Compose with `_declareLane` AFTER this call when a test needs

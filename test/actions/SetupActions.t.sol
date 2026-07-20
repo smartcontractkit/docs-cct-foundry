@@ -69,7 +69,7 @@ contract SetupActionsForkTest is BaseForkTest {
         (uint64[] memory removes, TokenPool.ChainUpdate[] memory updates) =
             _evmChainUpdateInput(abi.encode(EVM_REMOTE_POOL), abi.encode(EVM_REMOTE_TOKEN), EVM_SELECTOR);
 
-        CctActions.Call[] memory calls = CctActions.applyChainUpdates(pool, removes, updates);
+        CctActions.Call[] memory calls = CctActions._applyChainUpdates(pool, removes, updates);
 
         assertEq(calls.length, 1, "applyChainUpdates must be a single call");
         assertEq(calls[0].target, pool, "target must be the pool");
@@ -85,7 +85,7 @@ contract SetupActionsForkTest is BaseForkTest {
         (uint64[] memory removes, TokenPool.ChainUpdate[] memory updates) =
             _evmChainUpdateInput(SVM_REMOTE_POOL_BYTES, SVM_REMOTE_TOKEN_BYTES, SVM_SELECTOR);
 
-        CctActions.Call[] memory calls = CctActions.applyChainUpdates(pool, removes, updates);
+        CctActions.Call[] memory calls = CctActions._applyChainUpdates(pool, removes, updates);
 
         assertEq(
             calls[0].data,
@@ -98,7 +98,7 @@ contract SetupActionsForkTest is BaseForkTest {
     }
 
     function test_CctActions_RegisterAccessControlDefaultAdmin_CalldataParity() public view {
-        CctActions.Call[] memory calls = CctActions.registerAccessControlDefaultAdmin(address(registryModule), token);
+        CctActions.Call[] memory calls = CctActions._registerAccessControlDefaultAdmin(address(registryModule), token);
 
         assertEq(calls.length, 1, "registerAccessControlDefaultAdmin must be a single call");
         assertEq(calls[0].target, address(registryModule), "target must be the registry module");
@@ -111,7 +111,7 @@ contract SetupActionsForkTest is BaseForkTest {
     }
 
     function test_CctActions_SetPool_CalldataParity() public view {
-        CctActions.Call[] memory calls = CctActions.setPool(address(registry), token, pool);
+        CctActions.Call[] memory calls = CctActions._setPool(address(registry), token, pool);
 
         assertEq(calls.length, 1, "setPool must be a single call");
         assertEq(calls[0].target, address(registry), "target must be the TokenAdminRegistry");
@@ -163,7 +163,7 @@ contract SetupActionsForkTest is BaseForkTest {
     ///      pending administrator to the calling account, so the accept in the same batch succeeds.
     function test_RegistrationPair_ExecutesAsOneBatch() public {
         CctActions.Call[] memory calls =
-            CctActions.registerAndAcceptAdminViaGetCCIPAdmin(address(registryModule), address(registry), token);
+            CctActions._registerAndAcceptAdminViaGetCCIPAdmin(address(registryModule), address(registry), token);
         assertEq(calls.length, 2, "registration pair must be two calls");
 
         for (uint256 i = 0; i < calls.length; i++) {
@@ -183,7 +183,7 @@ contract SetupActionsForkTest is BaseForkTest {
     function test_RegisterViaAccessControl_ForkStateParity() public {
         AccessControlOnlyToken acToken = new AccessControlOnlyToken(deployer);
 
-        CctActions.Call[] memory calls = CctActions.registerAndAcceptAdminViaAccessControl(
+        CctActions.Call[] memory calls = CctActions._registerAndAcceptAdminViaAccessControl(
             address(registryModule), address(registry), address(acToken)
         );
         assertEq(calls.length, 2, "AccessControl registration pair must be two calls");
@@ -228,12 +228,12 @@ contract SetupActionsForkTest is BaseForkTest {
 
     /// @notice All ownership scenarios run inside ONE test function on purpose: forge executes tests in
     ///         parallel and `vm.setEnv` is process-wide, so tests that set DIFFERENT values for the
-    ///         transfer-ownership env vars (ENTITY_TYPE / ADDRESS / NEW_OWNER) would race. Sequential
-    ///         phases with state snapshots keep the env deterministic while each script runs.
+    ///         transfer-ownership env vars (ADDRESS / NEW_OWNER) would race. Sequential phases with
+    ///         state snapshots keep the env deterministic while each script runs.
     function test_Ownership_ForkStateParity_AllScenarios() public {
         _poolOwnershipTwoStepParity();
         _acceptOwnershipPoolScript();
-        _tokenEntityTypeRejected();
+        _ownerlessContractRejected();
     }
 
     /// @dev Pool ownership two-step: a direct `transferOwnership` + `acceptOwnership` and the
@@ -252,7 +252,6 @@ contract SetupActionsForkTest is BaseForkTest {
         vm.revertToState(snapshot);
 
         // Script path (step 1 via the script; step 2 executed by the pending owner).
-        vm.setEnv("ENTITY_TYPE", "tokenPool");
         vm.setEnv("ADDRESS", vm.toString(pool));
         vm.setEnv("NEW_OWNER", vm.toString(NEW_OWNER));
         new TransferOwnership().run();
@@ -275,25 +274,25 @@ contract SetupActionsForkTest is BaseForkTest {
         vm.prank(NEW_OWNER);
         otherPool.transferOwnership(deployer);
 
-        vm.setEnv("ENTITY_TYPE", "tokenPool");
         vm.setEnv("ADDRESS", vm.toString(address(otherPool)));
         new AcceptOwnership().run();
 
         assertEq(otherPool.owner(), deployer, "the AcceptOwnership script must complete the transfer");
     }
 
-    /// @dev The transfer-ownership scripts are scoped to generic Ownable entities (tokenPool, poolHooks,
-    ///      lockBox). ENTITY_TYPE=token is refused by both scripts with a pointer to
-    ///      TransferTokenAdmin, the single home for moving a token's top-level admin.
-    function _tokenEntityTypeRejected() internal {
-        vm.setEnv("ENTITY_TYPE", "token");
-        vm.setEnv("ADDRESS", vm.toString(token));
+    /// @dev The transfer-ownership scripts are generic Ownable transfers. A contract that exposes no
+    ///      owner() (a crosschain or burnmint token) is not artificially blocked: it reverts with a
+    ///      clear pointer to TransferTokenAdmin, the template-aware home for a token's top-level admin.
+    ///      Proven with a pure AccessControl token, which exposes DEFAULT_ADMIN_ROLE but no owner().
+    function _ownerlessContractRejected() internal {
+        AccessControlOnlyToken ownerless = new AccessControlOnlyToken(deployer);
+        vm.setEnv("ADDRESS", vm.toString(address(ownerless)));
         vm.setEnv("NEW_OWNER", vm.toString(NEW_OWNER));
 
         TransferOwnership transferScript = new TransferOwnership();
         vm.expectRevert(
             bytes(
-                "ENTITY_TYPE=token is not handled here; move a token's top-level admin with script/setup/token-roles/TransferTokenAdmin.s.sol"
+                "This contract exposes no owner(); if it is a token, move its admin with script/setup/token-roles/TransferTokenAdmin.s.sol"
             )
         );
         transferScript.run();
@@ -301,7 +300,7 @@ contract SetupActionsForkTest is BaseForkTest {
         AcceptOwnership acceptScript = new AcceptOwnership();
         vm.expectRevert(
             bytes(
-                "ENTITY_TYPE=token is not handled here; accept a token's top-level admin with script/setup/token-roles/TransferTokenAdmin.s.sol (set ACCEPT=1)"
+                "This contract exposes no owner(); if it is a token, accept its admin with script/setup/token-roles/TransferTokenAdmin.s.sol (set ACCEPT=1)"
             )
         );
         acceptScript.run();

@@ -26,7 +26,7 @@ contract OperationsActionsForkTest is BaseForkTest {
         uint256 amount = 1_234e18;
         uint256 before = IERC20(token).balanceOf(receiver);
 
-        _exec(owner, CctActions.mint(token, receiver, amount));
+        _exec(owner, CctActions._mint(token, receiver, amount));
 
         assertEq(IERC20(token).balanceOf(receiver) - before, amount, "mint credited the receiver");
     }
@@ -36,7 +36,7 @@ contract OperationsActionsForkTest is BaseForkTest {
     function test_WithdrawFeeTokens_DrainsPoolToRecipient() public {
         // Mint fee tokens straight onto the pool to simulate accrued fees, then sweep them.
         uint256 fees = 500e18;
-        _exec(owner, CctActions.mint(token, pool, fees));
+        _exec(owner, CctActions._mint(token, pool, fees));
         assertEq(IERC20(token).balanceOf(pool), fees, "pool holds accrued fees");
 
         address recipient = address(0xF00D);
@@ -44,7 +44,7 @@ contract OperationsActionsForkTest is BaseForkTest {
 
         address[] memory feeTokens = new address[](1);
         feeTokens[0] = token;
-        _exec(owner, CctActions.withdrawFeeTokens(pool, feeTokens, recipient));
+        _exec(owner, CctActions._withdrawFeeTokens(pool, feeTokens, recipient));
 
         assertEq(IERC20(token).balanceOf(pool), 0, "pool fee balance drained");
         assertEq(IERC20(token).balanceOf(recipient) - recipientBefore, fees, "recipient received the fees");
@@ -53,10 +53,10 @@ contract OperationsActionsForkTest is BaseForkTest {
     // ── Gate: only the owner/feeAdmin can withdraw fees ──────────────────────────
 
     function test_WithdrawFeeTokens_GatedToOwner() public {
-        _exec(owner, CctActions.mint(token, pool, 1e18));
+        _exec(owner, CctActions._mint(token, pool, 1e18));
         address[] memory feeTokens = new address[](1);
         feeTokens[0] = token;
-        CctActions.Call[] memory calls = CctActions.withdrawFeeTokens(pool, feeTokens, address(0xF00D));
+        CctActions.Call[] memory calls = CctActions._withdrawFeeTokens(pool, feeTokens, address(0xF00D));
         vm.prank(address(0xBAD));
         (bool ok,) = calls[0].target.call(calls[0].data);
         assertFalse(ok, "a stranger cannot withdraw fee tokens");

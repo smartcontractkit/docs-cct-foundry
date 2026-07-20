@@ -1,6 +1,10 @@
+---
+type: guide
+---
+
 # Enabling an existing token
 
-The [README deployment flow](../README.md#deployment-flow) assumes this repo deploys both the token
+The [README quick start](../README.md#quick-start) assumes this repo deploys both the token
 and the pool. This page covers the two other starting points: a token that already exists on chain,
 and a token plus pool that were both deployed by other tooling. In both cases the goal is the same:
 get the contracts into the [deployed-address registry](deployed-addresses.md) so every later script
@@ -28,11 +32,11 @@ single registry entry (see [what adopt-token validates](#what-adopt-token-valida
    registry with no `export`. For a non-EVM chain, adopt base58 values instead:
    `make adopt-token CHAIN=<solana-chain> TOKEN_B58=<base58> [POOL_B58=<base58>]`.
 
-2. Deploy a pool for it, following [Step 2 of the deployment flow](../README.md#step-2-deploy-token-pools-on-both-chains)
+2. Deploy a pool for it, following [operations: pools](operations/pools.md)
    (BurnMint if you hold mint/burn rights on the token, LockRelease plus lockbox otherwise). The
    deploy resolves the adopted token from the registry and records the pool the same way.
 
-3. Register and wire, following [Steps 3 to 6](../README.md#step-3-claim-admin-on-both-chains):
+3. Register and wire, following [operations: registration](operations/registration.md):
    `ClaimAdmin`, `AcceptAdminRole`, `ApplyChainUpdates`, `SetPool`. All of them resolve the token
    and pool from the registry.
 
@@ -139,6 +143,6 @@ leaks into the registry. See [pool-versions.md](pool-versions.md#overrides).
 
 Moving a registered token from an older pool version to a newer one (deploy the new pool, keep both
 remote pool addresses active while in-flight messages complete, repoint the registration, then
-remove the old remote) is a planned scripted flow. Until it lands, the individual primitives exist:
+remove the old remote) is composed from the individual primitives:
 `SetPool`, and the remote-pool management scripts described in the
-[README](../README.md#manage-remote-pools).
+[operations: lanes and remote pools](operations/lanes-and-remotes.md).

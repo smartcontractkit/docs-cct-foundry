@@ -11,18 +11,18 @@ import {RolesProbes} from "../../../src/roles/RolesProbes.sol";
  * @notice Revokes a token role (minter / burner / burnMintAdmin) from a holder, template-dispatched
  *         exactly like `GrantTokenRole`: `revokeRole` on AccessControl templates,
  *         `revokeMintRole`/`revokeBurnRole` on the Ownable `factory` template. Revoking a role the
- *         holder does not hold is a no-op on every template — a ceremony re-run never reverts here.
+ *         holder does not hold is a no-op on every template - a ceremony re-run never reverts here.
  *
  * Required env vars:
- *   ROLE    — one of: minter, burner, burnMintAdmin, defaultAdmin (burnMintAdmin exists only on
- *             crosschain; defaultAdmin only on burnmint — the ceremony's step-C admin revoke)
- *   HOLDER  — the address to revoke FROM. REQUIRED, deliberately no default: under MODE=safe the
- *             executing-account default would make the Safe itself the revoke target — the exact
+ *   ROLE    - one of: minter, burner, burnMintAdmin, defaultAdmin (burnMintAdmin exists only on
+ *             crosschain; defaultAdmin only on burnmint - the ceremony's step-C admin revoke)
+ *   HOLDER  - the address to revoke FROM. REQUIRED, deliberately no default: under MODE=safe the
+ *             executing-account default would make the Safe itself the revoke target - the exact
  *             inversion the handoff ceremony forbids (revoking the recipient's fresh grant). The
  *             executing account itself is refused as HOLDER (self-revocation can strand the token).
  *
  * Optional env vars:
- *   TOKEN   — token address (defaults to the {CHAIN}_TOKEN / registry resolution ladder)
+ *   TOKEN   - token address (defaults to the {CHAIN}_TOKEN / registry resolution ladder)
  *
  * Usage:
  *   ROLE=minter HOLDER=0xOldHolder \
@@ -39,9 +39,9 @@ contract RevokeTokenRole is TokenRoleScript {
 
         address token = _resolveToken(config, chainId);
 
-        RolesProbes.TokenRole role = RolesProbes.tokenRoleFromName(_roleName());
-        RolesProbes.TokenTemplate template = RolesProbes.detectTemplate(token);
-        RolesProbes.requireRoleOnTemplate(template, role);
+        RolesProbes.TokenRole role = RolesProbes._tokenRoleFromName(_roleName());
+        RolesProbes.TokenTemplate template = RolesProbes._detectTemplate(token);
+        RolesProbes._requireRoleOnTemplate(template, role);
 
         address holder = _holder();
         require(
@@ -49,7 +49,7 @@ contract RevokeTokenRole is TokenRoleScript {
             "HOLDER must be set. RevokeTokenRole never defaults the revoke target: under MODE=safe the default executing account is the Safe itself, and revoking the recipient is the inversion the handoff forbids."
         );
 
-        address actor = executingAccount();
+        address actor = _executingAccount();
         require(
             holder != actor,
             "HOLDER is the executing account itself. Self-revocation is refused: revoking your own DEFAULT_ADMIN_ROLE (or your own mint/burn authority) can strand the token with no working admin, and no ceremony step revokes from the actor."
@@ -61,27 +61,27 @@ contract RevokeTokenRole is TokenRoleScript {
         console.log("========================================");
         console.log(string.concat("Chain:        ", chainName));
         console.log(string.concat("Token:        ", vm.toString(token)));
-        console.log(string.concat("Template:     ", RolesProbes.templateName(template)));
-        console.log(string.concat("Role:         ", RolesProbes.tokenRoleName(role)));
+        console.log(string.concat("Template:     ", RolesProbes._templateName(template)));
+        console.log(string.concat("Role:         ", RolesProbes._tokenRoleName(role)));
         console.log(string.concat("Holder:       ", vm.toString(holder)));
         console.log(string.concat("Actor:        ", vm.toString(actor)));
         console.log("========================================");
         console.log("");
 
-        requireTokenRoleAuthority(token, template, role, actor);
+        _requireTokenRoleAuthority(token, template, role, actor);
 
-        console.log(string.concat("\n[Step 1] Revoking ", RolesProbes.tokenRoleName(role), " on ", chainName));
+        console.log(string.concat("\n[Step 1] Revoking ", RolesProbes._tokenRoleName(role), " on ", chainName));
         if (template == RolesProbes.TokenTemplate.FactoryBurnMintERC20) {
             // Only Minter/Burner reach this branch (requireRoleOnTemplate refused the admin roles on
             // factory); the explicit check keeps a future role from silently mapping to revokeBurnRole.
             if (role == RolesProbes.TokenRole.Minter) {
-                executeCalls(CctActions.revokeMintRole(token, holder));
+                _executeCalls(CctActions._revokeMintRole(token, holder));
             } else {
                 require(role == RolesProbes.TokenRole.Burner, "factory tokens carry only minter/burner roles");
-                executeCalls(CctActions.revokeBurnRole(token, holder));
+                _executeCalls(CctActions._revokeBurnRole(token, holder));
             }
         } else {
-            executeCalls(CctActions.revokeRole(token, RolesProbes.tokenRoleId(token, role), holder));
+            _executeCalls(CctActions._revokeRole(token, RolesProbes._tokenRoleId(token, role), holder));
         }
         console.log(unicode"✅ Role revoked successfully!");
 
@@ -90,7 +90,7 @@ contract RevokeTokenRole is TokenRoleScript {
         console.log(string.concat(unicode"✅ Token Role Revoked on ", chainName, "!"));
         console.log("========================================");
         console.log(string.concat("Token:  ", helperConfig.getExplorerUrl(chainId, "/address/", token)));
-        console.log(string.concat("Role:   ", RolesProbes.tokenRoleName(role)));
+        console.log(string.concat("Role:   ", RolesProbes._tokenRoleName(role)));
         console.log(string.concat("Holder: ", vm.toString(holder)));
         console.log("========================================");
         console.log("");

@@ -68,8 +68,8 @@ contract AddRemotePool is EoaExecutor {
 
         // Resolve and fence the pool version BEFORE any version-shaped read: a 1.5.0 pool must get
         // the named refusal here, not a raw selector revert from getRemotePools below.
-        (PoolVersions.Version poolVersion,) = PoolVersion.resolve(tokenPoolAddress);
-        PoolVersions.requireSupports(PoolVersions.Op.ADD_REMOTE_POOL, poolVersion, tokenPoolAddress);
+        (PoolVersions.Version poolVersion,) = PoolVersion._resolve(tokenPoolAddress);
+        PoolVersions._requireSupports(PoolVersions.Op.ADD_REMOTE_POOL, poolVersion, tokenPoolAddress);
 
         TokenPool tokenPool = TokenPool(tokenPoolAddress);
 
@@ -112,7 +112,7 @@ contract AddRemotePool is EoaExecutor {
 
         console.log(string.concat("[Step 1] Adding remote pool on ", sourceChainName));
 
-        executeCalls(CctActions.addRemotePool(tokenPoolAddress, remoteChainSelector, abi.encode(remotePoolAddress)));
+        _executeCalls(CctActions._addRemotePool(tokenPoolAddress, remoteChainSelector, abi.encode(remotePoolAddress)));
 
         console.log(unicode"✅ Remote pool added successfully!");
         console.log("");

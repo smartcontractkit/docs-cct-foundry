@@ -38,9 +38,9 @@ contract UpdateAllowList is EoaExecutor {
             )
         );
 
-        // Parse allowlist updates — supports CSV ("0xA,0xB") or JSON array ("[\"0xA\",\"0xB\"]")
-        address[] memory removes = HelperUtils.parseAddressArray(vm, vm.envOr("REMOVE_ADDRESSES", string("")), "");
-        address[] memory adds = HelperUtils.parseAddressArray(vm, vm.envOr("ADD_ADDRESSES", string("")), "");
+        // Parse allowlist updates - supports CSV ("0xA,0xB") or JSON array ("[\"0xA\",\"0xB\"]")
+        address[] memory removes = HelperUtils._parseAddressArray(vm, vm.envOr("REMOVE_ADDRESSES", string("")), "");
+        address[] memory adds = HelperUtils._parseAddressArray(vm, vm.envOr("ADD_ADDRESSES", string("")), "");
 
         console.log("");
         console.log("========================================");
@@ -59,7 +59,7 @@ contract UpdateAllowList is EoaExecutor {
         // expose the identical applyAllowListUpdates(address[],address[]) selector, so one builder serves
         // both. A revert (e.g. OnlyCallableByOwner, or a v2 pool without hooks) bubbles up unchanged.
         address allowListTarget = hooksAddress != address(0) ? hooksAddress : tokenPoolAddress;
-        executeCalls(CctActions.applyAllowListUpdates(allowListTarget, removes, adds));
+        _executeCalls(CctActions._applyAllowListUpdates(allowListTarget, removes, adds));
 
         console.log(unicode"✅ AllowList updated successfully!");
         console.log("");

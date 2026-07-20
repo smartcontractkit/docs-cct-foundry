@@ -48,7 +48,7 @@ interface IRemotePoolReader {
 ///      actual rate-limit getter surface before it is honored. See docs/pool-versions.md.
 library PoolVersion {
     // Access the forge-std vm cheatcode from within a library.
-    Vm private constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+    Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     string internal constant OVERRIDE_ENV = "POOL_VERSION_OVERRIDE";
 
@@ -61,13 +61,13 @@ library PoolVersion {
     ///         `-dev` build, or reports a version the catalog does not know. Returns the resolved
     ///         version and the full on-chain `typeAndVersion()` string (always the TRUE on-chain
     ///         string, also when an override supplied the version).
-    function resolve(address pool) internal view returns (PoolVersions.Version version, string memory full) {
-        return resolveWith(pool, vm.envOr(OVERRIDE_ENV, string("")));
+    function _resolve(address pool) internal view returns (PoolVersions.Version version, string memory full) {
+        return _resolveWith(pool, VM.envOr(OVERRIDE_ENV, string("")));
     }
 
     /// @notice `resolve` with the override specification passed explicitly (the env-reading `resolve`
     ///         delegates here; tests inject override strings without mutating the process env).
-    function resolveWith(address pool, string memory overrideSpec)
+    function _resolveWith(address pool, string memory overrideSpec)
         internal
         view
         returns (PoolVersions.Version version, string memory full)
@@ -85,12 +85,12 @@ library PoolVersion {
         _requireKnownTypePrefix(pool, full, typePrefix);
         _requireNoDevBuild(pool, full, token);
 
-        version = PoolVersions.fromVersionToken(token);
+        version = PoolVersions._fromVersionToken(token);
         if (version == PoolVersions.Version.UNKNOWN) {
             revert(
                 string.concat(
                     "UnsupportedPoolVersion: pool ",
-                    vm.toString(pool),
+                    VM.toString(pool),
                     " reports \"",
                     full,
                     "\". This repo dispatches on the pool contract version and has not been validated against \"",
@@ -101,7 +101,7 @@ library PoolVersion {
                     "If you have verified this pool's ABI matches a cataloged version, set ",
                     OVERRIDE_ENV,
                     "=",
-                    vm.toString(pool),
+                    VM.toString(pool),
                     "=<catalogedVersion>. See ",
                     PoolVersions.DOCS,
                     "#unknown-versions; the catalog lives in ",
@@ -117,16 +117,16 @@ library PoolVersion {
     ///         when one exists) so the caller can warn and continue best effort. A valid
     ///         `POOL_VERSION_OVERRIDE` entry for the pool is honored here too (same warning and
     ///         cross-check); a malformed override entry still reverts, on every path.
-    function tryResolve(address pool)
+    function _tryResolve(address pool)
         internal
         view
         returns (bool ok, PoolVersions.Version version, string memory full)
     {
-        return tryResolveWith(pool, vm.envOr(OVERRIDE_ENV, string("")));
+        return _tryResolveWith(pool, VM.envOr(OVERRIDE_ENV, string("")));
     }
 
     /// @notice `tryResolve` with the override specification passed explicitly.
-    function tryResolveWith(address pool, string memory overrideSpec)
+    function _tryResolveWith(address pool, string memory overrideSpec)
         internal
         view
         returns (bool ok, PoolVersions.Version version, string memory full)
@@ -148,7 +148,7 @@ library PoolVersion {
         }
 
         if (!_isKnownTypePrefix(typePrefix)) return (false, PoolVersions.Version.UNKNOWN, full);
-        version = PoolVersions.fromVersionToken(token);
+        version = PoolVersions._fromVersionToken(token);
         if (version == PoolVersions.Version.UNKNOWN) return (false, PoolVersions.Version.UNKNOWN, full);
         return (true, version, full);
     }
@@ -164,21 +164,21 @@ library PoolVersion {
 
     /// @notice Fences a MUTATING v1.x LockRelease liquidity operation on both axes and returns the
     ///         resolved version (< 2.0.0) so the caller can build the write. The check is two-dimensional:
-    ///         1. TYPE — the pool's `typeAndVersion()` must start with `LockReleaseTokenPool`. A BurnMint
+    ///         1. TYPE - the pool's `typeAndVersion()` must start with `LockReleaseTokenPool`. A BurnMint
     ///            (or any other) pool has no pool-held liquidity, so it is refused by name with the
     ///            reported type, never routed to the generic unsupported-operation error.
-    ///         2. VERSION — a 2.0.0 (or later) LockRelease pool no longer holds liquidity (the external
+    ///         2. VERSION - a 2.0.0 (or later) LockRelease pool no longer holds liquidity (the external
     ///            lock box replaced the rebalancer model), so it is refused with a HELPFUL pointer at the
     ///            lock box scripts rather than the generic unsupported-operation error.
     ///         Only after both pass does it assert the capability range (`PROVIDE_LIQUIDITY`, which shares
     ///         the v1.x range with the other liquidity ops). Uncataloged / `-dev` / non-pool addresses are
     ///         refused earlier by `resolve` (this broadcasts, so it uses the strict resolver).
-    function requireLockReleaseLiquidity(address pool)
+    function _requireLockReleaseLiquidity(address pool)
         internal
         view
         returns (PoolVersions.Version version, string memory full)
     {
-        (version, full) = resolve(pool);
+        (version, full) = _resolve(pool);
         (string memory typePrefix,) = _splitTypeAndVersion(full);
 
         if (keccak256(bytes(typePrefix)) != keccak256(bytes(LOCK_RELEASE_TYPE))) {
@@ -187,7 +187,7 @@ library PoolVersion {
                     "UnsupportedPoolTypeForLiquidity: liquidity management is only on LockRelease pools; this is a ",
                     typePrefix,
                     " (pool ",
-                    vm.toString(pool),
+                    VM.toString(pool),
                     ", on-chain \"",
                     full,
                     "\"). See ",
@@ -202,7 +202,7 @@ library PoolVersion {
                 string.concat(
                     "LiquidityManagedByLockBox: on 2.0.0 LockRelease pools, liquidity is managed via the external lock box",
                     " - use operations/DepositToLockBox.s.sol / WithdrawFromLockBox.s.sol (pool ",
-                    vm.toString(pool),
+                    VM.toString(pool),
                     ", on-chain \"",
                     full,
                     "\")."
@@ -210,13 +210,13 @@ library PoolVersion {
             );
         }
 
-        PoolVersions.requireSupports(PoolVersions.Op.PROVIDE_LIQUIDITY, version, pool);
+        PoolVersions._requireSupports(PoolVersions.Op.PROVIDE_LIQUIDITY, version, pool);
     }
 
     /// @notice The type prefix of a raw `typeAndVersion()` string (everything before the last space), for
     ///         read-path scripts that branch on the pool type without a mutating fence. An empty string in
     ///         (a non-pool) yields an empty prefix.
-    function typePrefixOf(string memory full) internal pure returns (string memory typePrefix) {
+    function _typePrefixOf(string memory full) internal pure returns (string memory typePrefix) {
         (typePrefix,) = _splitTypeAndVersion(full);
     }
 
@@ -228,7 +228,7 @@ library PoolVersion {
     ///         version: the singular `getRemotePool` on 1.5.0 (wrapped into a one-element array),
     ///         the plural `getRemotePools` from 1.5.1. On `UNKNOWN` (read paths only) it degrades
     ///         to best effort: plural getter first, singular as fallback.
-    function remotePools(address pool, PoolVersions.Version version, uint64 remoteChainSelector)
+    function _remotePools(address pool, PoolVersions.Version version, uint64 remoteChainSelector)
         internal
         view
         returns (bytes[] memory pools)
@@ -269,7 +269,7 @@ library PoolVersion {
     function _notAPool(address pool) private pure returns (string memory) {
         return string.concat(
             "NotACcipTokenPool: no typeAndVersion() at ",
-            vm.toString(pool),
+            VM.toString(pool),
             "; not a CCIP token pool. Did you pass the token address instead of the pool? See ",
             PoolVersions.DOCS,
             "."
@@ -319,7 +319,7 @@ library PoolVersion {
         revert(
             string.concat(
                 "UnsupportedPoolType: pool ",
-                vm.toString(pool),
+                VM.toString(pool),
                 " reports \"",
                 full,
                 "\". Version tokens are only comparable within the standard TokenPool lineage ",
@@ -329,7 +329,7 @@ library PoolVersion {
                 "If you have verified this pool's ABI matches a cataloged version, set ",
                 OVERRIDE_ENV,
                 "=",
-                vm.toString(pool),
+                VM.toString(pool),
                 "=<catalogedVersion>. See ",
                 PoolVersions.DOCS,
                 "#pool-types."
@@ -342,14 +342,14 @@ library PoolVersion {
         revert(
             string.concat(
                 "DevBuildRefused: pool ",
-                vm.toString(pool),
+                VM.toString(pool),
                 " reports \"",
                 full,
                 "\", an unaudited development build with no stable ABI. Refusing to dispatch. ",
                 "If you accept the risk and have verified the ABI against a cataloged version, set ",
                 OVERRIDE_ENV,
                 "=",
-                vm.toString(pool),
+                VM.toString(pool),
                 "=<catalogedVersion> (one of ",
                 PoolVersions.SUPPORTED_VERSIONS,
                 "). See ",
@@ -390,13 +390,13 @@ library PoolVersion {
         returns (bool found, PoolVersions.Version version)
     {
         if (bytes(overrideSpec).length == 0) return (false, PoolVersions.Version.UNKNOWN);
-        string[] memory entries = vm.split(overrideSpec, ",");
+        string[] memory entries = VM.split(overrideSpec, ",");
         for (uint256 i = 0; i < entries.length; i++) {
-            string[] memory pair = vm.split(entries[i], "=");
+            string[] memory pair = VM.split(entries[i], "=");
             if (pair.length != 2 || !_isHexAddress(pair[0])) revert(_malformedOverride(entries[i]));
-            PoolVersions.Version v = PoolVersions.fromVersionToken(pair[1]);
+            PoolVersions.Version v = PoolVersions._fromVersionToken(pair[1]);
             if (v == PoolVersions.Version.UNKNOWN) revert(_malformedOverride(entries[i]));
-            if (!found && vm.parseAddress(pair[0]) == pool) {
+            if (!found && VM.parseAddress(pair[0]) == pool) {
                 found = true;
                 version = v;
             }
@@ -438,9 +438,9 @@ library PoolVersion {
                 unicode"⚠️  ",
                 OVERRIDE_ENV,
                 " is treating pool ",
-                vm.toString(pool),
+                VM.toString(pool),
                 " as contract version ",
-                PoolVersions.toString(version),
+                PoolVersions._toString(version),
                 "."
             )
         );
@@ -470,11 +470,11 @@ library PoolVersion {
                         "PoolVersionOverrideMismatch: ",
                         OVERRIDE_ENV,
                         " claims pool ",
-                        vm.toString(pool),
+                        VM.toString(pool),
                         " (on-chain \"",
                         full,
                         "\") is version ",
-                        PoolVersions.toString(version),
+                        PoolVersions._toString(version),
                         ", but the v2 getter getCurrentRateLimiterState(uint64,bool) does not answer on it. ",
                         "The override looks wrong; fix or remove it. See ",
                         PoolVersions.DOCS,
@@ -491,11 +491,11 @@ library PoolVersion {
                     "PoolVersionOverrideMismatch: ",
                     OVERRIDE_ENV,
                     " claims pool ",
-                    vm.toString(pool),
+                    VM.toString(pool),
                     " (on-chain \"",
                     full,
                     "\") is version ",
-                    PoolVersions.toString(version),
+                    PoolVersions._toString(version),
                     ", but the v1 getter getCurrentOutboundRateLimiterState(uint64) does not answer on it. ",
                     "The override looks wrong; fix or remove it. See ",
                     PoolVersions.DOCS,

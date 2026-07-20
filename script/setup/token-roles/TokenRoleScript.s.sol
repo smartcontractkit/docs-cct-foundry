@@ -32,14 +32,14 @@ abstract contract TokenRoleScript is EoaExecutor {
     ///      itself; a burnmint `DEFAULT_ADMIN_ROLE` holder. Compared against the EXECUTING account (the
     ///      Safe in safe mode), never the broadcaster. OZ AccessControl gates grant and revoke with the
     ///      same admin role, and the factory set is owner-gated both ways, so grant and revoke share this.
-    function requireTokenRoleAuthority(
+    function _requireTokenRoleAuthority(
         address token,
         RolesProbes.TokenTemplate template,
         RolesProbes.TokenRole role,
         address actor
     ) internal view {
         if (template == RolesProbes.TokenTemplate.FactoryBurnMintERC20) {
-            (, address owner_) = RolesProbes.tryAddress(token, "owner()");
+            (, address owner_) = RolesProbes._tryAddress(token, "owner()");
             require(
                 owner_ == actor,
                 string.concat(
@@ -50,10 +50,10 @@ abstract contract TokenRoleScript is EoaExecutor {
         }
         bytes32 adminRole = (template == RolesProbes.TokenTemplate.CrossChainToken
                 && role != RolesProbes.TokenRole.BurnMintAdmin)
-            ? RolesProbes.roleIdOrDefault(token, "BURN_MINT_ADMIN_ROLE()", RolesProbes.BURN_MINT_ADMIN_ROLE)
+            ? RolesProbes._roleIdOrDefault(token, "BURN_MINT_ADMIN_ROLE()", RolesProbes.BURN_MINT_ADMIN_ROLE)
             : RolesProbes.DEFAULT_ADMIN_ROLE;
         require(
-            RolesProbes.hasRole(token, adminRole, actor),
+            RolesProbes._hasRole(token, adminRole, actor),
             string.concat(
                 "Executing account (", vm.toString(actor), ") does not hold the role-admin role on this token."
             )

@@ -1,0 +1,56 @@
+{
+  "workflowId": "greenfield-deploy",
+  "summary": "Deploy a new BurnMint token cross-chain end to end: deploy the token and pool, register it, set the pool, and wire a lane. Run per chain, then send.",
+  "inputs": {
+    "chain": "the local chain selectorName (config/chains/<chain>.json)",
+    "remoteChain": "the remote chain selectorName to wire a lane to",
+    "mode": "eoa | safe (default eoa)"
+  },
+  "steps": [
+    {
+      "stepId": "deploy-token",
+      "primitive": "DeployToken",
+      "parameters": { "CHAIN": "$inputs.chain", "TOKEN_NAME": "<name>", "TOKEN_SYMBOL": "<symbol>" },
+      "successCriteria": "the token address is recorded in the project store (addresses.active.token)",
+      "outputs": { "token": "the deployed token address" }
+    },
+    {
+      "stepId": "deploy-pool",
+      "primitive": "DeployBurnMintTokenPool",
+      "parameters": { "CHAIN": "$inputs.chain", "TOKEN": "$steps.deploy-token.outputs.token" },
+      "successCriteria": "the pool is recorded and its typeAndVersion is BurnMintTokenPool 2.0.0",
+      "outputs": { "pool": "the deployed pool address" }
+    },
+    {
+      "stepId": "register",
+      "primitive": "ClaimAndAcceptAdmin",
+      "parameters": { "CHAIN": "$inputs.chain", "mode": "$inputs.mode" },
+      "successCriteria": "the TokenAdminRegistry administrator for the token is the executing account",
+      "outputs": {}
+    },
+    {
+      "stepId": "set-pool",
+      "primitive": "SetPool",
+      "parameters": { "CHAIN": "$inputs.chain", "mode": "$inputs.mode" },
+      "successCriteria": "TokenAdminRegistry getPool(token) equals the deployed pool",
+      "outputs": {}
+    },
+    {
+      "stepId": "wire-lane",
+      "primitive": "ApplyChainUpdates",
+      "parameters": {
+        "CHAIN": "$inputs.chain",
+        "DEST_CHAIN": "$inputs.remoteChain",
+        "mode": "$inputs.mode"
+      },
+      "successCriteria": "the remote chain is supported on the pool with a remote pool and rate limits",
+      "outputs": {}
+    }
+  ],
+  "outputs": {
+    "token": "$steps.deploy-token.outputs.token",
+    "pool": "$steps.deploy-pool.outputs.pool"
+  },
+  "modeNote": "Under mode=safe the register, set-pool, and wire-lane steps emit one Safe batch to sign instead of broadcasting; the deploy steps sign with the keystore in both modes.",
+  "postWorkflow": "Run this workflow on BOTH chains (swapping chain and remoteChain), then send a transfer with ccip-cli (see guides/send-track-diagnose.md)."
+}

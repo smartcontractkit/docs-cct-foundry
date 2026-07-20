@@ -83,7 +83,7 @@ contract AdoptTokenForkTest is Test {
     }
 
     /// @dev Registry hygiene: the scratch project file must not exist when a test starts. No scratch
-    /// chain-config is needed — RegistryWriter's family validation defaults to EVM when
+    /// chain-config is needed - RegistryWriter's family validation defaults to EVM when
     /// config/chains/<name>.json is absent, and creating a stub config would pollute the global
     /// HelperConfig discovery scan run by every parallel fork suite. The setUp() call is the
     /// revert-safe guarantee; the end-of-test call keeps a green run residue-free.
@@ -224,14 +224,14 @@ contract AdoptTokenForkTest is Test {
 
         script.recordAdoption(plan);
 
-        assertEq(RegistryWriter.read(SCRATCH_SEL, "token"), CCT_TOKEN, "active.token must resolve the adopted token");
+        assertEq(RegistryWriter._read(SCRATCH_SEL, "token"), CCT_TOKEN, "active.token must resolve the adopted token");
         assertEq(
-            RegistryWriter.read(SCRATCH_SEL, "tokenPool"),
+            RegistryWriter._read(SCRATCH_SEL, "tokenPool"),
             CCT_POOL_200,
             "active.tokenPool must resolve the adopted pool"
         );
         assertEq(
-            RegistryWriter.readDeployment(SCRATCH_SEL, string.concat(plan.tokenSymbol, "_BurnMintTokenPool_2.0.0")),
+            RegistryWriter._readDeployment(SCRATCH_SEL, string.concat(plan.tokenSymbol, "_BurnMintTokenPool_2.0.0")),
             CCT_POOL_200,
             "deployments entry keyed by the on-chain type and version"
         );

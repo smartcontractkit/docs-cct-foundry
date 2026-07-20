@@ -1,0 +1,1080 @@
+{
+  "generatedBy": "script/docs/gen-primitives.mjs",
+  "note": "Generated from the script/ tree and the Makefile. Do not edit by hand; run `npm run docs:catalog`.",
+  "counts": {
+    "primitives": 60,
+    "makeTargets": 25
+  },
+  "primitives": [
+    {
+      "name": "AdoptToken",
+      "script": "script/config/AdoptToken.s.sol",
+      "group": "config-plane",
+      "description": "Adopts an externally deployed token (and optionally its pool) into the address registry, so contracts this repo did NOT deploy resolve exactly like the ones it did (the zero-export `active.<role>` ladder).",
+      "modes": [
+        "eoa"
+      ],
+      "read_only": false,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": []
+    },
+    {
+      "name": "RolesCheck",
+      "script": "script/config/RolesCheck.s.sol",
+      "group": "config-plane",
+      "description": "**`make roles-check CHAIN=<name>` - READ-ONLY reconcile of the declared `roles{}` against the live chain.** It never writes a file and never broadcasts; the only outputs are the aligned [PASS]/[FAIL]/[WARN]/[SKIP] lines from `RolesAuditor` and the exit status.",
+      "modes": [
+        "eoa"
+      ],
+      "read_only": false,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": []
+    },
+    {
+      "name": "SnapshotChain",
+      "script": "script/config/SnapshotChain.s.sol",
+      "group": "config-plane",
+      "description": "**`make snapshot-chain CHAIN=<name>` - backfill the DECLARED authority state FROM chain.** Reads the live role surface (owner/defaultAdmin/getCCIPAdmin/hasRole/TAR getTokenConfig/ dual-generation pool admins/getAllAuthorizedCallers/getAllowList/...) through `RolesSnapshot` and writes the `roles{}` subtree of `project/<selectorName>.json` (preserve-and-replace, the same single-subtree pattern as the `ccip{}` sync).",
+      "modes": [
+        "eoa"
+      ],
+      "read_only": false,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": [
+        "FOUNDRY_PROFILE"
+      ]
+    },
+    {
+      "name": "SyncCcipConfig",
+      "script": "script/config/SyncCcipConfig.s.sol",
+      "group": "config-plane",
+      "description": "The config-sync entrypoints: everything that generates, refreshes, or drift-checks a `config/chains/<name>.json` file from the live CCIP REST API v2.",
+      "modes": [
+        "eoa"
+      ],
+      "read_only": false,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": [
+        "CHAIN_NAME_IDENTIFIER",
+        "FOUNDRY_PROFILE",
+        "RPC_ENV"
+      ]
+    },
+    {
+      "name": "VerifyChain",
+      "script": "script/config/VerifyChain.s.sol",
+      "group": "config-plane",
+      "description": "The layered chain-config doctor.",
+      "modes": [
+        "eoa"
+      ],
+      "read_only": false,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": [
+        "FOUNDRY_PROFILE"
+      ]
+    },
+    {
+      "name": "DeployAdvancedPoolHooks",
+      "script": "script/configure/allowlist/DeployAdvancedPoolHooks.s.sol",
+      "group": "allowlist",
+      "description": "Optional script to deploy AdvancedPoolHooks for enhanced token pool security",
+      "modes": [
+        "eoa"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "ALLOWLIST",
+        "AUTHORIZED_CALLERS",
+        "POLICY_ENGINE",
+        "POOL_TYPE",
+        "THRESHOLD_AMOUNT"
+      ]
+    },
+    {
+      "name": "GetAdvancedPoolHooks",
+      "script": "script/configure/allowlist/GetAdvancedPoolHooks.s.sol",
+      "group": "allowlist",
+      "description": "Reads and displays the AdvancedPoolHooks contract address currently attached to a token pool.",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": []
+    },
+    {
+      "name": "GetAllowList",
+      "script": "script/configure/allowlist/GetAllowList.s.sol",
+      "group": "allowlist",
+      "description": "Script to fetch and print the allowlist from an AdvancedPoolHooks contract Usage: POOL_HOOKS=0x... forge script script/configure/allowlist/GetAllowList.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account $KEYSTORE_NAME /",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": [
+        "POOL_HOOKS"
+      ]
+    },
+    {
+      "name": "IsAllowListed",
+      "script": "script/configure/allowlist/IsAllowListed.s.sol",
+      "group": "allowlist",
+      "description": "Script to check if an address is allowlisted in an AdvancedPoolHooks contract Usage: POOL_HOOKS=0x...",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": [
+        "CHECK_ADDRESS",
+        "POOL_HOOKS"
+      ]
+    },
+    {
+      "name": "UpdateAdvancedPoolHooks",
+      "script": "script/configure/allowlist/UpdateAdvancedPoolHooks.s.sol",
+      "group": "allowlist",
+      "description": "Script to update the AdvancedPoolHooks address for a deployed TokenPool",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "NEW_HOOK",
+        "TOKEN_POOL"
+      ]
+    },
+    {
+      "name": "UpdateAllowList",
+      "script": "script/configure/allowlist/UpdateAllowList.s.sol",
+      "group": "allowlist",
+      "description": "Script to update the allowlist for a TokenPool or AdvancedPoolHooks",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "ADD_ADDRESSES",
+        "POOL_HOOKS",
+        "REMOVE_ADDRESSES",
+        "TOKEN_POOL"
+      ]
+    },
+    {
+      "name": "GetAuthorizedCallers",
+      "script": "script/configure/authorized-callers/GetAuthorizedCallers.s.sol",
+      "group": "authorized-callers",
+      "description": "Script to fetch and print the authorized callers from an AdvancedPoolHooks or ERC20LockBox contract Usage: POOL_HOOKS=0x... forge script script/configure/authorized-callers/GetAuthorizedCallers.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account $KEYSTORE_NAME LOCK_BOX=0x... forge script script/configure/authorized-callers/GetAuthorizedCallers.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account $KEYSTORE_NAME Environment variables: POOL_HOOKS -- address of an AdvancedPoolHooks contract (one of POOL_HOOKS or LOCK_BOX required) LOCK_BOX -- address of an ERC20LockBox contract (one of POOL_HOOKS or LOCK_BOX required) /",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": [
+        "LOCK_BOX",
+        "POOL_HOOKS"
+      ]
+    },
+    {
+      "name": "UpdateAuthorizedCallers",
+      "script": "script/configure/authorized-callers/UpdateAuthorizedCallers.s.sol",
+      "group": "authorized-callers",
+      "description": "Script to add or remove authorized callers on an AdvancedPoolHooks or ERC20LockBox contract",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "ADD_ADDRESSES",
+        "LOCK_BOX",
+        "POOL_HOOKS",
+        "REMOVE_ADDRESSES"
+      ]
+    },
+    {
+      "name": "GetCCVConfig",
+      "script": "script/configure/ccv/GetCCVConfig.s.sol",
+      "group": "ccv",
+      "description": "Reads and displays the CCV (Cross-Chain Verifier) configuration for a token pool: every configured remote lane's four verifier arrays plus the pool-global additional-CCV threshold.",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": []
+    },
+    {
+      "name": "UpdateCCVConfig",
+      "script": "script/configure/ccv/UpdateCCVConfig.s.sol",
+      "group": "ccv",
+      "description": "Applies CCV (Cross-Chain Verifier) configuration to a token pool's AdvancedPoolHooks: the four per-lane verifier arrays and/or the pool-global additional-CCV threshold.",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "DEST_CHAIN"
+      ]
+    },
+    {
+      "name": "GetDynamicConfig",
+      "script": "script/configure/dynamic-config/GetDynamicConfig.s.sol",
+      "group": "dynamic-config",
+      "description": "Reads and displays the dynamic configuration of a TokenPool.",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": []
+    },
+    {
+      "name": "SetDynamicConfig",
+      "script": "script/configure/dynamic-config/SetDynamicConfig.s.sol",
+      "group": "dynamic-config",
+      "description": "Updates the dynamic configuration of a TokenPool (router, rateLimitAdmin, feeAdmin).",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "FEE_ADMIN",
+        "RATE_LIMIT_ADMIN",
+        "ROUTER"
+      ]
+    },
+    {
+      "name": "GetTokenTransferFeeConfig",
+      "script": "script/configure/fee-config/GetTokenTransferFeeConfig.s.sol",
+      "group": "fee-config",
+      "description": "Reads and displays the token transfer fee configuration for a token pool on a given destination lane.",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": [
+        "DEST_CHAIN"
+      ]
+    },
+    {
+      "name": "UpdateTokenTransferFeeConfig",
+      "script": "script/configure/fee-config/UpdateTokenTransferFeeConfig.s.sol",
+      "group": "fee-config",
+      "description": "Applies token transfer fee configuration updates to a token pool on a given destination lane.",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "DEST_CHAIN",
+        "DISABLE"
+      ]
+    },
+    {
+      "name": "GetFinalityConfig",
+      "script": "script/configure/finality-config/GetFinalityConfig.s.sol",
+      "group": "finality-config",
+      "description": "Reads and displays the allowed finality configuration on a TokenPool.",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": []
+    },
+    {
+      "name": "SetFinalityConfig",
+      "script": "script/configure/finality-config/SetFinalityConfig.s.sol",
+      "group": "finality-config",
+      "description": "Sets the allowed finality configuration on a TokenPool, and optionally updates rate limits for the fast finality bucket on a specific remote chain lane.",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "DEST_CHAIN"
+      ]
+    },
+    {
+      "name": "GetLockBox",
+      "script": "script/configure/GetLockBox.s.sol",
+      "group": "configure",
+      "description": "Reads and displays the ERC20LockBox contract address currently attached to a LockReleaseTokenPool.",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": []
+    },
+    {
+      "name": "GetRebalancer",
+      "script": "script/configure/liquidity/GetRebalancer.s.sol",
+      "group": "liquidity",
+      "description": "Reads and displays the rebalancer of a v1.x LockRelease token pool (`getRebalancer`).",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": []
+    },
+    {
+      "name": "ProvideLiquidity",
+      "script": "script/configure/liquidity/ProvideLiquidity.s.sol",
+      "group": "liquidity",
+      "description": "Provides lock/release liquidity to a v1.x LockRelease token pool (`provideLiquidity`).",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "AMOUNT"
+      ]
+    },
+    {
+      "name": "SetRebalancer",
+      "script": "script/configure/liquidity/SetRebalancer.s.sol",
+      "group": "liquidity",
+      "description": "Sets the rebalancer on a v1.x LockRelease token pool (`setRebalancer`, onlyOwner).",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "REBALANCER"
+      ]
+    },
+    {
+      "name": "WithdrawLiquidity",
+      "script": "script/configure/liquidity/WithdrawLiquidity.s.sol",
+      "group": "liquidity",
+      "description": "Withdraws lock/release liquidity from a v1.x LockRelease token pool (`withdrawLiquidity`).",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": true,
+      "inputs": [
+        "AMOUNT"
+      ]
+    },
+    {
+      "name": "GetCurrentRateLimits",
+      "script": "script/configure/rate-limiter/GetCurrentRateLimits.s.sol",
+      "group": "rate-limiter",
+      "description": "Reads and displays the current rate limiter state for a TokenPool, compatible with v1 and v2 pools.",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": [
+        "DEST_CHAIN",
+        "FAST_FINALITY"
+      ]
+    },
+    {
+      "name": "UpdateRateLimiters",
+      "script": "script/configure/rate-limiter/UpdateRateLimiters.s.sol",
+      "group": "rate-limiter",
+      "description": "Updates rate limiter configuration on a TokenPool, compatible with both v1 and v2 pools.",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "DEST_CHAIN",
+        "FAST_FINALITY"
+      ]
+    },
+    {
+      "name": "RemoveChain",
+      "script": "script/configure/remote-chains/RemoveChain.s.sol",
+      "group": "remote-chains",
+      "description": "Fully unsupports a remote chain on the source TokenPool: removes the chain selector and deletes its remote-chain config (pools, remote token, rate limits).",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": true,
+      "inputs": [
+        "DEST_CHAIN"
+      ]
+    },
+    {
+      "name": "AddRemotePool",
+      "script": "script/configure/remote-pools/AddRemotePool.s.sol",
+      "group": "remote-pools",
+      "description": "Adds a remote pool address to a TokenPool for a given remote chain.",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "DEST_CHAIN",
+        "REMOTE_POOL_ADDRESS"
+      ]
+    },
+    {
+      "name": "GetRemotePools",
+      "script": "script/configure/remote-pools/GetRemotePools.s.sol",
+      "group": "remote-pools",
+      "description": "Reads and displays the remote pool addresses configured on a TokenPool for a given remote chain.",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": [
+        "DEST_CHAIN"
+      ]
+    },
+    {
+      "name": "RemoveRemotePool",
+      "script": "script/configure/remote-pools/RemoveRemotePool.s.sol",
+      "group": "remote-pools",
+      "description": "Removes a remote pool address from a TokenPool for a given remote chain.",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": true,
+      "inputs": [
+        "DEST_CHAIN",
+        "REMOTE_POOL_ADDRESS"
+      ]
+    },
+    {
+      "name": "DeployBurnMintTokenPool",
+      "script": "script/deploy/DeployBurnMintTokenPool.s.sol",
+      "group": "deploy",
+      "description": "Deploys a BurnMint token pool for a token and records it in the address registry.",
+      "modes": [
+        "eoa"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "DECIMALS",
+        "POOL_HOOKS"
+      ]
+    },
+    {
+      "name": "DeployERC20LockBox",
+      "script": "script/deploy/DeployERC20LockBox.s.sol",
+      "group": "deploy",
+      "description": "Script to deploy an ERC20LockBox for use with a LockReleaseTokenPool",
+      "modes": [
+        "eoa"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "AUTHORIZED_CALLERS"
+      ]
+    },
+    {
+      "name": "DeployLockReleaseTokenPool",
+      "script": "script/deploy/DeployLockReleaseTokenPool.s.sol",
+      "group": "deploy",
+      "description": "Deploys a LockRelease token pool (paired with an ERC20 LockBox) and records it in the registry.",
+      "modes": [
+        "eoa"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "DECIMALS",
+        "LOCK_BOX",
+        "POOL_HOOKS"
+      ]
+    },
+    {
+      "name": "DeployToken",
+      "script": "script/deploy/DeployToken.s.sol",
+      "group": "deploy",
+      "description": "Deploys a cross-chain ERC20 token (CrossChainToken) and records it in the address registry.",
+      "modes": [
+        "eoa"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "CCIP_ADMIN_ADDRESS",
+        "ROLES_RECIPIENT",
+        "TOKEN_DECIMALS",
+        "TOKEN_MAX_SUPPLY",
+        "TOKEN_NAME",
+        "TOKEN_PRE_MINT",
+        "TOKEN_PRE_MINT_RECIPIENT",
+        "TOKEN_SYMBOL"
+      ]
+    },
+    {
+      "name": "PreflightTransfer",
+      "script": "script/diagnostics/PreflightTransfer.s.sol",
+      "group": "diagnostics",
+      "description": "Preflights a token transfer before any real send by simulating both pool legs against live chain state: the source pool's `lockOrBurn`, then the destination pool's `releaseOrMint` fed the exact `destPoolData` the source leg produced.",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": [
+        "AMOUNT",
+        "DEST_CHAIN",
+        "DEST_POOL",
+        "DEST_RPC_URL",
+        "ORIGINAL_SENDER",
+        "RECEIVER",
+        "REQUESTED_FINALITY",
+        "SOURCE_CHAIN",
+        "SOURCE_POOL",
+        "SOURCE_RPC_URL",
+        "TOKEN_ARGS"
+      ]
+    },
+    {
+      "name": "DeploySafe",
+      "script": "script/governance/DeploySafe.s.sol",
+      "group": "governance",
+      "description": "Deploys a Safe from the canonical Safe v1.4.1 stack: `SafeProxyFactory.createProxyWithNonce(SafeL2, setup(...), saltNonce)`.",
+      "modes": [
+        "eoa"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "SAFE_OWNERS",
+        "SAFE_SALT_NONCE",
+        "SAFE_THRESHOLD"
+      ]
+    },
+    {
+      "name": "ExecuteBatch",
+      "script": "script/governance/ExecuteBatch.s.sol",
+      "group": "governance",
+      "description": "Composes several independently emitted Safe batches into ONE Safe meta-transaction.",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": [
+        "BATCH_FILES",
+        "BATCH_NAME",
+        "SAFE_ADDRESS"
+      ]
+    },
+    {
+      "name": "VerifyRoles",
+      "script": "script/governance/VerifyRoles.s.sol",
+      "group": "governance",
+      "description": "**The privileged-role audit reader (read-only)** - prints the CURRENT holder of every authority slot for a token / pool / lockbox / hooks set.",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": [
+        "TAR",
+        "TOKEN",
+        "TOKEN_POOL"
+      ]
+    },
+    {
+      "name": "DepositToLockBox",
+      "script": "script/operations/DepositToLockBox.s.sol",
+      "group": "operations",
+      "description": "Script to deposit tokens into an ERC20LockBox",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "AMOUNT",
+        "LOCK_BOX"
+      ]
+    },
+    {
+      "name": "GetFeeTokenBalances",
+      "script": "script/operations/GetFeeTokenBalances.s.sol",
+      "group": "operations",
+      "description": "Displays the fee token balances currently held by a token pool.",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": [
+        "FEE_TOKENS"
+      ]
+    },
+    {
+      "name": "MintTokens",
+      "script": "script/operations/MintTokens.s.sol",
+      "group": "operations",
+      "description": "Mints tokens to a receiver (requires the signer to hold the token's minter role).",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "AMOUNT",
+        "MINT_RECEIVER"
+      ]
+    },
+    {
+      "name": "WithdrawFeeTokens",
+      "script": "script/operations/WithdrawFeeTokens.s.sol",
+      "group": "operations",
+      "description": "Withdraws accrued fee token balances from a token pool to a specified recipient.",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": true,
+      "inputs": [
+        "FEE_TOKENS",
+        "RECIPIENT"
+      ]
+    },
+    {
+      "name": "WithdrawFromLockBox",
+      "script": "script/operations/WithdrawFromLockBox.s.sol",
+      "group": "operations",
+      "description": "Script to withdraw tokens from an ERC20LockBox",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": true,
+      "inputs": [
+        "AMOUNT",
+        "LOCK_BOX",
+        "RECIPIENT"
+      ]
+    },
+    {
+      "name": "AcceptAdminRole",
+      "script": "script/setup/AcceptAdminRole.s.sol",
+      "group": "token-admin-registry",
+      "description": "Accepts the pending administrator role for a token in the TokenAdminRegistry (step 2 of the two-step claim; the signer must be the pending administrator set by ClaimAdmin).",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": []
+    },
+    {
+      "name": "ApplyChainUpdates",
+      "script": "script/setup/ApplyChainUpdates.s.sol",
+      "group": "token-admin-registry",
+      "description": "Configures cross-chain lanes on the source TokenPool by calling applyChainUpdates.",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "DEST_CHAIN",
+        "DEST_CHAIN_FAMILY",
+        "DEST_CHAIN_SELECTOR",
+        "DEST_TOKEN",
+        "DEST_TOKEN_POOL",
+        "VIA_JSON_FILE"
+      ]
+    },
+    {
+      "name": "ClaimAdmin",
+      "script": "script/setup/ClaimAdmin.s.sol",
+      "group": "token-admin-registry",
+      "description": "Registers the token administrator in the TokenAdminRegistry, auto-detecting the claim path (getCCIPAdmin, then owner, then AccessControl DEFAULT_ADMIN_ROLE) in that precedence.",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "CCIP_ADMIN_ADDRESS"
+      ]
+    },
+    {
+      "name": "ClaimAndAcceptAdmin",
+      "script": "script/setup/ClaimAndAcceptAdmin.s.sol",
+      "group": "token-admin-registry",
+      "description": "Claims AND accepts the CCIP token admin as ONE atomic registration pair - the claim sets the executing account as the registry's pending administrator, so the accept in the same batch succeeds.",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "CCIP_ADMIN_ADDRESS"
+      ]
+    },
+    {
+      "name": "GetSupportedChains",
+      "script": "script/setup/GetSupportedChains.s.sol",
+      "group": "token-admin-registry",
+      "description": "Reads and displays all remote chains supported by a TokenPool.",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": []
+    },
+    {
+      "name": "GetTokenConfig",
+      "script": "script/setup/GetTokenConfig.s.sol",
+      "group": "token-admin-registry",
+      "description": "Reads and displays TokenAdminRegistry.getTokenConfig(tokenAddress) for a token.",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": []
+    },
+    {
+      "name": "GetTypeAndVersion",
+      "script": "script/setup/GetTypeAndVersion.s.sol",
+      "group": "token-admin-registry",
+      "description": "Reads and displays the typeAndVersion string from any contract implementing ITypeAndVersion.",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": [
+        "ADDRESS"
+      ]
+    },
+    {
+      "name": "SetPool",
+      "script": "script/setup/SetPool.s.sol",
+      "group": "token-admin-registry",
+      "description": "Points the TokenAdminRegistry at the token's pool, activating the token for cross-chain transfers.",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": []
+    },
+    {
+      "name": "GrantTokenRole",
+      "script": "script/setup/token-roles/GrantTokenRole.s.sol",
+      "group": "token-roles",
+      "description": "Grants a token role (minter / burner / burnMintAdmin) to a holder, template-dispatched: AccessControl templates (`crosschain`, `burnmint`) get `grantRole` with the token's resolved role id; the Ownable `factory` template gets `grantMintRole`/`grantBurnRole`.",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "HOLDER",
+        "ROLE"
+      ]
+    },
+    {
+      "name": "RevokeTokenRole",
+      "script": "script/setup/token-roles/RevokeTokenRole.s.sol",
+      "group": "token-roles",
+      "description": "Revokes a token role (minter / burner / burnMintAdmin) from a holder, template-dispatched exactly like `GrantTokenRole`: `revokeRole` on AccessControl templates, `revokeMintRole`/`revokeBurnRole` on the Ownable `factory` template.",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": true,
+      "inputs": [
+        "HOLDER",
+        "ROLE"
+      ]
+    },
+    {
+      "name": "SetCCIPAdmin",
+      "script": "script/setup/token-roles/SetCCIPAdmin.s.sol",
+      "group": "token-roles",
+      "description": "Sets the token's CCIP admin (`setCCIPAdmin`, one-step, no accept).",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "CCIP_ADMIN_ADDRESS"
+      ]
+    },
+    {
+      "name": "TransferTokenAdmin",
+      "script": "script/setup/token-roles/TransferTokenAdmin.s.sol",
+      "group": "token-roles",
+      "description": "Moves the token's TOP-LEVEL admin (its template's own mechanism).",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "ACCEPT",
+        "NEW_ADMIN"
+      ]
+    },
+    {
+      "name": "AcceptOwnership",
+      "script": "script/setup/transfer-ownership/AcceptOwnership.s.sol",
+      "group": "ownership",
+      "description": "Completes a two-step ownership transfer initiated by TransferOwnership for any Ownable contract (a token pool, pool hooks, or a lockbox).",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "ADDRESS"
+      ]
+    },
+    {
+      "name": "TransferOwnership",
+      "script": "script/setup/transfer-ownership/TransferOwnership.s.sol",
+      "group": "ownership",
+      "description": "Initiates a two-step ownership transfer for any Ownable contract (a token pool, pool hooks, or a lockbox).",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "ADDRESS",
+        "NEW_OWNER"
+      ]
+    },
+    {
+      "name": "TransferTokenAdminRole",
+      "script": "script/setup/TransferTokenAdminRole.s.sol",
+      "group": "token-admin-registry",
+      "description": "Initiates a transfer of the token admin role to a new address.",
+      "modes": [
+        "eoa",
+        "safe"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "NEW_ADMIN"
+      ]
+    }
+  ],
+  "makeTargets": [
+    {
+      "target": "help",
+      "help": "List the available targets"
+    },
+    {
+      "target": "tools",
+      "help": "Check the required tools are installed (forge, curl, jq)"
+    },
+    {
+      "target": "discover",
+      "help": "List the CCIP API testnet catalog vs local configs (FILTER=<term> narrows)"
+    },
+    {
+      "target": "add-chain",
+      "help": "Generate config/chains/<CHAIN>.json from the live API (CHAIN= and SELECTOR= required)"
+    },
+    {
+      "target": "add-lane",
+      "help": "Append a lanes{} policy entry LOCAL -> REMOTE (LOCAL= REMOTE= CAPACITY= RATE= required; INBOUND_CAPACITY= + INBOUND_RATE= add the inbound block; BOTH=1 adds the reciprocal; GROUP= scopes to a token group)"
+    },
+    {
+      "target": "remove-lane",
+      "help": "Remove a lanes{} policy entry LOCAL -> REMOTE from the declaration (LOCAL= REMOTE= required; BOTH=1 removes the reciprocal; GROUP= scopes to a token group; on-chain removal via RemoveChain, or RemoveRemotePool for a single pool, is a separate step)"
+    },
+    {
+      "target": "adopt-token",
+      "help": "Adopt an externally deployed token into project/[<GROUP>/]<CHAIN>.json (EVM: CHAIN= TOKEN= [TOKEN_POOL=]; non-EVM: CHAIN= TOKEN_B58= [POOL_B58=]; GROUP= for a second token)"
+    },
+    {
+      "target": "sync",
+      "help": "Refresh <CHAIN>'s ccip{} block from the live API (CHAIN= required)"
+    },
+    {
+      "target": "sync-preview",
+      "help": "Fetch + log <CHAIN>'s ccip{} from the API without writing (CHAIN= required)"
+    },
+    {
+      "target": "sync-all",
+      "help": "Refresh every configured chain (non-EVM chains SKIP; failures are collected)"
+    },
+    {
+      "target": "fmt-config",
+      "help": "Repair canonical JSON: config/chains/*.json (jq -S + trailing newline) AND project files, all groups (jq -S, NO trailing newline)"
+    },
+    {
+      "target": "clean-scratch",
+      "help": "Remove gitignored test-scratch fixtures (zz-scratch-*, zz-tt-*, local-*) from config/chains/, project/ and history/"
+    },
+    {
+      "target": "sync-check",
+      "help": "Read-only drift check (CHAIN= optional; pass/fail only - CI uses the script for 0/1/2)"
+    },
+    {
+      "target": "verify-args",
+      "help": "Print the forge verifier flags composed from config/chains/<CHAIN>.json (CHAIN= required)"
+    },
+    {
+      "target": "verify",
+      "help": "Source-verify an already-deployed contract on <CHAIN>'s explorer backend (CHAIN= ADDRESS= CONTRACT= required; CONSTRUCTOR_ARGS= optional, else guessed via the RPC)"
+    },
+    {
+      "target": "doctor",
+      "help": "Layered verification of one chain's config (CHAIN= required; GROUP= scopes to one token group)"
+    },
+    {
+      "target": "preflight",
+      "help": "Preflight a token transfer before sending: simulate source lockOrBurn + dest releaseOrMint against live state, GO/NO-GO (SOURCE_CHAIN= DEST_CHAIN= AMOUNT= RECEIVER= required; opt SOURCE_POOL= DEST_POOL= ORIGINAL_SENDER= REQUESTED_FINALITY=; read-only, no keystore)"
+    },
+    {
+      "target": "deploy-token",
+      "help": "Deploy a cross-chain token on <CHAIN> (CHAIN= + KEYSTORE_NAME= required; token params via env TOKEN_NAME= TOKEN_SYMBOL= ...; VERIFY=1 source-verifies; FORCE_REDEPLOY=1 overrides the redeploy guard; GROUP= scopes to a token group)"
+    },
+    {
+      "target": "deploy-pool",
+      "help": "Deploy a BurnMint token pool on <CHAIN> (CHAIN= + KEYSTORE_NAME= required; token resolved from the registry, else TOKEN=; opt POOL_HOOKS=; VERIFY=1; FORCE_REDEPLOY=1; GROUP= scopes to a token group)"
+    },
+    {
+      "target": "deploy-lockbox",
+      "help": "Deploy an ERC20 LockBox on <CHAIN> for the LockRelease liquidity model (CHAIN= + KEYSTORE_NAME= required; token from the registry, else TOKEN=; opt AUTHORIZED_CALLERS=; VERIFY=1; GROUP= scopes to a token group)"
+    },
+    {
+      "target": "deploy-lockrelease-pool",
+      "help": "Deploy a LockRelease token pool on <CHAIN> (CHAIN= + KEYSTORE_NAME= required; token + lock box from the registry, else TOKEN= LOCK_BOX=; opt POOL_HOOKS=; VERIFY=1; FORCE_REDEPLOY=1; GROUP= scopes to a token group)"
+    },
+    {
+      "target": "deploy-new-chain",
+      "help": "Guided deploy: add-chain -> deploy-token -> deploy-pool -> doctor (CHAIN= SELECTOR= + KEYSTORE_NAME= required; token params + VERIFY= via env). Register, set-pool, and wire-lane come next - see docs/workflows/greenfield-deploy.md; a green run means deployed, not yet cross-chain-live"
+    },
+    {
+      "target": "snapshot-chain",
+      "help": "Backfill the declared roles{} authority block FROM chain (CHAIN= required; GROUP= scopes to one token group; opt: TOKEN= TOKEN_POOL= TAR= SCAN_FROM_BLOCK=)"
+    },
+    {
+      "target": "roles-check",
+      "help": "READ-ONLY reconcile of a chain's declared roles{} vs the live chain (CHAIN= optional; GROUP= scopes to one token group; pass/fail only - CI uses the script for 0/1/2)"
+    },
+    {
+      "target": "roles-check-all",
+      "help": "READ-ONLY reconcile of every chain that declares roles{}, across all token groups (exit contract = script/config/roles-check.sh)"
+    }
+  ]
+}

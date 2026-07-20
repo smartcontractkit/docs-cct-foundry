@@ -6,18 +6,18 @@ pragma solidity 0.8.24;
 ///         destination chains. Mirrors the TypeScript chainHandlers.ts utility in the Hardhat project.
 ///
 /// @dev prepareChainAddressData output format (for use in TokenPool.ChainUpdate):
-///   EVM   → abi.encode(address)  — 32-byte ABI-padded word
-///   SVM   → raw 32 bytes         — base58-decoded Solana public key
+///   EVM   → abi.encode(address)  - 32-byte ABI-padded word
+///   SVM   → raw 32 bytes         - base58-decoded Solana public key
 ///
 /// Typical usage in ApplyChainUpdates.s.sol:
 ///   string memory destChainFamily = vm.envOr("DEST_CHAIN_FAMILY", string("evm"));
-///   ChainHandlers.ChainFamily family = ChainHandlers.parseChainFamily(destChainFamily);
+///   ChainHandlers.ChainFamily family = ChainHandlers._parseChainFamily(destChainFamily);
 ///
 ///   string memory destPoolStr   = vm.envString("DEST_TOKEN_POOL");
 ///   string memory destTokenStr  = vm.envString("DEST_TOKEN");
 ///
-///   bytes memory encodedPool  = ChainHandlers.prepareChainAddressData(destPoolStr,  family);
-///   bytes memory encodedToken = ChainHandlers.prepareChainAddressData(destTokenStr, family);
+///   bytes memory encodedPool  = ChainHandlers._prepareChainAddressData(destPoolStr,  family);
+///   bytes memory encodedToken = ChainHandlers._prepareChainAddressData(destTokenStr, family);
 library ChainHandlers {
     // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -35,9 +35,9 @@ library ChainHandlers {
     // ─── Public API ──────────────────────────────────────────────────────────
 
     /// @notice Returns true if `addr` is a syntactically valid address for `family`.
-    /// @dev EVM   — "0x" prefix + exactly 40 hex characters.
-    ///      SVM   — base58 characters only, 32-44 chars long, decodes to exactly 32 bytes.
-    function validateChainAddress(string memory addr, ChainFamily family) internal pure returns (bool) {
+    /// @dev EVM   - "0x" prefix + exactly 40 hex characters.
+    ///      SVM   - base58 characters only, 32-44 chars long, decodes to exactly 32 bytes.
+    function _validateChainAddress(string memory addr, ChainFamily family) internal pure returns (bool) {
         if (family == ChainFamily.EVM) return _isValidEvmAddress(addr);
         if (family == ChainFamily.SVM) return _isValidSvmAddress(addr);
         return false;
@@ -45,10 +45,10 @@ library ChainHandlers {
 
     /// @notice Encodes `addr` into the byte format expected by TokenPool.ChainUpdate
     ///         (remotePoolAddresses[] entries and remoteTokenAddress).
-    ///   EVM   → abi.encode(address)   — 32-byte ABI word
-    ///   SVM   → 32 raw bytes           — base58-decoded Solana public key
+    ///   EVM   → abi.encode(address)   - 32-byte ABI word
+    ///   SVM   → 32 raw bytes           - base58-decoded Solana public key
     /// @dev Reverts with InvalidChainAddress if the address is malformed for the given family.
-    function prepareChainAddressData(string memory addr, ChainFamily family) internal pure returns (bytes memory) {
+    function _prepareChainAddressData(string memory addr, ChainFamily family) internal pure returns (bytes memory) {
         if (family == ChainFamily.EVM) return _prepareEvmAddress(addr);
         if (family == ChainFamily.SVM) return _prepareSvmAddress(addr);
         revert("ChainHandlers: unsupported chain family");
@@ -57,7 +57,7 @@ library ChainHandlers {
     /// @notice Parses a chain family string into the ChainFamily enum.
     ///         Accepts lowercase and uppercase: "evm"/"EVM", "svm"/"SVM",
     ///         "solana"/"SOLANA" (alias for SVM).
-    function parseChainFamily(string memory familyStr) internal pure returns (ChainFamily) {
+    function _parseChainFamily(string memory familyStr) internal pure returns (ChainFamily) {
         bytes32 h = keccak256(bytes(familyStr));
         if (h == keccak256("evm") || h == keccak256("EVM")) return ChainFamily.EVM;
         if (h == keccak256("svm") || h == keccak256("SVM") || h == keccak256("solana") || h == keccak256("SOLANA")) {
@@ -125,7 +125,7 @@ library ChainHandlers {
     function _decodeBase58(bytes memory input) private pure returns (bytes memory) {
         uint256 len = input.length;
 
-        // Count leading '1's — ASCII 0x31 — each represents a leading 0x00 byte.
+        // Count leading '1's - ASCII 0x31 - each represents a leading 0x00 byte.
         uint256 leadingZeros = 0;
         for (uint256 i = 0; i < len; i++) {
             if (input[i] == 0x31) {
@@ -193,7 +193,7 @@ library ChainHandlers {
     ///        2. Treat the remaining bytes as a base-256 number and convert to base-58
     ///           using a byte-array accumulator (schoolbook long division).
     ///        3. Reverse the accumulated digits and prepend the leading '1' characters.
-    function encodeBase58(bytes memory data) internal pure returns (string memory) {
+    function _encodeBase58(bytes memory data) internal pure returns (string memory) {
         bytes memory alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
         // Count leading zero bytes.

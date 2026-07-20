@@ -16,7 +16,7 @@ import {PoolVersions} from "../../../src/PoolVersions.sol";
 ///      later (`TokenPool.getAdvancedPoolHooks()`) and may be unset (`address(0)`) when no hooks are
 ///      wired. This is a version-fenced read that degrades gracefully: a pre-2.0.0 pool prints a named
 ///      message (CCVs are not cataloged before 2.0.0), and a 2.0.0 pool without hooks prints a clean
-///      "nothing to read" message — neither is a revert.
+///      "nothing to read" message - neither is a revert.
 ///
 /// Usage example:
 ///   forge script script/configure/ccv/GetCCVConfig.s.sol \
@@ -70,7 +70,7 @@ contract GetCCVConfig is Script {
         // CCVs are a v2.0-only surface (they live on AdvancedPoolHooks). A pre-2.0.0 or unrecognized
         // pool prints a named message and returns cleanly.
         (bool versionKnown, PoolVersions.Version version, string memory typeAndVersion) =
-            PoolVersion.tryResolve(tokenPoolAddress);
+            PoolVersion._tryResolve(tokenPoolAddress);
         if (!versionKnown || version < PoolVersions.Version.V2_0_0) {
             console.log(
                 string.concat(

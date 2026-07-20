@@ -8,7 +8,7 @@ import {SafeMode} from "./SafeMode.sol";
 /// @title EoaExecutor
 /// @notice The execution entry point of the action layer: takes the `Call[]` a `CctActions` builder
 ///         produced and hands it to the executor the `MODE` environment variable selects. `MODE`
-///         unset (or `eoa`, the default) broadcasts each call in order from the script signer —
+///         unset (or `eoa`, the default) broadcasts each call in order from the script signer -
 ///         today's behavior, unchanged. `MODE=safe` routes the IDENTICAL `Call[]` to the Safe
 ///         executor (`SafeMode`): the batch is emitted for review/signing instead of broadcast.
 ///         Scripts inherit this instead of calling contracts inline, so the calldata a user reviews
@@ -16,12 +16,12 @@ import {SafeMode} from "./SafeMode.sol";
 abstract contract EoaExecutor is Script {
     /// @notice Executes the calls in the mode `MODE` selects (default `eoa`). Virtual so tests can
     ///         capture the built calls without broadcasting or writing batch artifacts.
-    function executeCalls(CctActions.Call[] memory calls) internal virtual {
+    function _executeCalls(CctActions.Call[] memory calls) internal virtual {
         string memory mode = _executionMode();
         if (keccak256(bytes(mode)) == keccak256(bytes("eoa"))) {
             _broadcastCalls(calls);
         } else if (keccak256(bytes(mode)) == keccak256(bytes("safe"))) {
-            SafeMode.run(calls);
+            SafeMode._run(calls);
         } else {
             revert(string.concat("Unknown MODE '", mode, "': use 'eoa' (default) or 'safe'."));
         }
@@ -36,17 +36,17 @@ abstract contract EoaExecutor is Script {
     /// @notice The account that will EXECUTE the calls in the selected mode: the Safe in `safe`
     ///         mode, the script broadcaster otherwise. Preflight checks that assert on-chain
     ///         authority (owner, pending administrator, admin role) must compare against THIS
-    ///         account — comparing against `broadcaster()` wrongly rejects Safe-mode runs, where the
+    ///         account - comparing against `_broadcaster()` wrongly rejects Safe-mode runs, where the
     ///         broadcaster only emits or submits and the Safe is the account acting on-chain.
-    function executingAccount() internal returns (address) {
+    function _executingAccount() internal returns (address) {
         if (keccak256(bytes(_executionMode())) == keccak256(bytes("safe"))) {
             return vm.envAddress("SAFE_ADDRESS");
         }
-        return broadcaster();
+        return _broadcaster();
     }
 
     /// @notice The EOA mode: broadcasts every call in order, reverting on the first failure (atomic
-    ///         batch semantics — a dry run surfaces the revert before anything is sent).
+    ///         batch semantics - a dry run surfaces the revert before anything is sent).
     function _broadcastCalls(CctActions.Call[] memory calls) private {
         vm.startBroadcast();
         for (uint256 i = 0; i < calls.length; i++) {
@@ -76,7 +76,7 @@ abstract contract EoaExecutor is Script {
     /// @notice Resolves the account the script will broadcast with (keystore --account, --private-key,
     ///         or the default sender), so wrappers can run their preflight checks against it before any
     ///         transaction is sent.
-    function broadcaster() internal returns (address account) {
+    function _broadcaster() internal returns (address account) {
         vm.startBroadcast();
         (, account,) = vm.readCallers();
         vm.stopBroadcast();

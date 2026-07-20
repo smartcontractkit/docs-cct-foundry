@@ -55,6 +55,38 @@ jobs:
       - run: npm ci
       - run: forge lint
 
+  solhint:
+    name: solhint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint:sol
+
+  docs:
+    name: docs gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # The primitives catalog is generated from the script/ tree; fail if it is stale, a primitive
+      # lacks a @notice, or an entry names a deleted script.
+      - name: primitives catalog freshness and coverage
+        run: npm run docs:catalog:check
+      # Links and anchors resolve across all docs; authored docs carry no em-dashes.
+      - name: docs links, anchors, and prose
+        run: npm run docs:check
+
   # Fork tests default to public Sepolia RPC endpoints (with fallback), so no
   # secret is required; set ETHEREUM_SEPOLIA_RPC_URL to override with a private endpoint.
   test:

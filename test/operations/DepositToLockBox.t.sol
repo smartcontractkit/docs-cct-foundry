@@ -16,7 +16,7 @@ contract DepositToLockBoxUnresolvedHarness is DepositToLockBox {
 
 /// @notice `DepositToLockBox` moved from a REQUIRED `vm.envAddress("LOCK_BOX")` (which reverted with a
 /// raw cheatcode error) to the standard resolution ladder (`LOCK_BOX` > `{CHAIN}_LOCK_BOX` > registry
-/// `active.lockBox`). When the lockbox resolves NOWHERE it must still fail — but with the clear,
+/// `active.lockBox`). When the lockbox resolves NOWHERE it must still fail - but with the clear,
 /// self-explaining message, never silently proceed with `address(0)`.
 /// @dev No fork, no env, no skip: the harness pins the resolution to `address(0)`, so this asserts the
 /// named revert deterministically on every run. `vm.chainId` is set to a CONFIGURED chain so the earlier

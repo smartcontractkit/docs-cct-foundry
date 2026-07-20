@@ -22,7 +22,7 @@ contract ClaimPathDetectionTest is Test {
     /// @dev Thin wrappers so the internal library functions cross an external boundary, which is what
     ///      lets `vm.expectRevert` observe their reverts.
     function detect(address token) external view returns (ClaimPathDetector.ClaimPath path, address admin) {
-        return ClaimPathDetector.detect(token);
+        return ClaimPathDetector._detect(token);
     }
 
     function requireExpectedAdmin(
@@ -31,7 +31,7 @@ contract ClaimPathDetectionTest is Test {
         address reportedAdmin,
         address expectedAdmin
     ) external view {
-        ClaimPathDetector.requireExpectedAdmin(path, token, reportedAdmin, expectedAdmin);
+        ClaimPathDetector._requireExpectedAdmin(path, token, reportedAdmin, expectedAdmin);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -74,10 +74,10 @@ contract ClaimPathDetectionTest is Test {
     // ─────────────────────────────────────────────────────────────────────────
 
     function test_MethodLabel_AllPaths() external pure {
-        assertEq(ClaimPathDetector.methodLabel(ClaimPathDetector.ClaimPath.GetCCIPAdmin), "getCCIPAdmin()");
-        assertEq(ClaimPathDetector.methodLabel(ClaimPathDetector.ClaimPath.Owner), "owner()");
+        assertEq(ClaimPathDetector._methodLabel(ClaimPathDetector.ClaimPath.GetCCIPAdmin), "getCCIPAdmin()");
+        assertEq(ClaimPathDetector._methodLabel(ClaimPathDetector.ClaimPath.Owner), "owner()");
         assertEq(
-            ClaimPathDetector.methodLabel(ClaimPathDetector.ClaimPath.AccessControlDefaultAdmin),
+            ClaimPathDetector._methodLabel(ClaimPathDetector.ClaimPath.AccessControlDefaultAdmin),
             "AccessControl DEFAULT_ADMIN_ROLE"
         );
     }

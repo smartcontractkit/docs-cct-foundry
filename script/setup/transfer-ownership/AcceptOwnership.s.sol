@@ -6,63 +6,52 @@ import {HelperConfig} from "../../HelperConfig.s.sol";
 import {CctActions} from "../../../src/actions/CctActions.sol";
 import {EoaExecutor} from "../../../src/base/EoaExecutor.s.sol";
 import {IOwnable} from "@chainlink/contracts/src/v0.8/shared/interfaces/IOwnable.sol";
+import {ITypeAndVersion} from "@chainlink/contracts/src/v0.8/shared/interfaces/ITypeAndVersion.sol";
 
 /**
- * @notice Completes a two-step ownership transfer initiated by TransferOwnership for a generic Ownable
- *         entity (a token pool, pool hooks, or a lockbox).
- * @dev tokenPool, poolHooks, and lockBox all use Chainlink's ConfirmedOwner / Ownable2Step pattern:
- *      this script calls acceptOwnership() on the entity at ADDRESS. The signer must be the address
- *      that was set as the pending owner; acceptOwnership reverts on-chain otherwise.
+ * @notice Completes a two-step ownership transfer initiated by TransferOwnership for any Ownable
+ *         contract (a token pool, pool hooks, or a lockbox).
+ * @dev Token pools, pool hooks, and lockboxes all use Chainlink's ConfirmedOwner / Ownable2Step
+ *      pattern: this script calls acceptOwnership() on the entity at ADDRESS. The signer must be the
+ *      address that was set as the pending owner; acceptOwnership reverts on-chain otherwise. If the
+ *      contract exposes typeAndVersion(), it is used to label the console output.
  *
- *      To accept a token's top-level admin (defaultAdmin / owner / DEFAULT_ADMIN_ROLE), use
- *      script/setup/token-roles/TransferTokenAdmin.s.sol with ACCEPT=1. This script does not handle
- *      tokens.
+ *      This is a generic Ownable transfer. To accept a token's top-level admin, use
+ *      script/setup/token-roles/TransferTokenAdmin.s.sol with ACCEPT=1 instead: it is template-aware.
+ *      A token that exposes no owner() (a crosschain or burnmint token) reverts here with a pointer to
+ *      that script.
  *
  * Required env vars:
- *   ENTITY_TYPE: one of tokenPool, poolHooks, lockBox (optional; omit for a generic IOwnable)
- *   ADDRESS:     contract address of the entity
+ *   ADDRESS: contract address of the Ownable entity
  *
  * Usage:
  *   ADDRESS=0xYourPool \
  *     forge script script/setup/transfer-ownership/AcceptOwnership.s.sol \
  *     --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account $KEYSTORE_NAME --broadcast
- *   ENTITY_TYPE=tokenPool ADDRESS=0xYourPool \
- *     forge script script/setup/transfer-ownership/AcceptOwnership.s.sol \
- *     --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account $KEYSTORE_NAME --broadcast
- *   ENTITY_TYPE=poolHooks ADDRESS=0xYourHooks \
- *     forge script script/setup/transfer-ownership/AcceptOwnership.s.sol \
- *     --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account $KEYSTORE_NAME --broadcast
- *   ENTITY_TYPE=lockBox ADDRESS=0xYourLockBox \
- *     forge script script/setup/transfer-ownership/AcceptOwnership.s.sol \
- *     --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account $KEYSTORE_NAME --broadcast
- *
- * If ENTITY_TYPE is omitted, the contract at ADDRESS is treated as a generic IOwnable (same as tokenPool/poolHooks/lockBox).
  */
 contract AcceptOwnership is EoaExecutor {
     HelperConfig public helperConfig;
 
-    function _eq(string memory a, string memory b) internal pure returns (bool) {
-        return keccak256(abi.encodePacked(a)) == keccak256(abi.encodePacked(b));
+    /// @dev Labels console output from the contract's typeAndVersion() when it exposes one; a plain
+    ///      "Contract" otherwise. Purely cosmetic.
+    function _entityLabel(address entityAddress) internal pure returns (string memory) {
+        try ITypeAndVersion(entityAddress).typeAndVersion() returns (string memory tv) {
+            return tv;
+        } catch {
+            return "Contract";
+        }
     }
 
-    function _entityLabel(string memory entityType) internal pure returns (string memory) {
-        if (bytes(entityType).length == 0) return "Contract";
-        if (_eq(entityType, "token")) {
+    /// @dev Reads owner(), turning the absence of an owner() (a crosschain or burnmint token) into a
+    ///      clear pointer to the template-aware token-admin script rather than a raw low-level revert.
+    function _requireOwner(IOwnable entity) internal returns (address) {
+        try entity.owner() returns (address currentOwner) {
+            return currentOwner;
+        } catch {
             revert(
-                "ENTITY_TYPE=token is not handled here; accept a token's top-level admin with script/setup/token-roles/TransferTokenAdmin.s.sol (set ACCEPT=1)"
+                "This contract exposes no owner(); if it is a token, accept its admin with script/setup/token-roles/TransferTokenAdmin.s.sol (set ACCEPT=1)"
             );
         }
-        if (_eq(entityType, "tokenPool")) return "Token Pool";
-        if (_eq(entityType, "poolHooks")) return "Pool Hooks";
-        if (_eq(entityType, "lockBox")) return "LockBox";
-        revert(string.concat("Invalid ENTITY_TYPE \"", entityType, "\". Valid values: tokenPool, poolHooks, lockBox"));
-    }
-
-    function _entityActionLabel(string memory entityType) internal pure returns (string memory) {
-        if (bytes(entityType).length == 0) return "contract";
-        if (_eq(entityType, "tokenPool")) return "token pool";
-        if (_eq(entityType, "poolHooks")) return "pool hooks";
-        return "lockbox"; // lockBox
     }
 
     function _padRight(string memory s, uint256 targetLen) internal pure returns (string memory) {
@@ -85,50 +74,45 @@ contract AcceptOwnership is EoaExecutor {
         uint256 chainId = block.chainid;
         string memory chainName = helperConfig.getChainName(chainId);
 
-        string memory entityType = vm.envOr("ENTITY_TYPE", string(""));
-        string memory label = _entityLabel(entityType); // also validates entityType
-
         address entityAddress = vm.envAddress("ADDRESS");
         require(entityAddress != address(0), "ADDRESS must be set to a non-zero address");
 
+        string memory label = _entityLabel(entityAddress);
+
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"👑 Accept ", label, " Ownership"));
+        console.log(string.concat(unicode"👑 Accept Ownership: ", label));
         console.log("========================================");
         console.log(string.concat("Chain:        ", chainName));
-        console.log(string.concat("Action:       Accept ", _entityActionLabel(entityType), " ownership"));
+        console.log("Action:       Accept ownership");
         console.log("========================================");
         console.log("");
 
-        _acceptSimpleOwnership(chainId, chainName, entityType, label, entityAddress);
+        _acceptOwnership(chainId, chainName, label, entityAddress);
     }
 
-    function _acceptSimpleOwnership(
-        uint256 chainId,
-        string memory chainName,
-        string memory entityType,
-        string memory label,
-        address entityAddress
-    ) internal {
+    function _acceptOwnership(uint256 chainId, string memory chainName, string memory label, address entityAddress)
+        internal
+    {
         IOwnable entity = IOwnable(entityAddress);
-        address currentOwner = entity.owner();
+        address currentOwner = _requireOwner(entity);
 
-        console.log(string.concat("Accept ", label, " Ownership Parameters:"));
+        console.log("Accept Ownership Parameters:");
         console.log(string.concat("  ", _padRight(string.concat(label, ":"), 14), " ", vm.toString(entityAddress)));
         console.log(string.concat("  Current Owner: ", vm.toString(currentOwner)));
 
-        address signer = broadcaster();
+        address signer = _broadcaster();
         console.log(string.concat("  Signer:        ", vm.toString(signer)));
         console.log("");
 
-        console.log(string.concat("\n[Step 1] Accepting ", _entityActionLabel(entityType), " ownership on ", chainName));
+        console.log(string.concat("\n[Step 1] Accepting ownership on ", chainName));
         // acceptOwnership reverts on-chain if the signer is not the pending owner
-        executeCalls(CctActions.acceptOwnership(entityAddress));
+        _executeCalls(CctActions._acceptOwnership(entityAddress));
         console.log(unicode"✅ Ownership accepted successfully!");
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ ", label, " Ownership Accepted on ", chainName, "!"));
+        console.log(string.concat(unicode"✅ Ownership Accepted on ", chainName, "!"));
         console.log("========================================");
         console.log(
             string.concat(

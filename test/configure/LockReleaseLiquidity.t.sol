@@ -9,7 +9,7 @@ import {PoolVersion} from "../../script/utils/PoolVersion.s.sol";
 import {LiquidityBase} from "../../script/configure/liquidity/LiquidityBase.s.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Mocks — the minimal on-chain surface each fence branch inspects
+// Mocks - the minimal on-chain surface each fence branch inspects
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// @dev A v1.x LockRelease pool: the rebalancer/liquidity surface plus getToken. `typeAndVersion`
@@ -83,7 +83,7 @@ contract MockUncatalogedLockReleasePool {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Harnesses — external-call seams so try/catch and expectRevert apply to the library call
+// Harnesses - external-call seams so try/catch and expectRevert apply to the library call
 // ─────────────────────────────────────────────────────────────────────────────
 
 contract LiquidityFenceShim {
@@ -92,7 +92,7 @@ contract LiquidityFenceShim {
         view
         returns (PoolVersions.Version version, string memory full)
     {
-        return PoolVersion.requireLockReleaseLiquidity(pool);
+        return PoolVersion._requireLockReleaseLiquidity(pool);
     }
 }
 
@@ -198,7 +198,7 @@ contract LockReleaseLiquidityTest is Test {
     // ── Builder calldata ────────────────────────────────────────────────────────
 
     function test_SetRebalancer_BuildsTheCall() public pure {
-        CctActions.Call[] memory calls = CctActions.setRebalancer(POOL, REBALANCER);
+        CctActions.Call[] memory calls = CctActions._setRebalancer(POOL, REBALANCER);
         assertEq(calls.length, 1, "one call");
         assertEq(calls[0].target, POOL, "target is the pool");
         assertEq(calls[0].value, 0, "value 0");
@@ -213,7 +213,7 @@ contract LockReleaseLiquidityTest is Test {
         uint256 amount = 1_000e18;
         // The exact batch ProvideLiquidity.s.sol broadcasts: approve(pool, amount) then provideLiquidity.
         CctActions.Call[] memory calls =
-            CctActions.concat(CctActions.approve(TOKEN, POOL, amount), CctActions.provideLiquidity(POOL, amount));
+            CctActions._concat(CctActions._approve(TOKEN, POOL, amount), CctActions._provideLiquidity(POOL, amount));
         assertEq(calls.length, 2, "approve + provide");
         assertEq(calls[0].target, TOKEN, "approve targets the token");
         assertEq(calls[0].data, abi.encodeCall(IERC20.approve, (POOL, amount)), "approve(pool, amount) calldata");
@@ -227,7 +227,7 @@ contract LockReleaseLiquidityTest is Test {
 
     function test_WithdrawLiquidity_BuildsTheCall() public pure {
         uint256 amount = 250e18;
-        CctActions.Call[] memory calls = CctActions.withdrawLiquidity(POOL, amount);
+        CctActions.Call[] memory calls = CctActions._withdrawLiquidity(POOL, amount);
         assertEq(calls.length, 1, "one call");
         assertEq(calls[0].target, POOL, "target is the pool");
         assertEq(
@@ -276,10 +276,10 @@ contract LockReleaseLiquidityTest is Test {
             PoolVersions.Op.WITHDRAW_LIQUIDITY
         ];
         for (uint256 i = 0; i < ops.length; i++) {
-            assertTrue(PoolVersions.isSupported(ops[i], PoolVersions.Version.V1_5_0), "supported on 1.5.0");
-            assertTrue(PoolVersions.isSupported(ops[i], PoolVersions.Version.V1_5_1), "supported on 1.5.1");
-            assertTrue(PoolVersions.isSupported(ops[i], PoolVersions.Version.V1_6_1), "supported on 1.6.1");
-            assertFalse(PoolVersions.isSupported(ops[i], PoolVersions.Version.V2_0_0), "removed in 2.0.0");
+            assertTrue(PoolVersions._isSupported(ops[i], PoolVersions.Version.V1_5_0), "supported on 1.5.0");
+            assertTrue(PoolVersions._isSupported(ops[i], PoolVersions.Version.V1_5_1), "supported on 1.5.1");
+            assertTrue(PoolVersions._isSupported(ops[i], PoolVersions.Version.V1_6_1), "supported on 1.6.1");
+            assertFalse(PoolVersions._isSupported(ops[i], PoolVersions.Version.V2_0_0), "removed in 2.0.0");
         }
     }
 

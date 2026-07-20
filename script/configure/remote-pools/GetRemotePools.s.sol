@@ -59,7 +59,7 @@ contract GetRemotePools is Script {
         // 1.5.0, getRemotePools from 1.5.1); an unrecognized version warns and degrades to best
         // effort instead of refusing.
         (bool versionKnown, PoolVersions.Version version, string memory poolTypeAndVersion) =
-            PoolVersion.tryResolve(tokenPoolAddress);
+            PoolVersion._tryResolve(tokenPoolAddress);
         if (versionKnown) {
             console.log(string.concat("Pool Version:    ", poolTypeAndVersion));
         } else {
@@ -76,7 +76,7 @@ contract GetRemotePools is Script {
         console.log(string.concat("Chain Supported: ", isSupported ? "Yes" : "No"));
 
         if (isSupported) {
-            bytes[] memory remotePools = PoolVersion.remotePools(tokenPoolAddress, version, remoteChainSelector);
+            bytes[] memory remotePools = PoolVersion._remotePools(tokenPoolAddress, version, remoteChainSelector);
             console.log(string.concat("Remote Pools:    ", vm.toString(remotePools.length)));
             for (uint256 i = 0; i < remotePools.length; i++) {
                 if (remotePools[i].length == 32) {

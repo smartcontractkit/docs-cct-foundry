@@ -72,7 +72,7 @@ contract GetCurrentRateLimits is Script {
         // Read-only path: an unrecognized pool version degrades to best effort with a warning
         // instead of refusing (only mutating scripts refuse on an unresolved version).
         (bool versionKnown, PoolVersions.Version version, string memory poolTypeAndVersion) =
-            PoolVersion.tryResolve(tokenPoolAddress);
+            PoolVersion._tryResolve(tokenPoolAddress);
         if (versionKnown) {
             console.log(string.concat("Pool Version: ", poolTypeAndVersion));
         } else {
@@ -87,9 +87,9 @@ contract GetCurrentRateLimits is Script {
         console.log("");
 
         if (fastFinality && version >= PoolVersions.Version.V2_0_0) {
-            RateLimiterUtils.logRateLimiterStateWithFallback(poolV2, poolV1, remoteChainSelector, version);
+            RateLimiterUtils._logRateLimiterStateWithFallback(poolV2, poolV1, remoteChainSelector, version);
         } else {
-            RateLimiterUtils.logRateLimiterState(poolV2, poolV1, remoteChainSelector, fastFinality, version);
+            RateLimiterUtils._logRateLimiterState(poolV2, poolV1, remoteChainSelector, fastFinality, version);
         }
 
         console.log("========================================");

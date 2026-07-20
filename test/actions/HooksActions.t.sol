@@ -62,26 +62,26 @@ contract HooksActionsForkTest is BaseForkTest {
         assertFalse(_isAllowListed(hooks, address(0xDEAD)), "a stranger fails checkAllowList");
 
         // Connect the hooks to the fixture pool through the action layer.
-        _exec(owner, CctActions.updateAdvancedPoolHooks(pool, address(hooks)));
+        _exec(owner, CctActions._updateAdvancedPoolHooks(pool, address(hooks)));
 
         // Add + remove an allowlisted address through the action layer.
         address newAllowed = address(0xB2);
         address[] memory adds = new address[](1);
         adds[0] = newAllowed;
-        _exec(owner, CctActions.applyAllowListUpdates(address(hooks), new address[](0), adds));
+        _exec(owner, CctActions._applyAllowListUpdates(address(hooks), new address[](0), adds));
         assertTrue(_isAllowListed(hooks, newAllowed), "newAllowed added");
         assertEq(hooks.getAllowList().length, 2, "list grew to two");
 
         address[] memory removes = new address[](1);
         removes[0] = newAllowed;
-        _exec(owner, CctActions.applyAllowListUpdates(address(hooks), removes, new address[](0)));
+        _exec(owner, CctActions._applyAllowListUpdates(address(hooks), removes, new address[](0)));
         assertFalse(_isAllowListed(hooks, newAllowed), "newAllowed removed");
         assertEq(hooks.getAllowList().length, 1, "list back to one");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Immutability trap: allowlistEnabled is fixed at deploy from whether the initial allowlist is empty.
-    // Enabling allowlisting later needs a NEW hooks contract — applyAllowListUpdates reverts on a
+    // Enabling allowlisting later needs a NEW hooks contract - applyAllowListUpdates reverts on a
     // hooks deployed with an empty allowlist (AllowListNotEnabled).
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -92,14 +92,14 @@ contract HooksActionsForkTest is BaseForkTest {
 
         address[] memory adds = new address[](1);
         adds[0] = ALLOWED;
-        // Trying to add later reverts — the only fix is to deploy a NEW hooks contract with a non-empty list.
+        // Trying to add later reverts - the only fix is to deploy a NEW hooks contract with a non-empty list.
         vm.prank(emptyHooks.owner());
         (bool ok, bytes memory ret) =
             address(emptyHooks).call(abi.encodeCall(AdvancedPoolHooks.applyAllowListUpdates, (new address[](0), adds)));
         assertFalse(ok, "cannot enable allowlisting after an empty deploy");
         assertEq(bytes4(ret), AdvancedPoolHooks.AllowListNotEnabled.selector, "AllowListNotEnabled");
 
-        // A fresh hooks deployed WITH a non-empty allowlist is enabled — the trap's escape hatch.
+        // A fresh hooks deployed WITH a non-empty allowlist is enabled - the trap's escape hatch.
         AdvancedPoolHooks enabledHooks = _deployHooksWithAllowlist(ALLOWED);
         assertTrue(enabledHooks.getAllowListEnabled(), "new hooks with non-empty allowlist: enabled");
     }
@@ -115,7 +115,7 @@ contract HooksActionsForkTest is BaseForkTest {
         address caller = address(0xCA11E4);
         address[] memory adds = new address[](1);
         adds[0] = caller;
-        _exec(address(this), CctActions.applyAuthorizedCallerUpdates(address(lockBox), adds, new address[](0)));
+        _exec(address(this), CctActions._applyAuthorizedCallerUpdates(address(lockBox), adds, new address[](0)));
 
         address[] memory after1 = lockBox.getAllAuthorizedCallers();
         assertEq(after1.length, 1, "caller added");
@@ -123,7 +123,7 @@ contract HooksActionsForkTest is BaseForkTest {
 
         address[] memory removes = new address[](1);
         removes[0] = caller;
-        _exec(address(this), CctActions.applyAuthorizedCallerUpdates(address(lockBox), new address[](0), removes));
+        _exec(address(this), CctActions._applyAuthorizedCallerUpdates(address(lockBox), new address[](0), removes));
         assertEq(lockBox.getAllAuthorizedCallers().length, 0, "caller removed");
     }
 }

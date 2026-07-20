@@ -8,19 +8,14 @@ out/
 broadcast/
 lib/
 
-# Docs (e.g. generated `forge doc` output); keep the hand-authored references
-docs/*
-!docs/config-schema.md
-!docs/config-architecture.md
-!docs/deployed-addresses.md
-!docs/pool-versions.md
-!docs/enabling-existing-token.md
-!docs/governance-modes.md
+# Docs: all authored documentation under docs/ is tracked. Ignore only `forge doc` generated output.
+docs/src/
+docs/book/
+docs/book.toml
 
 # Safe Transaction Builder batches (run artifacts, kept local); keep the example
 batches/*
 !batches/example.transfer-ownership.11155111.json
-!docs/roles.md
 
 # Dotenv file
 .env

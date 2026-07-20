@@ -50,7 +50,7 @@ contract GetSupportedChains is Script {
         // 1.5.0, getRemotePools from 1.5.1); an unrecognized version warns and degrades to best
         // effort instead of refusing.
         (bool versionKnown, PoolVersions.Version version, string memory poolTypeAndVersion) =
-            PoolVersion.tryResolve(tokenPoolAddress);
+            PoolVersion._tryResolve(tokenPoolAddress);
         if (versionKnown) {
             console.log(string.concat("Pool Version: ", poolTypeAndVersion));
         } else {
@@ -70,7 +70,7 @@ contract GetSupportedChains is Script {
 
         for (uint256 i = 0; i < supportedChains.length; i++) {
             uint64 selector = supportedChains[i];
-            bytes[] memory remotePools = PoolVersion.remotePools(tokenPoolAddress, version, selector);
+            bytes[] memory remotePools = PoolVersion._remotePools(tokenPoolAddress, version, selector);
             string memory remoteChainName = helperConfig.getChainNameBySelector(selector);
             console.log(string.concat("  [", vm.toString(i), "] ", remoteChainName, " (", vm.toString(selector), ")"));
             console.log(string.concat("       Remote Pools: ", vm.toString(remotePools.length)));
@@ -83,8 +83,8 @@ contract GetSupportedChains is Script {
                         string.concat("         [", vm.toString(j), "] ", vm.toString(abi.decode(pool, (address))))
                     );
                 } else if (pool.length == 32) {
-                    // Raw SVM (Solana) public key — display as base58
-                    console.log(string.concat("         [", vm.toString(j), "] ", ChainHandlers.encodeBase58(pool)));
+                    // Raw SVM (Solana) public key - display as base58
+                    console.log(string.concat("         [", vm.toString(j), "] ", ChainHandlers._encodeBase58(pool)));
                 } else {
                     console.log(string.concat("         [", vm.toString(j), "] (raw) ", vm.toString(pool)));
                 }

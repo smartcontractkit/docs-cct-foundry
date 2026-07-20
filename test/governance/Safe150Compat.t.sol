@@ -12,7 +12,7 @@ import {SafeTxHash} from "../../src/base/SafeTxHash.sol";
 
 /// @notice Forward-compatibility proof: the Safe execution mode works unchanged against a Safe
 ///         deployed from the canonical v1.5.0 stack. The repo's default stays v1.4.1 (the version
-///         the Safe{Wallet} UI deploys, with the complete cross-chain canonical rollout — as of
+///         the Safe{Wallet} UI deploys, with the complete cross-chain canonical rollout - as of
 ///         2026-07-10 the v1.5.0 SafeL2 singleton is NOT yet deployed on e.g. Avalanche Fuji, so
 ///         1.4.1 remains the only stack that mirrors a fleet address everywhere). What this suite
 ///         pins: the `safeTxHash` math (EIP-712 domain and SafeTx typehash, frozen since 1.3.0),
@@ -59,7 +59,7 @@ contract Safe150CompatForkTest is BaseForkTest {
         );
         assertEq(safe150.getThreshold(), 2, "1.5.0 Safe threshold");
 
-        // The signer keys SafeMode.execDirect reads (same values as the 1.4.1 suites — no env race).
+        // The signer keys SafeMode._execDirect reads (same values as the 1.4.1 suites - no env race).
         vm.setEnv("SAFE_SIGNER_KEYS", string.concat(vm.toString(OWNER1_KEY), ",", vm.toString(OWNER2_KEY)));
     }
 
@@ -85,30 +85,31 @@ contract Safe150CompatForkTest is BaseForkTest {
             nonce: nonce
         });
         assertEq(
-            SafeTxHash.compute(block.chainid, address(safe150), t),
+            SafeTxHash._compute(block.chainid, address(safe150), t),
             safe150.getTransactionHash(t.to, t.value, t.data, t.operation, 0, 0, 0, address(0), address(0), nonce),
             "local safeTxHash recompute must equal a v1.5.0 Safe's getTransactionHash"
         );
     }
 
     /// @dev The full Mode B ceremony runs unchanged against a 1.5.0 Safe: single-call ownership
-    ///      accept, then a BATCHED (MultiSendCallOnly delegatecall) two-call rate-limit change —
+    ///      accept, then a BATCHED (MultiSendCallOnly delegatecall) two-call rate-limit change -
     ///      also proving the canonical 1.4.1 MultiSendCallOnly composes with a 1.5.0 Safe.
     function test_ModeB_Ceremony_On150Safe_SingleAndBatched() public {
         // Lane + handoff.
         (uint64[] memory removes, TokenPool.ChainUpdate[] memory updates) = _laneInput();
-        _exec(deployer, CctActions.applyChainUpdates(pool, removes, updates));
+        _exec(deployer, CctActions._applyChainUpdates(pool, removes, updates));
         vm.prank(deployer);
         TokenPool(pool).transferOwnership(address(safe150));
 
         // Single-call Safe tx.
         uint256 nonceBefore = safe150.nonce();
-        SafeMode.execDirect(safe150, CctActions.acceptOwnership(pool));
+        SafeMode._execDirect(safe150, CctActions._acceptOwnership(pool));
         assertEq(TokenPool(pool).owner(), address(safe150), "1.5.0 Safe must own the pool");
 
         // Batched meta-tx: two rate-limit updates as ONE MultiSend delegatecall.
-        CctActions.Call[] memory batched = CctActions.concat(_rateLimitOp(200e18, 0.2e18), _rateLimitOp(300e18, 0.3e18));
-        SafeMode.execDirect(safe150, batched);
+        CctActions.Call[] memory batched =
+            CctActions._concat(_rateLimitOp(200e18, 0.2e18), _rateLimitOp(300e18, 0.3e18));
+        SafeMode._execDirect(safe150, batched);
 
         assertEq(safe150.nonce(), nonceBefore + 2, "two ceremonies must consume exactly two nonces");
         (RateLimiter.TokenBucket memory outbound,) = TokenPool(pool).getCurrentRateLimiterState(EVM_SELECTOR, false);
@@ -116,7 +117,7 @@ contract Safe150CompatForkTest is BaseForkTest {
     }
 
     function _rateLimitOp(uint128 capacity, uint128 rate) internal view returns (CctActions.Call[] memory) {
-        return CctActions.setRateLimits(
+        return CctActions._setRateLimits(
             pool,
             PoolVersions.Version.V2_0_0,
             EVM_SELECTOR,

@@ -47,13 +47,13 @@ abstract contract LanePolicySource is Script {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @dev The local chain's project store (`project/<name>.json`), which now holds the `lanes{}`
-    ///      subtree the ladder resolves — the empty JSON object `"{}"` when the chain has no project file
+    ///      subtree the ladder resolves - the empty JSON object `"{}"` when the chain has no project file
     ///      yet. The `"{}"` sentinel (NOT `""`) is deliberate: `keyExistsJson("", …)` REVERTS ("EOF while
     ///      parsing"), whereas `keyExistsJson("{}", …)` returns false, so callers read an absent store as
     ///      "no lane declared" without a raw parse revert. Chain FACTS still come from
     ///      `_findLocalChainConfig`; lane POLICY comes from here.
     function _localProjectJson(string memory name) internal view returns (string memory) {
-        string memory p = ProjectStore.path(name);
+        string memory p = ProjectStore._path(name);
         if (!vm.exists(p)) return "{}";
         string memory data = vm.readFile(p);
         return bytes(data).length == 0 ? "{}" : data;
@@ -62,12 +62,12 @@ abstract contract LanePolicySource is Script {
     /// @dev The local chain's config file (matched on the declared `chainId` == block.chainid),
     ///      discovered the same way HelperConfig discovers chains: by scanning `config/chains/`.
     function _findLocalChainConfig() internal view returns (bool found, string memory name, string memory json) {
-        string[] memory names = ChainConfig.names();
+        string[] memory names = ChainConfig._names();
         for (uint256 i = 0; i < names.length; i++) {
             string memory path = string.concat(vm.projectRoot(), "/config/chains/", names[i], ".json");
             // A file deleted or half-written between the directory scan and the read (parallel
             // test suites clean up scratch configs) is skipped, never an aborted run. Cheatcodes
-            // are external calls to the VM contract, so try/catch applies directly — no self-call
+            // are external calls to the VM contract, so try/catch applies directly - no self-call
             // (forge rejects address(this) in script contracts at runtime).
             try vm.readFile(path) returns (string memory candidate) {
                 try vm.parseJsonUint(candidate, ".chainId") returns (uint256 declaredChainId) {
@@ -83,8 +83,8 @@ abstract contract LanePolicySource is Script {
     }
 
     /// @dev Finds the lanes{} entry key for the destination in the local chain config. Match by
-    ///      remote chain name first — a lanes key IS the remote's config file basename, and
-    ///      DEST_CHAIN may carry either that basename or the remote's chainNameIdentifier — then
+    ///      remote chain name first - a lanes key IS the remote's config file basename, and
+    ///      DEST_CHAIN may carry either that basename or the remote's chainNameIdentifier - then
     ///      fall back to remoteSelector equality (the same join key the doctor's lanes rung
     ///      reconciles on).
     function _findLaneKey(string memory json, string memory destChainName, uint64 destChainSelector)
@@ -99,7 +99,7 @@ abstract contract LanePolicySource is Script {
             if (_sameString(keys[i], destChainName)) return (true, keys[i]);
         }
         for (uint256 i = 0; i < keys.length; i++) {
-            (bool ok, ChainConfig.Chain memory c,) = ChainConfig.tryLoad(keys[i]);
+            (bool ok, ChainConfig.Chain memory c,) = ChainConfig._tryLoad(keys[i]);
             if (ok && _sameString(c.chainNameIdentifier, destChainName)) return (true, keys[i]);
         }
         for (uint256 i = 0; i < keys.length; i++) {
@@ -116,12 +116,12 @@ abstract contract LanePolicySource is Script {
     ///      chainNameIdentifier matches; falls back to the raw DEST_CHAIN value when the remote
     ///      has no config file yet.
     function _remoteConfigName(string memory destChainName) internal view returns (string memory) {
-        string[] memory names = ChainConfig.names();
+        string[] memory names = ChainConfig._names();
         for (uint256 i = 0; i < names.length; i++) {
             if (_sameString(names[i], destChainName)) return names[i];
         }
         for (uint256 i = 0; i < names.length; i++) {
-            (bool ok, ChainConfig.Chain memory c,) = ChainConfig.tryLoad(names[i]);
+            (bool ok, ChainConfig.Chain memory c,) = ChainConfig._tryLoad(names[i]);
             if (ok && _sameString(c.chainNameIdentifier, destChainName)) return names[i];
         }
         return destChainName;
@@ -145,7 +145,7 @@ abstract contract LanePolicySource is Script {
         rate = vm.keyExistsJson(json, rateKey) ? vm.parseJsonUint(json, rateKey) : 0;
     }
 
-    /// @dev A declared bucket as a RateLimiter.Config: enabled iff capacity or rate is non-zero —
+    /// @dev A declared bucket as a RateLimiter.Config: enabled iff capacity or rate is non-zero -
     ///      the same inference the doctor's lanes rung uses (declared 0/0 is declared-disabled).
     function _declaredConfig(uint256 capacity, uint256 rate) internal pure returns (RateLimiter.Config memory) {
         bool enabled = capacity != 0 || rate != 0;

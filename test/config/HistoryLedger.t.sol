@@ -6,18 +6,18 @@ import {DeploymentUtils} from "../../script/utils/DeploymentUtils.s.sol";
 import {ProjectScratch} from "../utils/ProjectScratch.sol";
 
 /// @dev Minimal token exposing `symbol()` so the pool/lock-box ledger path (which resolves the file's
-/// symbol prefix via `DeploymentUtils.getSymbol`'s on-chain `symbol()` call) has a real contract to
-/// read — foundry reverts on a call to a non-contract address, so a bare EOA cannot stand in.
+/// symbol prefix via `DeploymentUtils._getSymbol`'s on-chain `symbol()` call) has a real contract to
+/// read - foundry reverts on a call to a non-contract address, so a bare EOA cannot stand in.
 contract MockSymbolToken {
     string public symbol = "BnM-T";
 }
 
-/// @title HistoryLedgerTest — the `history/` per-artifact deploy ledger
+/// @title HistoryLedgerTest - the `history/` per-artifact deploy ledger
 /// @notice `DeploymentUtils.save*` writes an append-only ledger under `history/<category>/<selectorName>/`,
 /// one timestamped JSON file per deployed artifact whose body is `vm.writeJson` of the serialized
 /// address(es) keyed by `chainNameIdentifier`. This suite pins four invariants, all offline:
 ///   1. **Byte-for-byte golden** of the token artifact body, with an **INJECTABLE CLOCK** (`vm.warp` to
-///      a fixed timestamp — never the ambient `block.timestamp`) so the golden and the filename are stable.
+///      a fixed timestamp - never the ambient `block.timestamp`) so the golden and the filename are stable.
 ///   2. **selectorName dir keying incl. svm**: the directory is keyed by the canonical selectorName, so a
 ///      chainId-0 (svm) chain resolves to `history/<cat>/<selectorName>/` and NEVER a `history/<cat>/0/` dir.
 ///   3. **Append-only**: a second deploy-record writes a NEW timestamped file and leaves the first file
@@ -69,7 +69,7 @@ contract HistoryLedgerTest is Test {
     /// is INJECTED via `vm.warp(T1)` so the filename is `<T1>-<symbol>-Token.json` deterministically.
     function test_TokenArtifact_ByteForByteGolden_InjectedClock() public {
         vm.warp(T1);
-        DeploymentUtils.saveTokenDeployment(vm, SEL_GOLDEN, CNI, "BnM-T", TOKEN);
+        DeploymentUtils._saveTokenDeployment(vm, SEL_GOLDEN, CNI, "BnM-T", TOKEN);
 
         string memory file = string.concat(_tokensDir(SEL_GOLDEN), vm.toString(T1), "-BnM-T-Token.json");
         assertTrue(vm.exists(file), "ledger file must be named <injected-timestamp>-<symbol>-Token.json");
@@ -79,7 +79,7 @@ contract HistoryLedgerTest is Test {
             string.concat("{\n", '  "', CNI, '_TOKEN": "0x1111111111111111111111111111111111111111"\n', "}");
         assertEq(got, expected, "token ledger body is not the expected byte-for-byte shape");
         assertTrue(bytes(got)[bytes(got).length - 1] != 0x0a, "ledger body must have NO trailing newline");
-        // The body carries the address only — NO timestamp leaks into content (clock is filename-only).
+        // The body carries the address only - NO timestamp leaks into content (clock is filename-only).
         assertFalse(_contains(got, vm.toString(T1)), "the timestamp must NOT appear in the body (filename-only)");
         ProjectScratch.cleanHistory(SEL_GOLDEN);
     }
@@ -90,7 +90,7 @@ contract HistoryLedgerTest is Test {
     function test_TokenPoolArtifact_BothKeys_InjectedClock() public {
         vm.warp(T1);
         address token = address(new MockSymbolToken());
-        DeploymentUtils.saveTokenPoolDeployment(vm, SEL_POOL, CNI, POOL, token, "BurnMint");
+        DeploymentUtils._saveTokenPoolDeployment(vm, SEL_POOL, CNI, POOL, token, "BurnMint");
 
         string memory dir = string.concat(vm.projectRoot(), "/history/token-pools/", SEL_POOL, "/");
         string memory file = string.concat(dir, vm.toString(T1), "-BnM-T-BurnMintTokenPool.json");
@@ -112,7 +112,7 @@ contract HistoryLedgerTest is Test {
     function test_SvmSelectorNameKeying_NoZeroDir() public {
         vm.warp(T1);
         // A chainId-0 svm chain is keyed purely by its selectorName in the ledger path.
-        DeploymentUtils.saveTokenDeployment(vm, SEL_SVM, "SOLANA_DEVNET", "BnM-T", TOKEN);
+        DeploymentUtils._saveTokenDeployment(vm, SEL_SVM, "SOLANA_DEVNET", "BnM-T", TOKEN);
 
         assertTrue(
             vm.exists(string.concat(_tokensDir(SEL_SVM), vm.toString(T1), "-BnM-T-Token.json")),
@@ -132,16 +132,16 @@ contract HistoryLedgerTest is Test {
     // ------------------------------------------------------------ (3) append-only
 
     /// @dev Append-only: a SECOND deploy-record (later injected clock) writes a NEW timestamped file and
-    /// leaves the FIRST file BYTE-IDENTICAL — pure create, never rewrite. Two distinct files result.
+    /// leaves the FIRST file BYTE-IDENTICAL - pure create, never rewrite. Two distinct files result.
     function test_AppendOnly_SecondDeploy_NewFile_FirstByteIdentical() public {
         vm.warp(T1);
-        DeploymentUtils.saveTokenDeployment(vm, SEL_APPEND, CNI, "BnM-T", TOKEN);
+        DeploymentUtils._saveTokenDeployment(vm, SEL_APPEND, CNI, "BnM-T", TOKEN);
         string memory file1 = string.concat(_tokensDir(SEL_APPEND), vm.toString(T1), "-BnM-T-Token.json");
         bytes32 file1Before = keccak256(bytes(vm.readFile(file1)));
 
-        // A second deploy at a later injected time — a redeploy of the same artifact.
+        // A second deploy at a later injected time - a redeploy of the same artifact.
         vm.warp(T2);
-        DeploymentUtils.saveTokenDeployment(vm, SEL_APPEND, CNI, "BnM-T", POOL);
+        DeploymentUtils._saveTokenDeployment(vm, SEL_APPEND, CNI, "BnM-T", POOL);
         string memory file2 = string.concat(_tokensDir(SEL_APPEND), vm.toString(T2), "-BnM-T-Token.json");
 
         assertTrue(vm.exists(file1), "first ledger file must survive the second deploy (append-only)");

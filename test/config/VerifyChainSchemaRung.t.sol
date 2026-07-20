@@ -5,15 +5,15 @@ import {Test} from "forge-std/Test.sol";
 import {VerifyChain} from "../../script/config/VerifyChain.s.sol";
 import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 
-/// @title VerifyChainSchemaRungTest — doctor schema rung (stray-state diagnostic +
+/// @title VerifyChainSchemaRungTest - doctor schema rung (stray-state diagnostic +
 /// no-project SKIP)
 /// @notice Two doctor behaviors, offline (no fork):
-///   1. **Stale-chain diagnostic** — a `config/chains/<name>.json` still carrying a `lanes{}` or
+///   1. **Stale-chain diagnostic** - a `config/chains/<name>.json` still carrying a `lanes{}` or
 ///      `roles{}` block, or a `ccvThreshold` key (pool-scoped policy: `poolPolicy.ccvThreshold` in
 ///      the project store), gets a NAMED FAIL that points at `project/<name>.json`,
 ///      a clear diagnostic, never a cryptic one. A pure API/chain-facts config neither FAILs nor WARNs
 ///      (non-regression).
-///   2. **No-project SKIP** — the mesh (lanes) rung on a chain that has a config but NO project file
+///   2. **No-project SKIP** - the mesh (lanes) rung on a chain that has a config but NO project file
 ///      cleanly SKIPs (0 FAIL / 0 WARN): an absent project store is a normal "no lanes
 ///      declared" state, and the reader returns the `"{}"` sentinel so `keyExistsJson` never raw-reverts.
 ///   3. **verifier{} validation + confirmations removal**: the optional `verifier{type,url}` block
@@ -75,7 +75,7 @@ contract VerifyChainSchemaRungTest is Test {
     function _clean(string memory name) internal {
         string memory c = _configPath(name);
         if (vm.exists(c)) vm.removeFile(c);
-        string memory p = ProjectStore.path(name);
+        string memory p = ProjectStore._path(name);
         if (vm.exists(p)) vm.removeFile(p);
     }
 
@@ -155,11 +155,11 @@ contract VerifyChainSchemaRungTest is Test {
     }
 
     // (5) No-project SKIP: the mesh (lanes) rung on a chain that has a config but NO project file cleanly
-    // SKIPs (0/0). An absent project store is a normal "no lanes declared" state — the reader
+    // SKIPs (0/0). An absent project store is a normal "no lanes declared" state - the reader
     // returns "{}" so keyExistsJson never raw-reverts (an empty/absent project store is not an error).
     function test_MeshRung_NoProjectFile_SkipsCleanly() public {
         _writeConfig(SEL_NOPROJECT, 889000401, 8890004010000000001, "");
-        assertFalse(vm.exists(ProjectStore.path(SEL_NOPROJECT)), "precondition: no project file for this chain");
+        assertFalse(vm.exists(ProjectStore._path(SEL_NOPROJECT)), "precondition: no project file for this chain");
         (uint256 fails, uint256 warns) = new VerifyChain().checkMeshForTest(SEL_NOPROJECT);
         assertEq(fails, 0, "a chain with no project file must not FAIL the mesh rung (absent = no lanes)");
         assertEq(warns, 0, "a chain with no project file must not WARN the mesh rung");

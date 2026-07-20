@@ -71,7 +71,7 @@ contract ChainProbe {
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     function parseChain(string memory name) external view returns (ChainConfig.Chain memory) {
-        return ChainConfig.load(name);
+        return ChainConfig._load(name);
     }
 
     function parseQuotedDecimals(string memory json) external pure returns (string memory, string memory) {
@@ -210,7 +210,7 @@ contract ChainProbe {
     /// (an over-range blockDepth, a non-numeric value) degrades to a catchable, named FAIL instead
     /// of aborting the doctor run.
     function parseDeclaredFinality(string memory json) external view returns (bytes4) {
-        return FinalityConfigUtils.parseDeclared(json, ".poolPolicy.finality");
+        return FinalityConfigUtils._parseDeclared(json, ".poolPolicy.finality");
     }
 
     /// @dev The FeeQuoter's `typeAndVersion` string, external so a wrong address / RPC hiccup degrades
@@ -225,27 +225,27 @@ contract ChainProbe {
 /// reverting at the end iff any FAIL, so a chain can be verified end-to-end between "config file
 /// edited" and "scripts run against it". Layers:
 ///   1. TOOLS     curl + jq present (the ffi fetch preflight)
-///   2. SCHEMA    every key the real `ChainConfig.load` path consumes, incl. the quoted-decimal
-///                big-int rule, plus an actual `ChainConfig.load` parse, the optional
+///   2. SCHEMA    every key the real `ChainConfig._load` path consumes, incl. the quoted-decimal
+///                big-int rule, plus an actual `ChainConfig._load` parse, the optional
 ///                `verifier{type,url}` block, and a FAIL on the removed `confirmations` key
 ///   3. API       re-fetch via the config-sync seam: selector<->chainId identity + field drift
-///                (WARN + skip when the API is unreachable — flake is not failure)
+///                (WARN + skip when the API is unreachable - flake is not failure)
 ///   4. RPC       rpcEnv set (SKIP cleanly when unset) -> fork -> block.chainid == chainId
 ///   5. ON-CHAIN  code present for router/rmnProxy/tokenAdminRegistry/registryModuleOwnerCustom/link
 ///                on the fork (proves the addresses belong on this chain)
 ///   6. REGISTRY  `project/<selectorName>.json` addresses.active token/tokenPool (WARN while undeployed)
-///                and review-me extras (explorerUrl/nativeCurrencySymbol) — WARNs, not FAILs
+///                and review-me extras (explorerUrl/nativeCurrencySymbol) - WARNs, not FAILs
 ///   7. MESH      every declared lane's remote config file exists and its stored `remoteSelector`
 ///                matches the remote's `chainSelector`, plus reciprocity across the whole mesh: a
 ///                one-sided lane (A declares B without B declaring A, in either direction) is a
-///                FAIL naming both chains — the lane policy is committed, so the mesh must agree
+///                FAIL naming both chains - the lane policy is committed, so the mesh must agree
 ///   8. LANES     declared lanes{} + poolPolicy{} reconciled against the ON-CHAIN pool, both
 ///                directions (RPC-gated, SKIP when the rpcEnv is unset; SKIP when no pool is
 ///                recorded): forward, every declared lane must be applied on the pool
 ///                (`isSupportedChain`) with live values matching every declared policy field
 ///                (version-dispatched getters); reverse, every on-chain supported selector must be
 ///                declared in lanes{}. A declared value the chain contradicts is a FAIL naming the
-///                exact field — an emergency throttle is recorded by updating the declaration (the
+///                exact field - an emergency throttle is recorded by updating the declaration (the
 ///                git diff is the audit trail). Forward-intent states (declared-but-not-applied),
 ///                undeclared on-chain lanes, uncataloged pool versions, and unanswered reads stay
 ///                WARN: they are pending work or degraded visibility, not proven drift
@@ -254,22 +254,22 @@ contract ChainProbe {
 /// @dev Non-EVM chains (e.g. solana-devnet) get the schema parse only; API/RPC/on-chain/registry
 /// rungs are skipped (destination-only support, zeroed `ccip{}` by design).
 contract VerifyChain is Script {
-    uint256 private fails;
-    uint256 private warns;
-    bool private forked;
-    ChainProbe private probe;
+    uint256 private s_fails;
+    uint256 private s_warns;
+    bool private s_forked;
+    ChainProbe private s_probe;
 
     function _pass(string memory msg_) private pure {
         console.log(string.concat("[PASS] ", msg_));
     }
 
     function _fail(string memory msg_) private {
-        fails++;
+        s_fails++;
         console.log(string.concat("[FAIL] ", msg_));
     }
 
     function _warn(string memory msg_) private {
-        warns++;
+        s_warns++;
         console.log(string.concat("[WARN] ", msg_));
     }
 
@@ -285,12 +285,12 @@ contract VerifyChain is Script {
     /// chain has no project file yet. TOCTOU-safe via the probe so a scratch file removed by a parallel
     /// test never aborts the doctor. The empty-object sentinel (NOT `""`) is deliberate: an absent
     /// project store is a NORMAL state, and `vm.keyExistsJson("", …)` REVERTS ("EOF while parsing")
-    /// whereas `vm.keyExistsJson("{}", …)` correctly returns false — so every downstream lanes/roles key
+    /// whereas `vm.keyExistsJson("{}", …)` correctly returns false - so every downstream lanes/roles key
     /// probe reads an absent store as "no lanes/roles" without a raw parse revert.
     function _readProject(string memory name) private view returns (string memory) {
-        string memory p = ProjectStore.path(name);
+        string memory p = ProjectStore._path(name);
         if (!vm.exists(p)) return "{}";
-        try probe.readFileFor(p) returns (string memory data) {
+        try s_probe.readFileFor(p) returns (string memory data) {
             return bytes(data).length == 0 ? "{}" : data;
         } catch {
             return "{}";
@@ -298,7 +298,7 @@ contract VerifyChain is Script {
     }
 
     /// @dev Project state lives in `project/<name>.json`. A config file still carrying a `lanes{}` or
-    /// `roles{}` block is not a valid config — FAIL with the exact fix, never a cryptic downstream error.
+    /// `roles{}` block is not a valid config - FAIL with the exact fix, never a cryptic downstream error.
     function _checkNoStrayProjectState(string memory name, string memory json) private {
         if (vm.keyExistsJson(json, ".lanes")) {
             _fail(
@@ -306,7 +306,7 @@ contract VerifyChain is Script {
                     "schema: config/chains/",
                     name,
                     ".json still has a lanes{} block - it belongs in ",
-                    ProjectStore.display(name),
+                    ProjectStore._display(name),
                     ". Delete .lanes here and re-declare with make add-lane"
                 )
             );
@@ -317,7 +317,7 @@ contract VerifyChain is Script {
                     "schema: config/chains/",
                     name,
                     ".json still has a roles{} block - it belongs in ",
-                    ProjectStore.display(name),
+                    ProjectStore._display(name),
                     ". Delete .roles here and re-declare with make snapshot-chain"
                 )
             );
@@ -328,7 +328,7 @@ contract VerifyChain is Script {
                     "schema: config/chains/",
                     name,
                     ".json has a ccvThreshold key - pool-scoped policy belongs in ",
-                    ProjectStore.display(name),
+                    ProjectStore._display(name),
                     " under poolPolicy.ccvThreshold. Delete it here and re-declare with a reviewed hand edit"
                 )
             );
@@ -341,13 +341,13 @@ contract VerifyChain is Script {
             "run with FOUNDRY_PROFILE=sync (enables ffi): FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig \"run(string)\" <name>"
         );
         console.log(string.concat("== check-chain ", name, " =="));
-        string memory grp = ProjectStore.group();
+        string memory grp = ProjectStore._group();
         if (bytes(grp).length != 0) {
             console.log(string.concat("== token group ", grp, " =="));
         } else if (!vm.isContext(VmSafe.ForgeContext.TestGroup)) {
             _noticeGroupedSiblings(name);
         }
-        probe = new ChainProbe();
+        s_probe = new ChainProbe();
 
         _checkTools();
 
@@ -379,7 +379,7 @@ contract VerifyChain is Script {
             _checkRoles(name, projectJson, rpcOk);
         } else {
             // Non-EVM chains have no EVM-shaped ccip{} to sync, so the API/RPC/on-chain/registry
-            // rungs are skipped — but the selectorName IS validatable for every family (chainId is a
+            // rungs are skipped - but the selectorName IS validatable for every family (chainId is a
             // placeholder "0" here, so it is the only identity the doctor can check).
             _checkSelectorNameNonEvm(json);
             _skip("rpc/on-chain/registry: non-EVM chain (destination-only support) - schema + selectorName only");
@@ -389,9 +389,11 @@ contract VerifyChain is Script {
 
     function _verdict(string memory name) private view {
         console.log(
-            string.concat("== check-chain ", name, ": ", vm.toString(fails), " FAIL, ", vm.toString(warns), " WARN ==")
+            string.concat(
+                "== check-chain ", name, ": ", vm.toString(s_fails), " FAIL, ", vm.toString(s_warns), " WARN =="
+            )
         );
-        require(fails == 0, string.concat("check-chain FAILED for ", name, " - see [FAIL] lines above"));
+        require(s_fails == 0, string.concat("check-chain FAILED for ", name, " - see [FAIL] lines above"));
     }
 
     // ---------------------------------------------------------------- 1. TOOLS
@@ -414,7 +416,7 @@ contract VerifyChain is Script {
         isEvm = keccak256(bytes(vm.parseJsonString(json, ".chainFamily"))) == keccak256(bytes("evm"));
 
         // quoted-decimal big-int rule (bare JSON numbers lose precision above 2^53)
-        try probe.parseQuotedDecimals(json) {
+        try s_probe.parseQuotedDecimals(json) {
             _pass("schema: chainId + chainSelector are quoted decimal strings");
         } catch {
             _fail("schema: chainId/chainSelector must be quoted decimal STRINGS (see config/chains/*.json)");
@@ -445,7 +447,7 @@ contract VerifyChain is Script {
                 missing++;
             }
         }
-        if (missing == 0) _pass("schema: all keys consumed by ChainConfig.load + the sync tooling present");
+        if (missing == 0) _pass("schema: all keys consumed by ChainConfig._load + the sync tooling present");
 
         // configSource is an OPTIONAL key (absent = "api", the API-synced default). When present it
         // must name a known plane so a typo can never silently disable the API drift check below.
@@ -458,12 +460,12 @@ contract VerifyChain is Script {
             }
         }
 
-        try probe.parseChain(name) {
-            _pass("schema: ChainConfig.load parses (the real read path)");
+        try s_probe.parseChain(name) {
+            _pass("schema: ChainConfig._load parses (the real read path)");
         } catch Error(string memory reason) {
-            _fail(string.concat("schema: ChainConfig.load reverts - ", reason));
+            _fail(string.concat("schema: ChainConfig._load reverts - ", reason));
         } catch {
-            _fail("schema: ChainConfig.load reverts (cheatcode parse error - check value formats)");
+            _fail("schema: ChainConfig._load reverts (cheatcode parse error - check value formats)");
         }
 
         if (vm.keyExistsJson(json, ".confirmations")) {
@@ -541,7 +543,7 @@ contract VerifyChain is Script {
         returns (bool ok, string memory value)
     {
         if (!vm.keyExistsJson(json, path)) return (false, "");
-        try probe.parseString(json, path) returns (string memory s) {
+        try s_probe.parseString(json, path) returns (string memory s) {
             return (true, s);
         } catch {
             return (false, "");
@@ -553,7 +555,7 @@ contract VerifyChain is Script {
         // A manual-plane chain declares that a reviewed hand edit owns its ccip{} addresses, so the
         // API is not the writer to drift-check against: SKIP the drift check and WARN about the one
         // residual risk (an address change to this plane is not detectable from the API).
-        if (ChainConfig.isManual(json)) {
+        if (ChainConfig._isManual(json)) {
             _skip(
                 string.concat(
                     "api: configSource=manual for ",
@@ -568,7 +570,7 @@ contract VerifyChain is Script {
         }
         uint64 selector = uint64(vm.parseJsonUint(json, ".chainSelector"));
         string memory flat;
-        try probe.fetchFlat(selector) returns (string memory f) {
+        try s_probe.fetchFlat(selector) returns (string memory f) {
             flat = f;
         } catch Error(string memory reason) {
             _warn(string.concat("api: fetch failed - drift check skipped: ", reason));
@@ -598,7 +600,7 @@ contract VerifyChain is Script {
             return;
         }
         // selectorName identity: the config `name` must be the canonical CCIP selectorName (the
-        // universal key shared by the API, CLD, Atlas, and ccip-cli) for this selector.
+        // universal key shared by the API and ccip-cli) for this selector.
         string memory localName = vm.parseJsonString(json, ".name");
         if (keccak256(bytes(localName)) == keccak256(bytes(apiName))) {
             _pass(string.concat("api: config name '", localName, "' matches the canonical selectorName"));
@@ -689,10 +691,10 @@ contract VerifyChain is Script {
             _skip(string.concat("rpc: env ", rpcEnv, " unset - add it to your .env to enable fork checks"));
             return false;
         }
-        try probe.forkTo(url) returns (uint256 forkChainId) {
+        try s_probe.forkTo(url) returns (uint256 forkChainId) {
             uint256 expected = vm.parseJsonUint(json, ".chainId");
             if (forkChainId == expected) {
-                forked = true;
+                s_forked = true;
                 _pass(string.concat("rpc: ", rpcEnv, " reachable, block.chainid == ", vm.toString(expected)));
                 return true;
             }
@@ -715,7 +717,7 @@ contract VerifyChain is Script {
 
     // ---------------------------------------------------------------- 5. ON-CHAIN
     function _checkOnChainCode(string memory name, string memory json) private {
-        if (!forked) return;
+        if (!s_forked) return;
         string[5] memory keys = ["router", "rmnProxy", "tokenAdminRegistry", "registryModuleOwnerCustom", "link"];
         uint256 bad = 0;
         for (uint256 i = 0; i < keys.length; i++) {
@@ -735,7 +737,7 @@ contract VerifyChain is Script {
         // On a hand-maintained plane the API drift check does not run, so log the FeeQuoter's
         // typeAndVersion as a quick check that the ccip{} addresses are the intended CCIP version.
         // Guard the read so a config missing .ccip.feeQuoter degrades to a WARN, never a raw abort.
-        if (ChainConfig.isManual(json)) {
+        if (ChainConfig._isManual(json)) {
             if (!vm.keyExistsJson(json, ".ccip.feeQuoter")) {
                 _warn(
                     string.concat(
@@ -744,7 +746,7 @@ contract VerifyChain is Script {
                 );
             } else {
                 address feeQuoter = vm.parseJsonAddress(json, ".ccip.feeQuoter");
-                try probe.feeQuoterTypeAndVersion(feeQuoter) returns (string memory tv) {
+                try s_probe.feeQuoterTypeAndVersion(feeQuoter) returns (string memory tv) {
                     _pass(string.concat("on-chain: feeQuoter ", vm.toString(feeQuoter), " typeAndVersion = ", tv));
                 } catch {
                     _warn(
@@ -759,29 +761,31 @@ contract VerifyChain is Script {
 
     // ---------------------------------------------------------------- 6. REGISTRY + EXTRAS
     function _checkRegistryAndExtras(string memory name, string memory json) private {
-        address token = RegistryWriter.read(name, "token");
-        address pool = RegistryWriter.read(name, "tokenPool");
+        address token = RegistryWriter._read(name, "token");
+        address pool = RegistryWriter._read(name, "tokenPool");
         if (token == address(0)) {
             _warn(
                 string.concat(
                     "registry: no token in ",
-                    ProjectStore.display(name),
+                    ProjectStore._display(name),
                     " - deploy one (script/deploy/DeployToken.s.sol) or export {CHAIN}_TOKEN"
                 )
             );
-        } else if (forked && token.code.length == 0) {
+        } else if (s_forked && token.code.length == 0) {
             _fail(string.concat("registry: token ", vm.toString(token), " has NO code on ", name));
         } else {
-            _pass(string.concat("registry: token ", vm.toString(token), forked ? " (has code)" : " (set; no fork)"));
+            _pass(string.concat("registry: token ", vm.toString(token), s_forked ? " (has code)" : " (set; no fork)"));
         }
         if (pool == address(0)) {
             _warn(
-                string.concat("registry: no tokenPool in ", ProjectStore.display(name), " - deploy one before Step 3+")
+                string.concat("registry: no tokenPool in ", ProjectStore._display(name), " - deploy one before Step 3+")
             );
-        } else if (forked && pool.code.length == 0) {
+        } else if (s_forked && pool.code.length == 0) {
             _fail(string.concat("registry: tokenPool ", vm.toString(pool), " has NO code on ", name));
         } else {
-            _pass(string.concat("registry: tokenPool ", vm.toString(pool), forked ? " (has code)" : " (set; no fork)"));
+            _pass(
+                string.concat("registry: tokenPool ", vm.toString(pool), s_forked ? " (has code)" : " (set; no fork)")
+            );
         }
         _warnMultiPoolAmbiguity(name);
 
@@ -819,10 +823,10 @@ contract VerifyChain is Script {
     /// resolution serves that ONE pool for every token. Names a token group as the durable fix (each
     /// token gets its own store) and the targeted env override as the one-off.
     function _warnMultiPoolAmbiguity(string memory name) private {
-        string memory p = ProjectStore.path(name);
+        string memory p = ProjectStore._path(name);
         if (!vm.exists(p)) return;
         string memory json;
-        try probe.readFileFor(p) returns (string memory data) {
+        try s_probe.readFileFor(p) returns (string memory data) {
             json = data;
         } catch {
             return;
@@ -868,13 +872,13 @@ contract VerifyChain is Script {
     /// forked). Defensive: a token with no TAR entry / an RPC hiccup degrades to a WARN, never an
     /// unhandled revert that would kill the whole doctor run.
     function _reconcilePoolWithTar(address tar, address token, address pool) private {
-        if (!forked) {
+        if (!s_forked) {
             _skip(
                 "registry: TAR reconciliation needs an RPC (no fork) - registry pool not checked against on-chain wiring"
             );
             return;
         }
-        try probe.wiredPool(tar, token) returns (address wired) {
+        try s_probe.wiredPool(tar, token) returns (address wired) {
             if (wired == pool) {
                 _pass(
                     string.concat(
@@ -920,10 +924,10 @@ contract VerifyChain is Script {
         public
         returns (uint256 failsOut, uint256 warnsOut)
     {
-        forked = true;
-        probe = new ChainProbe();
+        s_forked = true;
+        s_probe = new ChainProbe();
         _reconcilePoolWithTar(tar, token, pool);
-        return (fails, warns);
+        return (s_fails, s_warns);
     }
 
     // ---------------------------------------------------------------- 7. MESH
@@ -947,12 +951,12 @@ contract VerifyChain is Script {
         }
         // This chain's own address plane (from the config the caller already read), so each lane can be
         // checked for a cross-plane peer.
-        bool localManual = ChainConfig.isManual(json);
-        uint256 failsBefore = fails;
+        bool localManual = ChainConfig._isManual(json);
+        uint256 failsBefore = s_fails;
         for (uint256 i = 0; i < mine.length; i++) {
             _checkOwnLane(name, projectJson, mine[i], localManual);
         }
-        if (mine.length > 0 && fails == failsBefore) {
+        if (mine.length > 0 && s_fails == failsBefore) {
             _pass(
                 string.concat(
                     "mesh: all ",
@@ -1001,7 +1005,7 @@ contract VerifyChain is Script {
         }
         // Cross-plane lane: both endpoints must share an address plane (both API-sourced or both
         // hand-maintained). Doctoring either endpoint catches it, since each checks its own lanes.
-        if (localManual != ChainConfig.isManual(rcfg)) {
+        if (localManual != ChainConfig._isManual(rcfg)) {
             _fail(
                 string.concat(
                     "mesh: cross-plane lane ",
@@ -1011,7 +1015,7 @@ contract VerifyChain is Script {
                     ") -> ",
                     remote,
                     " (configSource=",
-                    ChainConfig.isManual(rcfg) ? "manual" : "api",
+                    ChainConfig._isManual(rcfg) ? "manual" : "api",
                     ") - a lane must connect two chains on the same address plane"
                 )
             );
@@ -1055,7 +1059,7 @@ contract VerifyChain is Script {
             string memory oproj = _readProject(other);
             if (bytes(oproj).length == 0) continue; // the other chain has no project store -> no lanes
             bool declaresMe;
-            try probe.hasKey(oproj, string.concat(".lanes.", name)) returns (bool has) {
+            try s_probe.hasKey(oproj, string.concat(".lanes.", name)) returns (bool has) {
                 declaresMe = has;
             } catch {
                 continue;
@@ -1175,9 +1179,9 @@ contract VerifyChain is Script {
     /// returns `(fails, warns)`. Lets a Foundry test assert the reciprocity contract (a one-sided
     /// lane must increment `fails`) without the ffi/API doctor rungs. Not used by any production path.
     function checkMeshForTest(string memory name) public returns (uint256 failsOut, uint256 warnsOut) {
-        probe = new ChainProbe();
-        _checkMesh(name, probe.readFileFor(_path(name)), _readProject(name));
-        return (fails, warns);
+        s_probe = new ChainProbe();
+        _checkMesh(name, s_probe.readFileFor(_path(name)), _readProject(name));
+        return (s_fails, s_warns);
     }
 
     /// @notice Test hook for the schema rung's stray-project-state diagnostic
@@ -1186,20 +1190,20 @@ contract VerifyChain is Script {
     /// API/chain-facts config neither FAILs nor WARNs. Reads the CONFIG file (chain facts), not the
     /// project store. Returns (fails, warns).
     function checkNoStrayProjectStateForTest(string memory name) public returns (uint256 failsOut, uint256 warnsOut) {
-        probe = new ChainProbe();
+        s_probe = new ChainProbe();
         _checkNoStrayProjectState(name, vm.readFile(string.concat("config/chains/", name, ".json")));
-        return (fails, warns);
+        return (s_fails, s_warns);
     }
 
     /// @notice Test hook: runs ONLY the SCHEMA rung (`_checkSchema`) against `name`'s config and returns
     /// `(isEvm, fails, warns)`. Lets a UNIT test (no fork, no ffi/API) assert the clean-chain PASS
-    /// (every key `ChainConfig.load` consumes is present → 0 FAIL) and the induced-FAIL-naming-the-field
+    /// (every key `ChainConfig._load` consumes is present → 0 FAIL) and the induced-FAIL-naming-the-field
     /// contract (a missing key FAILs, naming it) without the network rungs. Not used by any production
     /// path. Reads the CONFIG file (chain facts).
     function checkSchemaForTest(string memory name) public returns (bool isEvm, uint256 failsOut, uint256 warnsOut) {
-        probe = new ChainProbe();
+        s_probe = new ChainProbe();
         isEvm = _checkSchema(name, vm.readFile(string.concat("config/chains/", name, ".json")));
-        return (isEvm, fails, warns);
+        return (isEvm, s_fails, s_warns);
     }
 
     /// @notice Test hook: runs ONLY the API rung (`_checkApi`) against `name`'s config, returning
@@ -1207,9 +1211,9 @@ contract VerifyChain is Script {
     /// any API fetch, so a UNIT test (no fork, no ffi/API) can assert the SKIP + WARN branch. Reads the
     /// CONFIG file (chain facts). Not used by any production path.
     function checkApiForTest(string memory name) public returns (uint256 failsOut, uint256 warnsOut) {
-        probe = new ChainProbe();
+        s_probe = new ChainProbe();
         _checkApi(name, vm.readFile(string.concat("config/chains/", name, ".json")));
-        return (fails, warns);
+        return (s_fails, s_warns);
     }
 
     /// @notice Test hook: runs ONLY the roles anchor-drift check (`_warnAnchorDrift` for the `token` and
@@ -1217,23 +1221,23 @@ contract VerifyChain is Script {
     /// (no RPC, no auditor) assert the WARN-not-FAIL contract: a declared `roles.<x>.address` anchor that
     /// diverges from `addresses.active.<role>` emits exactly one WARN naming both + `make snapshot-chain`,
     /// while a matching anchor, an absent anchor, or a store with no active pointer stays silent. Not used
-    /// by any production path — the production caller is `_checkRoles` (behind the roles-block + RPC gates).
+    /// by any production path - the production caller is `_checkRoles` (behind the roles-block + RPC gates).
     function warnAnchorDriftForTest(string memory name) public returns (uint256 failsOut, uint256 warnsOut) {
-        probe = new ChainProbe();
+        s_probe = new ChainProbe();
         string memory projectJson = _readProject(name);
         _warnAnchorDrift(name, projectJson, ".roles.token.address", "token", "roles.token.address");
         _warnAnchorDrift(name, projectJson, ".roles.pool.address", "tokenPool", "roles.pool.address");
-        return (fails, warns);
+        return (s_fails, s_warns);
     }
 
     /// @notice TEST-ONLY hook: runs the multi-pool ambiguity check for `name` against its project
     /// store, returning `(fails, warns)`. Lets a UNIT test assert the WARN-not-FAIL contract: two or
     /// more `deployments{}` token pools emit exactly one WARN; zero or one pool stays silent. Not used
-    /// by any production path — the production caller is `_checkRegistryAndExtras`.
+    /// by any production path - the production caller is `_checkRegistryAndExtras`.
     function warnMultiPoolAmbiguityForTest(string memory name) public returns (uint256 failsOut, uint256 warnsOut) {
-        probe = new ChainProbe();
+        s_probe = new ChainProbe();
         _warnMultiPoolAmbiguity(name);
-        return (fails, warns);
+        return (s_fails, s_warns);
     }
 
     // ---------------------------------------------------------------- 8. LANES (on-chain)
@@ -1258,7 +1262,7 @@ contract VerifyChain is Script {
         // the anchored token; the auditor would then reconcile the STALE token clean (a false green).
         _warnAnchorDrift(name, projectJson, ".roles.token.address", "token", "roles.token.address");
         _warnAnchorDrift(name, projectJson, ".roles.pool.address", "tokenPool", "roles.pool.address");
-        if (!rpcOk || !forked) {
+        if (!rpcOk || !s_forked) {
             _skip("roles: authority reconciliation needs an RPC (no fork) - declared roles{} not checked against chain");
             return;
         }
@@ -1270,7 +1274,7 @@ contract VerifyChain is Script {
             // surfaced but NOT folded into the verdict, so routine complete:false honesty WARNs never
             // inflate the doctor's WARN count (the auditor already printed each WARN line).
             for (uint256 i = 0; i < rr.fails; i++) {
-                fails++;
+                s_fails++;
             }
             if (rr.fails == 0) {
                 _pass(
@@ -1303,7 +1307,7 @@ contract VerifyChain is Script {
     ) private {
         if (!vm.keyExistsJson(projectJson, anchorPath)) return;
         address anchor = vm.parseJsonAddress(projectJson, anchorPath);
-        address active = RegistryWriter.read(name, role);
+        address active = RegistryWriter._read(name, role);
         if (active == address(0) || active == anchor) return;
         _warn(
             string.concat(
@@ -1329,11 +1333,11 @@ contract VerifyChain is Script {
     )
         private
     {
-        if (!forked) {
+        if (!s_forked) {
             _skip("lanes: on-chain reconciliation needs an RPC (no fork) - declared lanes not checked against the pool");
             return;
         }
-        address pool = RegistryWriter.read(name, "tokenPool");
+        address pool = RegistryWriter._read(name, "tokenPool");
         _reconcileLanesWithPool(name, projectJson, pool);
     }
 
@@ -1346,7 +1350,7 @@ contract VerifyChain is Script {
             _skip(
                 string.concat(
                     "lanes: no tokenPool in ",
-                    ProjectStore.display(name),
+                    ProjectStore._display(name),
                     " - nothing to reconcile on-chain (make adopt-token CHAIN=",
                     name,
                     " TOKEN=<addr> TOKEN_POOL=<addr>, or deploy one: script/deploy/DeployBurnMintTokenPool.s.sol)"
@@ -1354,7 +1358,7 @@ contract VerifyChain is Script {
             );
             return;
         }
-        (bool versionKnown, PoolVersions.Version version, string memory typeAndVersion) = PoolVersion.tryResolve(pool);
+        (bool versionKnown, PoolVersions.Version version, string memory typeAndVersion) = PoolVersion._tryResolve(pool);
         if (!versionKnown) {
             _warn(
                 string.concat(
@@ -1369,8 +1373,8 @@ contract VerifyChain is Script {
 
         string[] memory declared =
             vm.keyExistsJson(projectJson, ".lanes") ? vm.parseJsonKeys(projectJson, ".lanes") : new string[](0);
-        uint256 warnsBefore = warns;
-        uint256 failsBefore = fails;
+        uint256 warnsBefore = s_warns;
+        uint256 failsBefore = s_fails;
         // Pool-scoped policy (poolPolicy{} in the project store): reconciled once per chain, not per
         // lane - the additional-CCV threshold is pool-global on the hooks contract, and the allowed
         // finality config is pool-global on the pool itself.
@@ -1385,7 +1389,7 @@ contract VerifyChain is Script {
             declaredSelectors[i] = _checkDeclaredLaneOnChain(projectJson, pool, version, declared[i]);
         }
         bool reverseChecked = _checkOnChainLanesDeclared(name, pool, declaredSelectors);
-        if (warns == warnsBefore && fails == failsBefore && reverseChecked) {
+        if (s_warns == warnsBefore && s_fails == failsBefore && reverseChecked) {
             _pass(
                 string.concat(
                     "lanes: pool ",
@@ -1414,7 +1418,7 @@ contract VerifyChain is Script {
         selector = uint64(vm.parseJsonUint(json, string.concat(lanePath, ".remoteSelector")));
 
         bool supported;
-        try probe.poolSupportsChain(pool, selector) returns (bool s) {
+        try s_probe.poolSupportsChain(pool, selector) returns (bool s) {
             supported = s;
         } catch {
             _warn(
@@ -1465,7 +1469,7 @@ contract VerifyChain is Script {
         }
         if (!vm.keyExistsJson(json, string.concat(lanePath, ".v2"))) return;
         if (version < PoolVersions.Version.V2_0_0) {
-            (,, string memory typeAndVersion) = PoolVersion.tryResolve(pool);
+            (,, string memory typeAndVersion) = PoolVersion._tryResolve(pool);
             string memory gate = string.concat(
                 "lanes: lanes.",
                 remote,
@@ -1525,7 +1529,7 @@ contract VerifyChain is Script {
         bool fastFinality = _startsWith(label, "fast-finality");
 
         RateLimiter.TokenBucket memory live;
-        try probe.poolBucket(pool, version, selector, inbound, fastFinality) returns (
+        try s_probe.poolBucket(pool, version, selector, inbound, fastFinality) returns (
             RateLimiter.TokenBucket memory b
         ) {
             live = b;
@@ -1593,7 +1597,7 @@ contract VerifyChain is Script {
         uint64 selector
     ) private {
         IPoolV2.TokenTransferFeeConfig memory live;
-        try probe.poolFeeConfig(pool, selector) returns (IPoolV2.TokenTransferFeeConfig memory f) {
+        try s_probe.poolFeeConfig(pool, selector) returns (IPoolV2.TokenTransferFeeConfig memory f) {
             live = f;
         } catch {
             _warn(
@@ -1670,7 +1674,7 @@ contract VerifyChain is Script {
         uint64 selector
     ) private {
         address hooks;
-        try probe.poolHooks(pool) returns (address h) {
+        try s_probe.poolHooks(pool) returns (address h) {
             hooks = h;
         } catch {
             _warn(
@@ -1698,7 +1702,7 @@ contract VerifyChain is Script {
         }
 
         AdvancedPoolHooks.CCVConfig memory live;
-        try probe.hooksCCVConfig(hooks, selector) returns (AdvancedPoolHooks.CCVConfig memory c) {
+        try s_probe.hooksCCVConfig(hooks, selector) returns (AdvancedPoolHooks.CCVConfig memory c) {
             live = c;
         } catch {
             _warn(
@@ -1753,7 +1757,7 @@ contract VerifyChain is Script {
     /// version and any unanswered read stay WARN. Drift is a FAIL naming the field.
     function _reconcileCcvThreshold(string memory json, address pool, PoolVersions.Version version) private {
         if (version < PoolVersions.Version.V2_0_0) {
-            (,, string memory typeAndVersion) = PoolVersion.tryResolve(pool);
+            (,, string memory typeAndVersion) = PoolVersion._tryResolve(pool);
             string memory gate = string.concat(
                 "lanes: poolPolicy.ccvThreshold declared but pool ",
                 vm.toString(pool),
@@ -1769,7 +1773,7 @@ contract VerifyChain is Script {
             return;
         }
         address hooks;
-        try probe.poolHooks(pool) returns (address h) {
+        try s_probe.poolHooks(pool) returns (address h) {
             hooks = h;
         } catch {
             _warn(
@@ -1792,7 +1796,7 @@ contract VerifyChain is Script {
             return;
         }
         uint256 live;
-        try probe.hooksThreshold(hooks) returns (uint256 t) {
+        try s_probe.hooksThreshold(hooks) returns (uint256 t) {
             live = t;
         } catch {
             _warn(
@@ -1825,7 +1829,7 @@ contract VerifyChain is Script {
     /// (bytes4) plus decoded, so the operator sees the meaning next to the hex.
     function _reconcileFinalityConfig(string memory json, address pool, PoolVersions.Version version) private {
         if (version < PoolVersions.Version.V2_0_0 && version != PoolVersions.Version.UNKNOWN) {
-            (,, string memory typeAndVersion) = PoolVersion.tryResolve(pool);
+            (,, string memory typeAndVersion) = PoolVersion._tryResolve(pool);
             _fail(
                 string.concat(
                     "lanes: poolPolicy.finality declared but pool ",
@@ -1838,7 +1842,7 @@ contract VerifyChain is Script {
             return;
         }
         bytes4 live;
-        try probe.poolAllowedFinality(pool) returns (bytes4 f) {
+        try s_probe.poolAllowedFinality(pool) returns (bytes4 f) {
             live = f;
         } catch {
             _warn(
@@ -1851,7 +1855,7 @@ contract VerifyChain is Script {
             return;
         }
         bytes4 declared;
-        try probe.parseDeclaredFinality(json) returns (bytes4 d) {
+        try s_probe.parseDeclaredFinality(json) returns (bytes4 d) {
             declared = d;
         } catch Error(string memory reason) {
             _fail(string.concat("lanes: malformed poolPolicy.finality declaration (", reason, ") - fix the hand edit"));
@@ -1866,11 +1870,11 @@ contract VerifyChain is Script {
                 "lanes: poolPolicy.finality drift - declared ",
                 vm.toString(abi.encodePacked(declared)),
                 " (",
-                FinalityConfigUtils.decodeModeLabel(declared),
+                FinalityConfigUtils._decodeModeLabel(declared),
                 ") but on-chain ",
                 vm.toString(abi.encodePacked(live)),
                 " (",
-                FinalityConfigUtils.decodeModeLabel(live),
+                FinalityConfigUtils._decodeModeLabel(live),
                 ") - re-apply (script/configure/finality-config/SetFinalityConfig.s.sol) or update the declaration"
             )
         );
@@ -1936,7 +1940,7 @@ contract VerifyChain is Script {
         returns (bool reverseChecked)
     {
         uint64[] memory onChain;
-        try probe.poolSupportedChains(pool) returns (uint64[] memory chains) {
+        try s_probe.poolSupportedChains(pool) returns (uint64[] memory chains) {
             onChain = chains;
         } catch {
             _skip(
@@ -1995,12 +1999,12 @@ contract VerifyChain is Script {
             string memory other = _jsonBasename(entries[i].path);
             if (bytes(other).length == 0) continue;
             string memory oj;
-            try probe.readFileFor(entries[i].path) returns (string memory data) {
+            try s_probe.readFileFor(entries[i].path) returns (string memory data) {
                 oj = data;
             } catch {
                 continue;
             }
-            try probe.parseQuotedDecimals(oj) returns (string memory, string memory sel) {
+            try s_probe.parseQuotedDecimals(oj) returns (string memory, string memory sel) {
                 if (keccak256(bytes(sel)) == keccak256(bytes(vm.toString(selector)))) return other;
             } catch {
                 continue;
@@ -2018,9 +2022,9 @@ contract VerifyChain is Script {
         public
         returns (uint256 failsOut, uint256 warnsOut)
     {
-        forked = true;
-        probe = new ChainProbe();
+        s_forked = true;
+        s_probe = new ChainProbe();
         _reconcileLanesWithPool(name, _readProject(name), pool);
-        return (fails, warns);
+        return (s_fails, s_warns);
     }
 }

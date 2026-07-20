@@ -7,11 +7,11 @@ import {CctActions} from "../../src/actions/CctActions.sol";
 import {ClaimPathDetector} from "./ClaimPathDetector.sol";
 import {EoaExecutor} from "../../src/base/EoaExecutor.s.sol";
 
-/// @notice Claims AND accepts the CCIP token admin as ONE atomic registration pair — the claim sets
+/// @notice Claims AND accepts the CCIP token admin as ONE atomic registration pair - the claim sets
 /// the executing account as the registry's pending administrator, so the accept in the same batch
 /// succeeds. This is the batch-friendly counterpart of running `ClaimAdmin` then `AcceptAdminRole`:
 /// `AcceptAdminRole` preflight-requires the pending administrator to ALREADY be set when the script
-/// runs, so the two-script sequence cannot be composed into one deferred Safe batch — this wrapper
+/// runs, so the two-script sequence cannot be composed into one deferred Safe batch - this wrapper
 /// can, because the pair executes together. It uses the same claim-path probe as `ClaimAdmin`
 /// (getCCIPAdmin() preferred, then owner(), then OZ AccessControl DEFAULT_ADMIN_ROLE).
 ///
@@ -41,7 +41,7 @@ contract ClaimAndAcceptAdmin is EoaExecutor {
         console.log("========================================");
         console.log("");
 
-        // Get deployed token address — TOKEN env var takes priority, then {CHAIN}_TOKEN
+        // Get deployed token address - TOKEN env var takes priority, then {CHAIN}_TOKEN
         address tokenAddress = helperConfig.getDeployedToken(chainId);
         require(
             tokenAddress != address(0),
@@ -57,10 +57,10 @@ contract ClaimAndAcceptAdmin is EoaExecutor {
 
         // Same claim-path probe as ClaimAdmin: getCCIPAdmin() preferred, then owner(), then OZ
         // AccessControl DEFAULT_ADMIN_ROLE.
-        (ClaimPathDetector.ClaimPath claimPath, address reportedAdmin) = ClaimPathDetector.detect(tokenAddress);
+        (ClaimPathDetector.ClaimPath claimPath, address reportedAdmin) = ClaimPathDetector._detect(tokenAddress);
 
         // The account that must execute the pair: the Safe in safe mode, the broadcaster otherwise.
-        address ccipAdminAddress = vm.envOr("CCIP_ADMIN_ADDRESS", executingAccount());
+        address ccipAdminAddress = vm.envOr("CCIP_ADMIN_ADDRESS", _executingAccount());
 
         // The getCCIPAdmin()/owner() paths report a single current admin; the AccessControl path has no
         // single-admin getter, so the expected role holder stands in for the log line.
@@ -73,32 +73,32 @@ contract ClaimAndAcceptAdmin is EoaExecutor {
         console.log(string.concat("  Expected Admin:               ", vm.toString(ccipAdminAddress)));
         console.log(string.concat("  Registry Module:              ", vm.toString(registryModuleOwnerCustom)));
         console.log(string.concat("  TokenAdminRegistry:           ", vm.toString(tokenAdminRegistry)));
-        console.log(string.concat("  Admin Method:                 ", ClaimPathDetector.methodLabel(claimPath)));
+        console.log(string.concat("  Admin Method:                 ", ClaimPathDetector._methodLabel(claimPath)));
         console.log("");
 
-        ClaimPathDetector.requireExpectedAdmin(claimPath, tokenAddress, reportedAdmin, ccipAdminAddress);
+        ClaimPathDetector._requireExpectedAdmin(claimPath, tokenAddress, reportedAdmin, ccipAdminAddress);
 
         CctActions.Call[] memory calls;
         if (claimPath == ClaimPathDetector.ClaimPath.GetCCIPAdmin) {
             console.log(string.concat("\n[Step 1] Claiming + accepting admin via getCCIPAdmin() on ", chainName));
-            calls = CctActions.registerAndAcceptAdminViaGetCCIPAdmin(
+            calls = CctActions._registerAndAcceptAdminViaGetCCIPAdmin(
                 registryModuleOwnerCustom, tokenAdminRegistry, tokenAddress
             );
         } else if (claimPath == ClaimPathDetector.ClaimPath.Owner) {
             console.log(string.concat("\n[Step 1] Claiming + accepting admin via owner() on ", chainName));
             calls =
-                CctActions.registerAndAcceptAdminViaOwner(registryModuleOwnerCustom, tokenAdminRegistry, tokenAddress);
+                CctActions._registerAndAcceptAdminViaOwner(registryModuleOwnerCustom, tokenAdminRegistry, tokenAddress);
         } else {
             console.log(
                 string.concat(
                     "\n[Step 1] Claiming + accepting admin via AccessControl DEFAULT_ADMIN_ROLE on ", chainName
                 )
             );
-            calls = CctActions.registerAndAcceptAdminViaAccessControl(
+            calls = CctActions._registerAndAcceptAdminViaAccessControl(
                 registryModuleOwnerCustom, tokenAdminRegistry, tokenAddress
             );
         }
-        executeCalls(calls);
+        _executeCalls(calls);
         console.log(unicode"✅ Registration pair executed!");
 
         console.log("");

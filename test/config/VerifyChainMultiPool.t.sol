@@ -5,12 +5,12 @@ import {Test} from "forge-std/Test.sol";
 import {VerifyChain} from "../../script/config/VerifyChain.s.sol";
 import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 
-/// @title VerifyChainMultiPoolTest — the multi-pool ambiguity WARN (`_warnMultiPoolAmbiguity`, offline)
+/// @title VerifyChainMultiPoolTest - the multi-pool ambiguity WARN (`_warnMultiPoolAmbiguity`, offline)
 /// @notice `addresses.active.tokenPool` is single-valued per chain: when `deployments{}` holds two or
 /// more token pools (a multi-token chain), the zero-export resolution serves ONE pool for every token.
 /// The doctor's registry rung surfaces that with exactly one WARN naming the count and the
 /// `{CHAIN}_TOKEN_POOL` targeted override; zero or one pool stays silent. WARN-only (never FAIL), no
-/// RPC — a pure file read — so this suite pins the (fails, warns) contract as a unit test via
+/// RPC - a pure file read - so this suite pins the (fails, warns) contract as a unit test via
 /// `warnMultiPoolAmbiguityForTest`. Each test writes its own uniquely-named scratch project file
 /// (suites run in parallel and share the filesystem) and cleans it in setUp() (revert-safe).
 contract VerifyChainMultiPoolTest is Test {
@@ -30,7 +30,7 @@ contract VerifyChainMultiPoolTest is Test {
     function _clean() private {
         string[4] memory sels = [SEL_NONE, SEL_ONE, SEL_TWO, SEL_MIXED];
         for (uint256 i = 0; i < sels.length; i++) {
-            string memory p = ProjectStore.path(sels[i]);
+            string memory p = ProjectStore._path(sels[i]);
             if (vm.exists(p)) vm.removeFile(p);
         }
     }
@@ -38,7 +38,7 @@ contract VerifyChainMultiPoolTest is Test {
     /// @dev Per-name variant for end-of-test cleanup (a test removes ONLY the file it owns; suite
     /// siblings run in parallel).
     function _clean(string memory sel) private {
-        string memory p = ProjectStore.path(sel);
+        string memory p = ProjectStore._path(sel);
         if (vm.exists(p)) vm.removeFile(p);
     }
 
@@ -51,7 +51,7 @@ contract VerifyChainMultiPoolTest is Test {
             deploymentsBody,
             "}},\"lanes\":{},\"roles\":{},\"schema\":3}"
         );
-        vm.writeFile(ProjectStore.path(name), json);
+        vm.writeFile(ProjectStore._path(name), json);
     }
 
     // ------------------------------------------------------------ clean: zero / one pool → silent
@@ -96,7 +96,7 @@ contract VerifyChainMultiPoolTest is Test {
     // ------------------------------------------------------------ non-pool artifacts don't count
 
     /// @dev One pool plus non-pool artifacts (token, lock box, hooks): only entries whose key carries
-    /// the pool marker count, so this stays silent — the counter must not misread other artifact kinds.
+    /// the pool marker count, so this stays silent - the counter must not misread other artifact kinds.
     function test_MultiPool_NonPoolArtifactsDontCount_Silent() public {
         _writeProject(
             SEL_MIXED,

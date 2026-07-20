@@ -14,7 +14,7 @@ import {PoolVersions} from "../../../src/PoolVersions.sol";
 /// @dev v1.x LockRelease pools ONLY (1.5.0 / 1.5.1 / 1.6.1). On a 2.0.0 LockRelease pool liquidity moved
 ///      to an external lock box, so the script refuses with a pointer at the lock box scripts; on a
 ///      non-LockRelease (e.g. BurnMint) pool it refuses by type. Both refusals come from the shared
-///      two-dimensional fence (`PoolVersion.requireLockReleaseLiquidity`), before any broadcast.
+///      two-dimensional fence (`PoolVersion._requireLockReleaseLiquidity`), before any broadcast.
 ///
 /// Environment Variables (required):
 ///   REBALANCER  - The address to set as the pool's rebalancer.
@@ -35,7 +35,7 @@ contract SetRebalancer is LiquidityBase {
 
         // Two-dimensional fence (type must be LockRelease; version must be < 2.0.0), before any read/write.
         (PoolVersions.Version poolVersion, string memory typeAndVersion) =
-            PoolVersion.requireLockReleaseLiquidity(tokenPoolAddress);
+            PoolVersion._requireLockReleaseLiquidity(tokenPoolAddress);
 
         console.log("");
         console.log("========================================");
@@ -43,13 +43,13 @@ contract SetRebalancer is LiquidityBase {
         console.log("========================================");
         console.log(string.concat("Chain:        ", chainName));
         console.log(string.concat("Token Pool:   ", vm.toString(tokenPoolAddress)));
-        console.log(string.concat("Pool Version: ", PoolVersions.toString(poolVersion), " (", typeAndVersion, ")"));
+        console.log(string.concat("Pool Version: ", PoolVersions._toString(poolVersion), " (", typeAndVersion, ")"));
         console.log(string.concat("New Rebalancer: ", vm.toString(rebalancer)));
         console.log("========================================");
         console.log("");
 
         console.log(string.concat("[Step 1] Setting rebalancer on ", chainName));
-        executeCalls(CctActions.setRebalancer(tokenPoolAddress, rebalancer));
+        _executeCalls(CctActions._setRebalancer(tokenPoolAddress, rebalancer));
         console.log(unicode"✅ Rebalancer set successfully!");
 
         console.log("");

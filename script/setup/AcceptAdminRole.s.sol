@@ -7,6 +7,8 @@ import {TokenAdminRegistry} from "@chainlink/contracts-ccip/contracts/tokenAdmin
 import {CctActions} from "../../src/actions/CctActions.sol";
 import {EoaExecutor} from "../../src/base/EoaExecutor.s.sol";
 
+/// @notice Accepts the pending administrator role for a token in the TokenAdminRegistry (step 2 of the
+///         two-step claim; the signer must be the pending administrator set by ClaimAdmin).
 contract AcceptAdminRole is EoaExecutor {
     HelperConfig public helperConfig;
 
@@ -27,7 +29,7 @@ contract AcceptAdminRole is EoaExecutor {
         console.log("========================================");
         console.log("");
 
-        // Get deployed token address — TOKEN env var takes priority, then {CHAIN}_TOKEN
+        // Get deployed token address - TOKEN env var takes priority, then {CHAIN}_TOKEN
         address tokenAddress = helperConfig.getDeployedToken(chainId);
         require(
             tokenAddress != address(0),
@@ -52,14 +54,14 @@ contract AcceptAdminRole is EoaExecutor {
         console.log(string.concat("  Pending Administrator:        ", vm.toString(pendingAdministrator)));
 
         // The account accepting on-chain: the Safe in safe mode, the broadcaster otherwise.
-        address acceptor = executingAccount();
+        address acceptor = _executingAccount();
         console.log(string.concat("  Acceptor:                     ", vm.toString(acceptor)));
         console.log("");
 
         require(pendingAdministrator == acceptor, "Only the pending administrator can accept the admin role");
 
         console.log(string.concat("\n[Step 1] Accepting admin role for token on ", chainName));
-        executeCalls(CctActions.acceptAdminRole(config.tokenAdminRegistry, tokenAddress));
+        _executeCalls(CctActions._acceptAdminRole(config.tokenAdminRegistry, tokenAddress));
         console.log(unicode"✅ Admin role accepted successfully!");
 
         console.log("");

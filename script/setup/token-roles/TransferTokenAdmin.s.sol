@@ -56,14 +56,14 @@ contract TransferTokenAdmin is TokenRoleScript {
 
         address token = _resolveToken(config, chainId);
 
-        RolesProbes.TokenTemplate template = RolesProbes.detectTemplate(token);
+        RolesProbes.TokenTemplate template = RolesProbes._detectTemplate(token);
         require(
             template != RolesProbes.TokenTemplate.BYO,
             "byo token: the top-level admin mechanism of an unknown template is not guessable - move it with the token's own tooling"
         );
 
         bool acceptLeg = _acceptLeg();
-        address actor = executingAccount();
+        address actor = _executingAccount();
 
         console.log("");
         console.log("========================================");
@@ -71,7 +71,7 @@ contract TransferTokenAdmin is TokenRoleScript {
         console.log("========================================");
         console.log(string.concat("Chain:        ", chainName));
         console.log(string.concat("Token:        ", vm.toString(token)));
-        console.log(string.concat("Template:     ", RolesProbes.templateName(template)));
+        console.log(string.concat("Template:     ", RolesProbes._templateName(template)));
         console.log(string.concat("Leg:          ", acceptLeg ? "accept (step B)" : "transfer (step A)"));
         console.log(string.concat("Actor:        ", vm.toString(actor)));
         console.log("========================================");
@@ -126,7 +126,7 @@ contract TransferTokenAdmin is TokenRoleScript {
         console.log(string.concat("New Admin:    ", vm.toString(newAdmin)));
 
         if (template == RolesProbes.TokenTemplate.CrossChainToken) {
-            (, address current) = RolesProbes.tryAddress(token, "defaultAdmin()");
+            (, address current) = RolesProbes._tryAddress(token, "defaultAdmin()");
             require(
                 current == actor,
                 string.concat(
@@ -138,13 +138,13 @@ contract TransferTokenAdmin is TokenRoleScript {
                 )
             );
             console.log(string.concat("\n[Step 1] beginDefaultAdminTransfer (two-step) on ", chainName));
-            executeCalls(CctActions.beginDefaultAdminTransfer(token, newAdmin));
+            _executeCalls(CctActions._beginDefaultAdminTransfer(token, newAdmin));
             console.log(unicode"✅ Transfer initiated! The new admin must run this script with ACCEPT=1.");
             return;
         }
         if (template == RolesProbes.TokenTemplate.BurnMintERC20) {
             require(
-                RolesProbes.hasRole(token, RolesProbes.DEFAULT_ADMIN_ROLE, actor),
+                RolesProbes._hasRole(token, RolesProbes.DEFAULT_ADMIN_ROLE, actor),
                 string.concat(
                     "Executing account (", vm.toString(actor), ") does not hold DEFAULT_ADMIN_ROLE on this token."
                 )
@@ -153,14 +153,14 @@ contract TransferTokenAdmin is TokenRoleScript {
                 unicode"⚠️  burnmint (plain AccessControl): DEFAULT_ADMIN_ROLE uses a ONE-STEP grant model. The grant takes effect immediately (there is no ACCEPT=1 step) and does NOT remove the current admin. To complete a full handoff, the new admin runs RevokeTokenRole ROLE=defaultAdmin HOLDER=<old admin>."
             );
             console.log(string.concat("\n[Step 1] grantRole(DEFAULT_ADMIN_ROLE) - GRANT ONLY - on ", chainName));
-            executeCalls(CctActions.grantRole(token, RolesProbes.DEFAULT_ADMIN_ROLE, newAdmin));
+            _executeCalls(CctActions._grantRole(token, RolesProbes.DEFAULT_ADMIN_ROLE, newAdmin));
             console.log(
                 unicode"✅ Granted! The old holder keeps DEFAULT_ADMIN_ROLE until the ceremony's revoke batch (after the completion gate)."
             );
             return;
         }
         // factory (Ownable2Step)
-        (, address owner_) = RolesProbes.tryAddress(token, "owner()");
+        (, address owner_) = RolesProbes._tryAddress(token, "owner()");
         require(
             owner_ == actor,
             string.concat(
@@ -168,7 +168,7 @@ contract TransferTokenAdmin is TokenRoleScript {
             )
         );
         console.log(string.concat("\n[Step 1] transferOwnership (two-step) on ", chainName));
-        executeCalls(CctActions.transferOwnership(token, newAdmin));
+        _executeCalls(CctActions._transferOwnership(token, newAdmin));
         console.log(unicode"✅ Transfer initiated! The new owner must run this script with ACCEPT=1.");
     }
 
@@ -176,7 +176,7 @@ contract TransferTokenAdmin is TokenRoleScript {
         private
     {
         if (template == RolesProbes.TokenTemplate.CrossChainToken) {
-            (, address pending) = RolesProbes.tryAddress(token, "pendingDefaultAdmin()");
+            (, address pending) = RolesProbes._tryAddress(token, "pendingDefaultAdmin()");
             require(
                 pending == actor,
                 string.concat(
@@ -188,7 +188,7 @@ contract TransferTokenAdmin is TokenRoleScript {
                 )
             );
             console.log(string.concat("\n[Step 1] acceptDefaultAdminTransfer on ", chainName));
-            executeCalls(CctActions.acceptDefaultAdminTransfer(token));
+            _executeCalls(CctActions._acceptDefaultAdminTransfer(token));
             console.log(unicode"✅ Default admin accepted!");
             return;
         }
@@ -197,7 +197,7 @@ contract TransferTokenAdmin is TokenRoleScript {
             "burnmint token: the grant model has no accept leg - the step-A grantRole is already effective"
         );
         // factory (Ownable2Step)
-        (bool hasPending, address pendingOwner) = RolesProbes.tryAddress(token, "pendingOwner()");
+        (bool hasPending, address pendingOwner) = RolesProbes._tryAddress(token, "pendingOwner()");
         if (hasPending) {
             require(
                 pendingOwner == actor,
@@ -211,7 +211,7 @@ contract TransferTokenAdmin is TokenRoleScript {
             );
         }
         console.log(string.concat("\n[Step 1] acceptOwnership on ", chainName));
-        executeCalls(CctActions.acceptOwnership(token));
+        _executeCalls(CctActions._acceptOwnership(token));
         console.log(unicode"✅ Ownership accepted!");
     }
 }

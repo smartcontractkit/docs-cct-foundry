@@ -63,7 +63,7 @@ contract GetTokenTransferFeeConfig is Script {
         // ── Query fee config (v2.0+ only) ──────────────────────────────────
         // getTokenTransferFeeConfig() was introduced in TokenPool v2.0.
         // On v1 pools, fee configuration is handled by FeeQuoter and requires
-        // a direct request to the Chainlink team — it cannot be read or set here.
+        // a direct request to the Chainlink team - it cannot be read or set here.
         try tokenPool.getTokenTransferFeeConfig(address(0), destChainSelector, 0, "") returns (
             IPoolV2.TokenTransferFeeConfig memory feeConfig
         ) {

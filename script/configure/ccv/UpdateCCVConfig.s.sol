@@ -44,11 +44,11 @@ import {ProjectStore} from "../../../src/utils/ProjectStore.sol";
 /// pool-scoped `poolPolicy.ccvThreshold` (both in the project store) > the current on-chain value.
 /// An env value present (even empty, `=""`) wins; an env value that diverges (as a SET,
 /// order-insensitive) from the declaration prints a one-line notice and a closing hand-edit hint,
-/// and `make doctor` FAILs until reconciled (`v2.ccv`/`poolPolicy` have no flag surface — reconcile
+/// and `make doctor` FAILs until reconciled (`v2.ccv`/`poolPolicy` have no flag surface - reconcile
 /// by a reviewed hand edit). The declarations are owner intent: an env-driven apply never writes
 /// them back.
 ///
-/// Usage example (apply the declared lanes{} CCV policy — no CCV env vars):
+/// Usage example (apply the declared lanes{} CCV policy - no CCV env vars):
 ///   DEST_CHAIN=MANTLE_SEPOLIA \
 ///   forge script script/configure/ccv/UpdateCCVConfig.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account <KEYSTORE_NAME> --broadcast
 ///
@@ -157,7 +157,7 @@ contract UpdateCCVConfig is EoaExecutor, LanePolicySource {
                 );
             }
             AdvancedPoolHooks.CCVConfigArg[] memory args = _buildCCVArgs(res, destChainSelector);
-            calls = CctActions.applyCCVConfigUpdates(hooksAddress, args);
+            calls = CctActions._applyCCVConfigUpdates(hooksAddress, args);
         }
         bool writeThreshold =
             (res.threshold.fromEnv || res.threshold.fromLanes) && res.threshold.value != currentThreshold;
@@ -167,7 +167,7 @@ contract UpdateCCVConfig is EoaExecutor, LanePolicySource {
                     "[threshold] Setting pool-global additional-CCV threshold to ", vm.toString(res.threshold.value)
                 )
             );
-            calls = CctActions.concat(calls, CctActions.setThresholdAmount(hooksAddress, res.threshold.value));
+            calls = CctActions._concat(calls, CctActions._setThresholdAmount(hooksAddress, res.threshold.value));
         }
 
         if (calls.length == 0) {
@@ -189,7 +189,7 @@ contract UpdateCCVConfig is EoaExecutor, LanePolicySource {
                 vm.toString(hooksOwner)
             )
         );
-        executeCalls(calls);
+        _executeCalls(calls);
         console.log(unicode"✅ CCV config applied successfully!");
 
         _footer(chainId, tokenPoolAddress, res);
@@ -202,8 +202,8 @@ contract UpdateCCVConfig is EoaExecutor, LanePolicySource {
     ///      AdvancedPoolHooks is wired. Returns the resolved hooks address. This script broadcasts, so
     ///      it uses `resolve` (which refuses uncataloged/-dev pools) rather than the degrading path.
     function _fencedHooks(address pool, bool haveLane) internal view returns (address hooksAddress) {
-        (PoolVersions.Version poolVersion,) = PoolVersion.resolve(pool);
-        PoolVersions.requireSupports(
+        (PoolVersions.Version poolVersion,) = PoolVersion._resolve(pool);
+        PoolVersions._requireSupports(
             haveLane ? PoolVersions.Op.APPLY_CCV_CONFIG : PoolVersions.Op.SET_CCV_THRESHOLD, poolVersion, pool
         );
         hooksAddress = address(TokenPool(pool).getAdvancedPoolHooks());
@@ -266,7 +266,7 @@ contract UpdateCCVConfig is EoaExecutor, LanePolicySource {
     /// @dev Resolves the four CCV arrays and the pool-global threshold through the per-field ladder:
     ///      env > declared `v2.ccv.<field>` / `poolPolicy.ccvThreshold` > current on-chain value.
     ///      An UNDECLARED array carries the current on-chain value (the read-modify-write invariant:
-    ///      applyCCVConfigUpdates fully replaces the entry). The declarations are OWNER INTENT — an
+    ///      applyCCVConfigUpdates fully replaces the entry). The declarations are OWNER INTENT - an
     ///      env-driven apply never writes them back.
     function _resolveCCVConfig(
         AdvancedPoolHooks.CCVConfig memory currentConfig,
@@ -326,13 +326,13 @@ contract UpdateCCVConfig is EoaExecutor, LanePolicySource {
             if (f.declared) f.declaredValue = vm.parseJsonAddressArray(json, fieldKey);
         }
         if (f.fromEnv) {
-            f.value = HelperUtils.parseAddressArray(vm, _envString(envName), "");
+            f.value = HelperUtils._parseAddressArray(vm, _envString(envName), "");
             f.diverges = f.declared && !_sameAddressSet(f.value, f.declaredValue);
         } else if (f.declared) {
             f.fromLanes = true;
             f.value = f.declaredValue;
         } else {
-            f.value = current; // rung 3: RMW — carry the current on-chain value
+            f.value = current; // rung 3: RMW - carry the current on-chain value
         }
         res.anyArrayEnv = res.anyArrayEnv || f.fromEnv;
         res.anyArrayFromLanes = res.anyArrayFromLanes || f.fromLanes;
@@ -377,7 +377,7 @@ contract UpdateCCVConfig is EoaExecutor, LanePolicySource {
                     "CCV arrays resolved from lanes.",
                     res.laneKey,
                     ".v2.ccv in ",
-                    ProjectStore.display(res.configName),
+                    ProjectStore._display(res.configName),
                     " (undeclared arrays keep the current on-chain values)"
                 )
             );
@@ -385,7 +385,7 @@ contract UpdateCCVConfig is EoaExecutor, LanePolicySource {
         if (res.threshold.fromLanes) {
             console.log(
                 string.concat(
-                    "CCV threshold resolved from poolPolicy.ccvThreshold in ", ProjectStore.display(res.configName)
+                    "CCV threshold resolved from poolPolicy.ccvThreshold in ", ProjectStore._display(res.configName)
                 )
             );
         }
@@ -435,7 +435,7 @@ contract UpdateCCVConfig is EoaExecutor, LanePolicySource {
             "=",
             _addrArrayToString(res.fields[i].declaredValue),
             " in ",
-            ProjectStore.display(res.configName),
+            ProjectStore._display(res.configName),
             " - make doctor will FAIL until reconciled"
         );
     }
@@ -447,7 +447,7 @@ contract UpdateCCVConfig is EoaExecutor, LanePolicySource {
             " diverges from declared poolPolicy.ccvThreshold=",
             vm.toString(res.threshold.declaredValue),
             " in ",
-            ProjectStore.display(res.configName),
+            ProjectStore._display(res.configName),
             " - make doctor will FAIL until reconciled"
         );
     }
@@ -465,7 +465,7 @@ contract UpdateCCVConfig is EoaExecutor, LanePolicySource {
             " lanes.",
             res.laneKey,
             ".v2.ccv (",
-            ProjectStore.display(res.configName),
+            ProjectStore._display(res.configName),
             "). Hand-edit the block to the applied values: ",
             values,
             " - make doctor CHAIN=",
@@ -480,7 +480,7 @@ contract UpdateCCVConfig is EoaExecutor, LanePolicySource {
             vm.toString(res.threshold.value),
             res.threshold.declared ? " is diverging from" : " is not declared as",
             " poolPolicy.ccvThreshold in ",
-            ProjectStore.display(res.configName),
+            ProjectStore._display(res.configName),
             " - make doctor CHAIN=",
             res.configName,
             " FAILs until reconciled"

@@ -21,13 +21,13 @@ import {ProjectStore} from "../../../src/utils/ProjectStore.sol";
 /// @dev This function is only available on TokenPool v2.0 and later.
 /// The allowed finality config controls which fast finality modes are accepted for cross-chain transfers.
 ///
-/// Finality modes (encoded into the bytes4 by FinalityConfigUtils.encode):
-///   BLOCK_DEPTH=<n>                      — Allow fast finality after N block confirmations (1–65535).
-///   WAIT_FOR_SAFE=true                   — Allow fast finality transfers using the `safe` head.
-///   BLOCK_DEPTH=<n> + WAIT_FOR_SAFE=true — Allow both modes simultaneously (pool accepts either).
-///   (neither)                            — WAIT_FOR_FINALITY (default): disables fast finality transfers.
+/// Finality modes (encoded into the bytes4 by FinalityConfigUtils._encode):
+///   BLOCK_DEPTH=<n>                      - Allow fast finality after N block confirmations (1–65535).
+///   WAIT_FOR_SAFE=true                   - Allow fast finality transfers using the `safe` head.
+///   BLOCK_DEPTH=<n> + WAIT_FOR_SAFE=true - Allow both modes simultaneously (pool accepts either).
+///   (neither)                            - WAIT_FOR_FINALITY (default): disables fast finality transfers.
 ///
-/// Environment Variables (finality mode — any combination):
+/// Environment Variables (finality mode - any combination):
 ///   BLOCK_DEPTH    - uint16, number of block confirmations to allow (1–65535).
 ///   WAIT_FOR_SAFE  - true/false, set to true to also allow transfers using the `safe` head.
 ///
@@ -35,10 +35,10 @@ import {ProjectStore} from "../../../src/utils/ProjectStore.sol";
 /// declared `poolPolicy.finality` block in the project store ({blockDepth?, waitForSafe?}; an empty
 /// block declares the WAIT_FOR_FINALITY default) > WAIT_FOR_FINALITY (reset). An env value that
 /// diverges from a declaration prints a one-line notice and a closing hand-edit hint, and
-/// `make doctor` FAILs until reconciled (`poolPolicy` has no flag surface — reconcile by a reviewed
+/// `make doctor` FAILs until reconciled (`poolPolicy` has no flag surface - reconcile by a reviewed
 /// hand edit). The declaration is owner intent: an env-driven apply never writes it back.
 ///
-/// Environment Variables (optional — rate limiter):
+/// Environment Variables (optional - rate limiter):
 ///   DEST_CHAIN                    - Remote chain whose lane is queried/updated (e.g. MANTLE_SEPOLIA).
 ///                                   Required when any rate limit variable is set; if omitted the rate
 ///                                   limiter section is skipped entirely.
@@ -141,19 +141,19 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
             console.log(
                 string.concat(
                     "Finality config resolved from poolPolicy.finality in ",
-                    ProjectStore.display(finalityRes.configName)
+                    ProjectStore._display(finalityRes.configName)
                 )
             );
         }
         if (finalityRes.diverges) console.log(finalityRes.notice);
         s_finalityHint = finalityRes.hint;
 
-        // ── Optional env vars — rate limiter ───────────────────────────────
+        // ── Optional env vars - rate limiter ───────────────────────────────
         string memory sentinel = "__not_set__";
         bool destChainSet = keccak256(bytes(vm.envOr("DEST_CHAIN", sentinel))) != keccak256(bytes(sentinel));
         string memory destChainName = destChainSet ? vm.envString("DEST_CHAIN") : "";
 
-        RateLimiterUtils.RateLimitUpdate memory update = RateLimiterUtils.readRateLimitUpdate();
+        RateLimiterUtils.RateLimitUpdate memory update = RateLimiterUtils._readRateLimitUpdate();
         bool hasRateLimitUpdate = update.updateOutbound || update.updateInbound;
 
         require(
@@ -184,8 +184,8 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
         // (not only when DEST_CHAIN is set). Resolve the pool's on-chain contract version
         // unconditionally and refuse by name before the write; the rate-limit path reuses this
         // version. This script broadcasts, so use resolve (refuses uncataloged/-dev pools).
-        (PoolVersions.Version poolVersion,) = PoolVersion.resolve(tokenPoolAddress);
-        PoolVersions.requireSupports(PoolVersions.Op.SET_ALLOWED_FINALITY_CONFIG, poolVersion, tokenPoolAddress);
+        (PoolVersions.Version poolVersion,) = PoolVersion._resolve(tokenPoolAddress);
+        PoolVersions._requireSupports(PoolVersions.Op.SET_ALLOWED_FINALITY_CONFIG, poolVersion, tokenPoolAddress);
 
         // ── Resolve remote chain (only when DEST_CHAIN is set) ─────────────
         uint64 remoteChainSelector;
@@ -216,7 +216,7 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
             string.concat("  New Finality Config:          ", vm.toString(abi.encodePacked(s_newFinalityConfig)))
         );
         console.log(
-            string.concat("  Mode:                         ", FinalityConfigUtils.decodeModeLabel(s_newFinalityConfig))
+            string.concat("  Mode:                         ", FinalityConfigUtils._decodeModeLabel(s_newFinalityConfig))
         );
         console.log("");
 
@@ -225,7 +225,7 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
             console.log("----------------------------------------");
             console.log(unicode"📊 Current Rate Limits (fast finality where enabled, standard otherwise):");
             console.log("----------------------------------------");
-            RateLimiterUtils.logRateLimiterStateWithFallback(
+            RateLimiterUtils._logRateLimiterStateWithFallback(
                 tokenPool, ITokenPoolV1RateLimiter(tokenPoolAddress), remoteChainSelector, poolVersion
             );
         }
@@ -233,7 +233,7 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
         // ── Step 1: Set finality config ────────────────────────────────────
         console.log(string.concat("[Step 1] Setting finality config on ", chainName));
 
-        executeCalls(CctActions.setAllowedFinalityConfig(tokenPoolAddress, s_newFinalityConfig));
+        _executeCalls(CctActions._setAllowedFinalityConfig(tokenPoolAddress, s_newFinalityConfig));
         console.log(unicode"✅ Finality config set successfully!");
 
         // ── Step 2: Apply rate limit update (if requested) ─────────────────
@@ -256,7 +256,7 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
             console.log("----------------------------------------");
             console.log(unicode"📊 Updated Rate Limits (fast finality where enabled, standard otherwise):");
             console.log("----------------------------------------");
-            RateLimiterUtils.logRateLimiterStateWithFallback(
+            RateLimiterUtils._logRateLimiterStateWithFallback(
                 tokenPool, ITokenPoolV1RateLimiter(tokenPoolAddress), remoteChainSelector, poolVersion
             );
         }
@@ -268,7 +268,7 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
         console.log("========================================");
         console.log(string.concat("Token Pool:      ", vm.toString(tokenPoolAddress)));
         console.log(string.concat("Finality Config: ", vm.toString(abi.encodePacked(s_newFinalityConfig))));
-        console.log(string.concat("Mode:            ", FinalityConfigUtils.decodeModeLabel(s_newFinalityConfig)));
+        console.log(string.concat("Mode:            ", FinalityConfigUtils._decodeModeLabel(s_newFinalityConfig)));
         console.log(
             string.concat("Token Pool:      ", helperConfig.getExplorerUrl(chainId, "/address/", tokenPoolAddress))
         );
@@ -292,10 +292,10 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
 
         require(blockDepthRaw <= FinalityCodec.MAX_BLOCK_DEPTH, "BLOCK_DEPTH must be <= FinalityCodec.MAX_BLOCK_DEPTH");
 
-        return FinalityConfigUtils.encode(waitForSafe, blockDepthRaw);
+        return FinalityConfigUtils._encode(waitForSafe, blockDepthRaw);
     }
 
-    /// @dev The finality-config input ladder: env (either variable present — explicit false/0 still
+    /// @dev The finality-config input ladder: env (either variable present - explicit false/0 still
     ///      pins the env rung) > declared `poolPolicy.finality` > WAIT_FOR_FINALITY (reset). With an
     ///      absent declaration the result is bit-identical to the env-only behavior, so a project
     ///      store with no poolPolicy block changes nothing.
@@ -305,7 +305,7 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
         if (res.configFound) {
             string memory json = _localProjectJson(res.configName);
             res.declared = vm.keyExistsJson(json, ".poolPolicy.finality");
-            if (res.declared) res.declaredValue = FinalityConfigUtils.parseDeclared(json, ".poolPolicy.finality");
+            if (res.declared) res.declaredValue = FinalityConfigUtils._parseDeclared(json, ".poolPolicy.finality");
         }
         if (res.fromEnv) {
             res.value = _buildFinalityConfig();
@@ -330,13 +330,13 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
             unicode"⚠️  Finality env override ",
             vm.toString(abi.encodePacked(res.value)),
             " (",
-            FinalityConfigUtils.decodeModeLabel(res.value),
+            FinalityConfigUtils._decodeModeLabel(res.value),
             ") diverges from declared poolPolicy.finality ",
             vm.toString(abi.encodePacked(res.declaredValue)),
             " (",
-            FinalityConfigUtils.decodeModeLabel(res.declaredValue),
+            FinalityConfigUtils._decodeModeLabel(res.declaredValue),
             ") in ",
-            ProjectStore.display(res.configName),
+            ProjectStore._display(res.configName),
             " - make doctor will FAIL until reconciled"
         );
     }
@@ -352,7 +352,7 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
             vm.toString(abi.encodePacked(res.value)),
             res.declared ? " is diverging from" : " is not declared as",
             " poolPolicy.finality (",
-            ProjectStore.display(res.configName),
+            ProjectStore._display(res.configName),
             "). Hand-edit the block to blockDepth=",
             vm.toString(depth),
             " waitForSafe=",
@@ -392,7 +392,7 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
             )
         );
 
-        (RateLimiter.Config memory outbound, RateLimiter.Config memory inbound) = RateLimiterUtils.getCurrentConfigs(
+        (RateLimiter.Config memory outbound, RateLimiter.Config memory inbound) = RateLimiterUtils._getCurrentConfigs(
             tokenPool, ITokenPoolV1RateLimiter(tokenPoolAddress), remoteChainSelector, true, poolVersion
         );
 
@@ -411,12 +411,12 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
             });
         }
 
-        RateLimiterUtils.logNewConfig(u.updateOutbound, outbound, u.updateInbound, inbound);
+        RateLimiterUtils._logNewConfig(u.updateOutbound, outbound, u.updateInbound, inbound);
 
         // Fast-finality bucket update (fastFinality=true) through the version-dispatched action layer.
         // setAllowedFinalityConfig above already established this is a v2 pool.
-        executeCalls(
-            CctActions.setRateLimits(address(tokenPool), poolVersion, remoteChainSelector, true, outbound, inbound)
+        _executeCalls(
+            CctActions._setRateLimits(address(tokenPool), poolVersion, remoteChainSelector, true, outbound, inbound)
         );
 
         console.log(unicode"✅ Rate limits updated successfully!");
@@ -524,7 +524,7 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
             " rate=",
             vm.toString(declRate),
             ") in ",
-            ProjectStore.display(res.configName),
+            ProjectStore._display(res.configName),
             " - make doctor will FAIL until reconciled"
         );
     }
@@ -544,7 +544,7 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
             ".v2.fastFinality.",
             inbound ? "inbound" : "outbound",
             " (",
-            ProjectStore.display(res.configName),
+            ProjectStore._display(res.configName),
             "). Hand-edit the entry to capacity=",
             vm.toString(uint256(applied.capacity)),
             " rate=",

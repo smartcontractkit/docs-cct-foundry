@@ -6,7 +6,7 @@ import {Test} from "forge-std/Test.sol";
 /// @notice Pins the config-sync transform against a REAL, committed CCIP REST API v2 response
 /// (`test/fixtures/ccip-api/chain-16015286601757825753.json`, `GET /chains/{selector}` for
 /// Ethereum Sepolia). Offline (no ffi, no network): asserts that selecting the `isActive: true`
-/// entry per contract type — exactly what `script/config/ccip-config-source.sh` does with jq —
+/// entry per contract type - exactly what `script/config/ccip-config-source.sh` does with jq -
 /// reproduces the committed `config/chains/ethereum-testnet-sepolia.json` `ccip{}` block, including the
 /// API->repo key mapping (`rmn` -> `rmnProxy`, `registryModule` -> `registryModuleOwnerCustom`,
 /// LINK fee token -> `link`). The end-to-end write path (jq + `vm.writeJson`, idempotency, extras
@@ -70,7 +70,7 @@ contract SyncFixtureTransformTest is Test {
     }
 
     /// @dev The fixture carries `isActive: false` siblings (an old router + FeeQuoter), so blind
-    /// first-entry selection would produce a DIFFERENT config — proves the isActive rule matters.
+    /// first-entry selection would produce a DIFFERENT config - proves the isActive rule matters.
     function test_InactiveSiblingsExistAndDiffer() public view {
         assertFalse(vm.parseJsonBool(fixtureJson, ".chainConfig.router[1].isActive"), "router[1] should be inactive");
         assertTrue(

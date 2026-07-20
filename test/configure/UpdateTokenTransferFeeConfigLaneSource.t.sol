@@ -11,7 +11,7 @@ import {LaneReconcileScratch} from "../config/VerifyChainLaneReconcile.t.sol";
 ///      process-global and forge runs suites in parallel, so tests must never vm.setEnv shared
 ///      names). An unset fake var behaves like an unset env var; the resolution logic under test is
 ///      unmodified. The current on-chain config is a parameter because run() reads it from the pool
-///      before resolving — the rung-3 fallback needs no fork to trust.
+///      before resolving - the rung-3 fallback needs no fork to trust.
 contract FeeConfigLaneSourceHarness is UpdateTokenTransferFeeConfig {
     mapping(bytes32 => string) private fakeEnv;
 
@@ -58,7 +58,7 @@ contract FeeConfigLaneSourceHarness is UpdateTokenTransferFeeConfig {
 
 /// @notice The per-field fee-config input ladder of UpdateTokenTransferFeeConfig (env > declared
 ///         `v2.feeConfig.<field>` > current on-chain value), proven offline against scratch chain
-///         configs: rung-1 env byte-equality (agreeing, diverging — whole-block and single-field),
+///         configs: rung-1 env byte-equality (agreeing, diverging - whole-block and single-field),
 ///         rung-2 lanes{} consumption (whole block, partial block with the on-chain fallback for
 ///         undeclared fields), the rung-3 historical default (current on-chain values, exactly the
 ///         script's pre-existing per-field `vm.envOr(name, current)` semantics), the partial-env
@@ -148,7 +148,7 @@ contract UpdateTokenTransferFeeConfigLaneSourceTest is LaneReconcileScratch {
     }
 
     /// @dev A `,"v2":{"feeConfig":{...}}` suffix for `_laneEntry`, declaring the first
-    ///      `declaredCount` fields (in the canonical field order) with `values` — 6 for a full
+    ///      `declaredCount` fields (in the canonical field order) with `values` - 6 for a full
     ///      block, fewer for a partial one.
     function _feeBlock(uint256[6] memory values, uint256 declaredCount) internal pure returns (string memory) {
         string[6] memory fields = _fieldNames();
@@ -273,7 +273,7 @@ contract UpdateTokenTransferFeeConfigLaneSourceTest is LaneReconcileScratch {
         _cleanupScratchOne(local);
     }
 
-    // PER-FIELD divergence: one env var set to a diverging value, the block declares all six —
+    // PER-FIELD divergence: one env var set to a diverging value, the block declares all six -
     // only that field diverges (env wins for it), the other five resolve from the declaration.
     function test_PerField_SingleEnvDiverges_OthersFromLanes() public {
         string memory local = _localChain(4);
@@ -296,7 +296,7 @@ contract UpdateTokenTransferFeeConfigLaneSourceTest is LaneReconcileScratch {
     }
 
     // Partial env AGREEING with its declared field: env wins for the set field (no divergence),
-    // the rest fill from the declaration — no hint anywhere.
+    // the rest fill from the declaration - no hint anywhere.
     function test_PartialEnvAgrees_RestFromLanes_NoHint() public {
         string memory local = _localChain(5);
         _declareLane(local, "zz-scratch-feesrc-remote5", _laneEntry(REMOTE_SELECTOR, 0, 0, _feeBlock(LANE_VALUES, 6)));
@@ -336,7 +336,7 @@ contract UpdateTokenTransferFeeConfigLaneSourceTest is LaneReconcileScratch {
     }
 
     // No env, PARTIAL declared block (first three fields): declared fields from the block, the
-    // undeclared rest keep the current on-chain values — the historical per-field fallback.
+    // undeclared rest keep the current on-chain values - the historical per-field fallback.
     function test_NoEnv_PartialBlock_DeclaredFromLanes_RestFromCurrent() public {
         string memory local = _localChain(7);
         _declareLane(local, "zz-scratch-feesrc-remote7", _laneEntry(REMOTE_SELECTOR, 0, 0, _feeBlock(LANE_VALUES, 3)));
@@ -363,7 +363,7 @@ contract UpdateTokenTransferFeeConfigLaneSourceTest is LaneReconcileScratch {
     // ─────────────────────────────────────────────────────────────────────────
 
     // The default stands: every field keeps the current on-chain value
-    // (zero when no config is stored yet) and nothing hints — the
+    // (zero when no config is stored yet) and nothing hints - the
     // `vm.envOr(name, current)` semantics.
     function test_NoEnv_NoBlock_CurrentOnChainDefaults_NoHint() public {
         string memory local = _localChain(8);

@@ -23,7 +23,7 @@ library FeeTokenLogger {
     /// @return nonZeroCount     Number of tokens whose pool balance is greater than zero.
     /// @return tokensToWithdraw Filtered array containing only the tokens with a non-zero
     ///                          balance, preserving the original relative order.
-    function logFeeTokenBalances(Vm vm, address poolAddress, address[] memory feeTokens)
+    function _logFeeTokenBalances(Vm vm, address poolAddress, address[] memory feeTokens)
         internal
         view
         returns (uint256 nonZeroCount, address[] memory tokensToWithdraw)

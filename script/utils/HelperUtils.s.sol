@@ -7,22 +7,22 @@ import {Vm} from "forge-std/Vm.sol";
 library HelperUtils {
     using stdJson for string;
 
-    function getAddressFromJson(Vm vm, string memory path, string memory key) internal view returns (address) {
+    function _getAddressFromJson(Vm vm, string memory path, string memory key) internal view returns (address) {
         string memory json = vm.readFile(path);
         return json.readAddress(key);
     }
 
-    function getBoolFromJson(Vm vm, string memory path, string memory key) internal view returns (bool) {
+    function _getBoolFromJson(Vm vm, string memory path, string memory key) internal view returns (bool) {
         string memory json = vm.readFile(path);
         return json.readBool(key);
     }
 
-    function getStringFromJson(Vm vm, string memory path, string memory key) internal view returns (string memory) {
+    function _getStringFromJson(Vm vm, string memory path, string memory key) internal view returns (string memory) {
         string memory json = vm.readFile(path);
         return json.readString(key);
     }
 
-    function getUintFromJson(Vm vm, string memory path, string memory key) internal view returns (uint256) {
+    function _getUintFromJson(Vm vm, string memory path, string memory key) internal view returns (uint256) {
         string memory json = vm.readFile(path);
         return json.readUint(key);
     }
@@ -39,7 +39,7 @@ library HelperUtils {
      *        parseAddressArray(vm, '["0xAbc...","0xDef..."]', "")         // inline JSON
      *        parseAddressArray(vm, "0xAbc...,0xDef...", "")               // inline CSV
      */
-    function parseAddressArray(Vm vm, string memory pathOrInput, string memory key)
+    function _parseAddressArray(Vm vm, string memory pathOrInput, string memory key)
         internal
         view
         returns (address[] memory)
@@ -55,7 +55,7 @@ library HelperUtils {
         // Inline branch
         bytes memory b = bytes(pathOrInput);
         if (b[0] == "[") {
-            // Inline JSON array — key "." selects the root array
+            // Inline JSON array - key "." selects the root array
             return vm.parseJsonAddressArray(pathOrInput, ".");
         }
 

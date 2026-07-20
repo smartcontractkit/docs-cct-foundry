@@ -9,7 +9,7 @@ import {ISafe, ISafeProxyFactory, SafeCanonical} from "../../src/base/ISafe.sol"
 ///
 /// Because the factory, singleton, and fallback handler live at the SAME address on every supported
 /// chain and `createProxyWithNonce` is CREATE2, the same owners + threshold + saltNonce yield the
-/// SAME Safe address on every chain — which is what a mirrored multi-chain fleet needs. The script
+/// SAME Safe address on every chain - which is what a mirrored multi-chain fleet needs. The script
 /// predicts the CREATE2 address first, asserts the deployment lands on it, and is idempotent: if the
 /// predicted address already has code (the Safe was already deployed, here or on a mirrored chain
 /// setup rerun), it logs and returns instead of reverting.
@@ -17,7 +17,7 @@ import {ISafe, ISafeProxyFactory, SafeCanonical} from "../../src/base/ISafe.sol"
 /// Environment Variables:
 ///   SAFE_OWNERS      (required) comma-separated owner addresses, e.g. "0xabc...,0xdef...,0x123..."
 ///   SAFE_THRESHOLD   (required) number of owner signatures required (1..len(SAFE_OWNERS))
-///   SAFE_SALT_NONCE  (optional) CREATE2 salt nonce, default 0 — reuse the SAME value on every chain
+///   SAFE_SALT_NONCE  (optional) CREATE2 salt nonce, default 0 - reuse the SAME value on every chain
 ///                    to mirror the address
 contract DeploySafe is Script {
     function run() external returns (address safe) {

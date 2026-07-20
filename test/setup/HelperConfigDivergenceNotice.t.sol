@@ -5,14 +5,14 @@ import {Test} from "forge-std/Test.sol";
 import {HelperConfig} from "../../script/HelperConfig.s.sol";
 import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 
-/// @title HelperConfigDivergenceNoticeTest — the env-override divergence notice (offline, byte-exact)
+/// @title HelperConfigDivergenceNoticeTest - the env-override divergence notice (offline, byte-exact)
 /// @notice An env override (`TOKEN` / `{CHAIN}_TOKEN` / …) wins over the project store and is READ-ONLY:
 /// it is applied for the run but never written back, so a reviewed store can silently drift under an
 /// incident override. `composeDivergenceNotice` is the side-effect-free text the broadcasting-only
 /// `warnEnvOverride` prints for that case; being pure-ish it is BYTE-ASSERTABLE without any env/store
-/// setup. This suite pins its FOUR states byte-exact — (a) env == store → ""; (b) env != store → the
+/// setup. This suite pins its FOUR states byte-exact - (a) env == store → ""; (b) env != store → the
 /// full two-line NOTICE naming both values + the exact `make adopt-token` command; (c) env set + store
-/// unset → the same NOTICE with "(unset)"; (d) no env override → "" — then proves `warnEnvOverride` is a
+/// unset → the same NOTICE with "(unset)"; (d) no env override → "" - then proves `warnEnvOverride` is a
 /// no-op under `forge test` (and that HelperConfig's constructor already ran it harmlessly for the acting
 /// chain), and that resolving under an env override writes NOTHING back to the store (byte-identity).
 contract HelperConfigDivergenceNoticeTest is Test {
@@ -20,14 +20,14 @@ contract HelperConfigDivergenceNoticeTest is Test {
     address internal constant ENV_VAL = 0x00000000000000000000000000000000000000A1;
     address internal constant STORE_VAL = 0x00000000000000000000000000000000000000b2;
 
-    // Fields the notice composes from (arbitrary — composeDivergenceNotice is a pure text builder).
+    // Fields the notice composes from (arbitrary - composeDivergenceNotice is a pure text builder).
     string internal constant SEL = "ethereum-testnet-sepolia";
     string internal constant ROLE = "token";
     string internal constant STEM = "TOKEN";
 
     // ── read-only byte-identity fixture: a uniquely-named scratch EVM chain + project store ──
     // Its chainNameIdentifier is unique, so the `{IDENT}_TOKEN` env override name is unique to this
-    // test — never a shared name racing a parallel suite (the fake-env-seam discipline for env vars
+    // test - never a shared name racing a parallel suite (the fake-env-seam discipline for env vars
     // HelperConfig reads directly). chainId/selector no other test uses.
     string internal constant BI_SEL = "zz-scratch-divnotice-readonly";
     string internal constant BI_IDENT = "ZZ_SCRATCH_DIVNOTICE";
@@ -49,12 +49,12 @@ contract HelperConfigDivergenceNoticeTest is Test {
     function _clean() private {
         string memory cfg = string.concat(vm.projectRoot(), "/config/chains/", BI_SEL, ".json");
         if (vm.exists(cfg)) vm.removeFile(cfg);
-        string memory proj = ProjectStore.path(BI_SEL);
+        string memory proj = ProjectStore._path(BI_SEL);
         if (vm.exists(proj)) vm.removeFile(proj);
     }
 
     /// @dev The expected two-line NOTICE, mirroring `composeDivergenceNotice` byte-for-byte. `storeVal`
-    /// renders as "(unset)" when zero, else its hex — the only branch inside the builder.
+    /// renders as "(unset)" when zero, else its hex - the only branch inside the builder.
     function _expectedNotice(address envVal, address storeVal) internal pure returns (string memory) {
         return string.concat(
             "NOTICE: ",
@@ -146,8 +146,8 @@ contract HelperConfigDivergenceNoticeTest is Test {
             vm.toString(STORE_VAL),
             "\"},\"deployments\":{}},\"lanes\":{},\"roles\":{},\"schema\":3}"
         );
-        vm.writeFile(ProjectStore.path(BI_SEL), storeJson);
-        bytes32 before = keccak256(bytes(vm.readFile(ProjectStore.path(BI_SEL))));
+        vm.writeFile(ProjectStore._path(BI_SEL), storeJson);
+        bytes32 before = keccak256(bytes(vm.readFile(ProjectStore._path(BI_SEL))));
 
         vm.setEnv(BI_ENV, vm.toString(ENV_VAL)); // unique name - not a shared env var
         HelperConfig fresh = new HelperConfig();
@@ -161,14 +161,14 @@ contract HelperConfigDivergenceNoticeTest is Test {
         }
         // The core invariant: the store was NOT written back to match the override.
         assertEq(
-            keccak256(bytes(vm.readFile(ProjectStore.path(BI_SEL)))),
+            keccak256(bytes(vm.readFile(ProjectStore._path(BI_SEL)))),
             before,
             "resolving under an env override must leave the project store byte-identical (read-only)"
         );
         _clean();
     }
 
-    /// @dev A discovery-safe EVM chain config (every key `ChainConfig.tryLoad` reads) with the UNIQUE
+    /// @dev A discovery-safe EVM chain config (every key `ChainConfig._tryLoad` reads) with the UNIQUE
     /// chainNameIdentifier that makes the `{IDENT}_TOKEN` env override name test-local.
     function _writeBiConfig() internal {
         string memory json = string.concat(

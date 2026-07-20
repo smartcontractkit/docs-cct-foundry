@@ -13,11 +13,11 @@ import {ProjectScratch} from "../utils/ProjectScratch.sol";
 /// library revert is inlined into the test frame otherwise).
 contract StringWriteHarness {
     function writeString(string memory sel, string memory role, string memory name, string memory value) external {
-        RegistryWriter.recordDeterministicString(sel, role, name, value);
+        RegistryWriter._recordDeterministicString(sel, role, name, value);
     }
 }
 
-/// @title StringStoreNonEvmTest — area D (string store / non-EVM)
+/// @title StringStoreNonEvmTest - area D (string store / non-EVM)
 /// @notice The STRING-valued store surface for non-EVM (base58) artifacts: hex + base58
 /// positive round-trips, every family-validation NEGATIVE as a NAMED revert (31-byte / 33-byte base58
 /// decodes, invalid-alphabet `0 O I l`, hex-on-svm, base58-on-evm), the chainId-0 refusal that points
@@ -32,7 +32,7 @@ contract StringStoreNonEvmTest is Test {
     // Negatives (independent Python base58): decode to 31 / 33 bytes respectively.
     string internal constant B58_DECODES_31 = "3cpvoZKJ28f1CDBboEmfEXMVVMcSQzBhTEMtecGWQ6v";
     string internal constant B58_DECODES_33 = "VnSuyHPLv3XWRZZCpFxQwumxzecjv5UK2pvXpv6DGvQA";
-    // Invalid base58 alphabet (contains 'O', 'I', 'l', '0' — none in the base58 set), 44 chars.
+    // Invalid base58 alphabet (contains 'O', 'I', 'l', '0' - none in the base58 set), 44 chars.
     string internal constant B58_BAD_ALPHABET = "OIl0AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     string internal constant EVM_HEX = "0x1111111111111111111111111111111111111111";
 
@@ -101,13 +101,13 @@ contract StringStoreNonEvmTest is Test {
 
     // ---------------------------------------------------------------- positive round-trips
 
-    // Hex (EVM): recordDeterministic round-trips through read/readDeployment (no config needed — EVM
+    // Hex (EVM): recordDeterministic round-trips through read/readDeployment (no config needed - EVM
     // family is the default when config/chains/<sel>.json is absent).
     function test_Hex_PositiveRoundTrip() public {
         address a = address(0x1234567890AbcdEF1234567890aBcdef12345678);
-        RegistryWriter.recordDeterministic(SEL_HEX, "token", "T_Token", a);
-        assertEq(RegistryWriter.read(SEL_HEX, "token"), a, "hex active.token round-trip");
-        assertEq(RegistryWriter.readDeployment(SEL_HEX, "T_Token"), a, "hex deployment round-trip");
+        RegistryWriter._recordDeterministic(SEL_HEX, "token", "T_Token", a);
+        assertEq(RegistryWriter._read(SEL_HEX, "token"), a, "hex active.token round-trip");
+        assertEq(RegistryWriter._readDeployment(SEL_HEX, "T_Token"), a, "hex deployment round-trip");
         ProjectScratch.clean(SEL_HEX);
     }
 
@@ -115,11 +115,11 @@ contract StringStoreNonEvmTest is Test {
     // resolves address(0) for a non-EVM value (an EVM caller resolving a non-EVM chain).
     function test_Base58_PositiveRoundTrip() public {
         ProjectScratch.seedConfig(SEL_SVM, "svm", 0, SEL_SVM_SELECTOR);
-        RegistryWriter.recordDeterministicString(SEL_SVM, "tokenPool", "P_pool", SVM_POOL);
-        assertEq(RegistryWriter.readString(SEL_SVM, "tokenPool"), SVM_POOL, "base58 active.tokenPool round-trip");
-        assertEq(RegistryWriter.read(SEL_SVM, "tokenPool"), address(0), "non-EVM value via EVM getter resolves 0");
+        RegistryWriter._recordDeterministicString(SEL_SVM, "tokenPool", "P_pool", SVM_POOL);
+        assertEq(RegistryWriter._readString(SEL_SVM, "tokenPool"), SVM_POOL, "base58 active.tokenPool round-trip");
+        assertEq(RegistryWriter._read(SEL_SVM, "tokenPool"), address(0), "non-EVM value via EVM getter resolves 0");
         assertEq(
-            RegistryWriter.readDeploymentString(SEL_SVM, "P_pool"), SVM_POOL, "base58 deployment string round-trip"
+            RegistryWriter._readDeploymentString(SEL_SVM, "P_pool"), SVM_POOL, "base58 deployment string round-trip"
         );
         ProjectScratch.clean(SEL_SVM);
     }
@@ -182,13 +182,15 @@ contract StringStoreNonEvmTest is Test {
     function test_TwoChainIdZeroChains_DistinctFiles_NoZeroJson() public {
         ProjectScratch.seedConfig(SEL_SVM_A, "svm", 0, SEL_A_SELECTOR);
         ProjectScratch.seedConfig(SEL_SVM_B, "svm", 0, SEL_B_SELECTOR);
-        RegistryWriter.recordDeterministicString(SEL_SVM_A, "tokenPool", "PA", SVM_POOL);
-        RegistryWriter.recordDeterministicString(SEL_SVM_B, "tokenPool", "PB", SVM_TOKEN);
+        RegistryWriter._recordDeterministicString(SEL_SVM_A, "tokenPool", "PA", SVM_POOL);
+        RegistryWriter._recordDeterministicString(SEL_SVM_B, "tokenPool", "PB", SVM_TOKEN);
 
-        assertTrue(vm.exists(ProjectStore.path(SEL_SVM_A)), "chain A project file exists");
-        assertTrue(vm.exists(ProjectStore.path(SEL_SVM_B)), "chain B project file exists");
-        assertEq(RegistryWriter.readString(SEL_SVM_A, "tokenPool"), SVM_POOL, "A resolves its own pool");
-        assertEq(RegistryWriter.readString(SEL_SVM_B, "tokenPool"), SVM_TOKEN, "B resolves its own pool (no collision)");
+        assertTrue(vm.exists(ProjectStore._path(SEL_SVM_A)), "chain A project file exists");
+        assertTrue(vm.exists(ProjectStore._path(SEL_SVM_B)), "chain B project file exists");
+        assertEq(RegistryWriter._readString(SEL_SVM_A, "tokenPool"), SVM_POOL, "A resolves its own pool");
+        assertEq(
+            RegistryWriter._readString(SEL_SVM_B, "tokenPool"), SVM_TOKEN, "B resolves its own pool (no collision)"
+        );
         assertFalse(
             vm.exists(string.concat(vm.projectRoot(), "/project/0.json")), "project/0.json must NEVER be created"
         );
@@ -199,14 +201,14 @@ contract StringStoreNonEvmTest is Test {
     // The store is basename-agnostic: a `local-<chainId>` anvil selectorName is a valid, isolated store
     // key (gitignored via project/local-*.json), so local dev chains never collide.
     // Deliberate exception to the "tests write only zz-scratch-* project names" rule: the assertion IS
-    // the exact `local-31337` basename, so the real name stays — guarded by the setUp() sweep plus the
+    // the exact `local-31337` basename, so the real name stays - guarded by the setUp() sweep plus the
     // scoped end-of-test clean below (no bundled chain is named `local-*`, so a leak can only shadow a
     // real anvil session's own scratch, never a public chain's project state).
     function test_LocalChainIdBasename_IsolatedStoreKey() public {
         address a = address(0xabCd567890aBcdef1234567890AbcDef12345678);
-        RegistryWriter.recordDeterministic(SEL_LOCAL, "token", "L_Token", a);
-        assertEq(ProjectStore.path(SEL_LOCAL), string.concat(vm.projectRoot(), "/project/local-31337.json"), "path");
-        assertEq(RegistryWriter.read(SEL_LOCAL, "token"), a, "local-<chainId> basename round-trips");
+        RegistryWriter._recordDeterministic(SEL_LOCAL, "token", "L_Token", a);
+        assertEq(ProjectStore._path(SEL_LOCAL), string.concat(vm.projectRoot(), "/project/local-31337.json"), "path");
+        assertEq(RegistryWriter._read(SEL_LOCAL, "token"), a, "local-<chainId> basename round-trips");
         ProjectScratch.clean(SEL_LOCAL);
     }
 
@@ -221,7 +223,7 @@ contract StringStoreNonEvmTest is Test {
         // Precondition: no DEST_TOKEN_POOL override, so the store is the resolution source.
         if (bytes(vm.envOr("DEST_TOKEN_POOL", string(""))).length != 0) vm.skip(true);
         ProjectScratch.seedConfig(SEL_SVM_RES, "svm", 0, SEL_RES_SELECTOR);
-        RegistryWriter.recordDeterministicString(SEL_SVM_RES, "tokenPool", "P_pool", SVM_POOL);
+        RegistryWriter._recordDeterministicString(SEL_SVM_RES, "tokenPool", "P_pool", SVM_POOL);
 
         // HelperConfig discovers the svm scratch chain and caches its base58 artifact (store, no env).
         HelperConfig hc = new HelperConfig();
@@ -229,14 +231,14 @@ contract StringStoreNonEvmTest is Test {
         assertEq(resolved, SVM_POOL, "store-resolved base58 remote (no env)");
 
         // The exact ApplyChainUpdates encoding of the store-resolved remote is 32 raw bytes.
-        bytes memory encoded = ChainHandlers.prepareChainAddressData(resolved, ChainHandlers.ChainFamily.SVM);
+        bytes memory encoded = ChainHandlers._prepareChainAddressData(resolved, ChainHandlers.ChainFamily.SVM);
         assertEq(encoded.length, 32, "SVM remote encodes to exactly 32 bytes for applyChainUpdates");
         assertEq(keccak256(encoded), keccak256(_pythonDecodedSvmPool()), "encoded bytes != independent base58 decode");
         ProjectScratch.clean(SEL_SVM_RES);
     }
 
     /// @dev The independent (Python) base58 decode of SVM_POOL (ALh3xpZtujrfYZSiURBEHpeBFnzZEH37nY4BA4EHiiB5),
-    /// as raw 32 bytes — the oracle for the encoder under test.
+    /// as raw 32 bytes - the oracle for the encoder under test.
     function _pythonDecodedSvmPool() internal pure returns (bytes memory) {
         return hex"8ac480ec4e9718c0a011b0d5c542d42e8a4628f98d836f2f2acb4e9e2ac7e4d4";
     }
@@ -244,12 +246,12 @@ contract StringStoreNonEvmTest is Test {
     // ---------------------------------------------------------------- adopt-token non-EVM path
 
     // `runNonEvm` (make adopt-token CHAIN=<svm> TOKEN_B58= POOL_B58=) declares base58 remotes into the
-    // project store via the family-validated string writer — the non-EVM adopt path.
+    // project store via the family-validated string writer - the non-EVM adopt path.
     function test_AdoptToken_RunNonEvm_Base58Path() public {
         ProjectScratch.seedConfig(SEL_ADOPT, "svm", 0, SEL_ADOPT_SELECTOR);
         new AdoptToken().runNonEvm(SEL_ADOPT, SVM_TOKEN, SVM_POOL);
-        assertEq(RegistryWriter.readString(SEL_ADOPT, "token"), SVM_TOKEN, "runNonEvm declared the base58 token");
-        assertEq(RegistryWriter.readString(SEL_ADOPT, "tokenPool"), SVM_POOL, "runNonEvm declared the base58 pool");
+        assertEq(RegistryWriter._readString(SEL_ADOPT, "token"), SVM_TOKEN, "runNonEvm declared the base58 token");
+        assertEq(RegistryWriter._readString(SEL_ADOPT, "tokenPool"), SVM_POOL, "runNonEvm declared the base58 pool");
         ProjectScratch.clean(SEL_ADOPT);
     }
 

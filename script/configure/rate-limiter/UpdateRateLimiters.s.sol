@@ -24,12 +24,12 @@ import {ProjectStore} from "../../../src/utils/ProjectStore.sol";
 /// Environment Variables (required):
 ///   DEST_CHAIN                    - The remote chain whose rate limit lane is being updated (e.g. MANTLE_SEPOLIA)
 ///
-/// Environment Variables (set to update outbound — any one triggers the direction):
+/// Environment Variables (set to update outbound - any one triggers the direction):
 ///   OUTBOUND_RATE_LIMIT_CAPACITY  - uint128, token bucket capacity (isEnabled defaults to true when set)
 ///   OUTBOUND_RATE_LIMIT_RATE      - uint128, token bucket refill rate (isEnabled defaults to true when set)
 ///   OUTBOUND_RATE_LIMIT_ENABLED   - true/false (optional override; defaults to true if CAPACITY/RATE provided)
 ///
-/// Environment Variables (set to update inbound — any one triggers the direction):
+/// Environment Variables (set to update inbound - any one triggers the direction):
 ///   INBOUND_RATE_LIMIT_CAPACITY   - uint128, token bucket capacity (isEnabled defaults to true when set)
 ///   INBOUND_RATE_LIMIT_RATE       - uint128, token bucket refill rate (isEnabled defaults to true when set)
 ///   INBOUND_RATE_LIMIT_ENABLED    - true/false (optional override; defaults to true if CAPACITY/RATE provided)
@@ -38,7 +38,7 @@ import {ProjectStore} from "../../../src/utils/ProjectStore.sol";
 ///   FAST_FINALITY                  - true/false, whether to update the fast finality rate limit
 ///                                   bucket (default: false, uses the standard finality bucket)
 ///
-/// Rate-limit input resolution ladder (per direction — matching the repo's inline > env > registry
+/// Rate-limit input resolution ladder (per direction - matching the repo's inline > env > registry
 /// idiom, and the same ladder ApplyChainUpdates CLI mode uses):
 ///   1. Any of the direction's rate-limit env vars set → the env values win. When the local chain
 ///      config declares a diverging policy for the
@@ -46,20 +46,20 @@ import {ProjectStore} from "../../../src/utils/ProjectStore.sol";
 ///      until reconciled) and the closing output prints a hand-edit remediation hint.
 ///   2. Env vars unset for a direction → the declared `lanes{}` policy supplies that bucket, scoped
 ///      to the bucket the script writes: the STANDARD bucket takes the core lane fields
-///      (`capacity`/`rate` outbound, the optional `inbound{}` block inbound — the same fields
+///      (`capacity`/`rate` outbound, the optional `inbound{}` block inbound - the same fields
 ///      ApplyChainUpdates consumes), the FAST-FINALITY bucket (FAST_FINALITY=true on a 2.0.0 pool)
 ///      takes `v2.fastFinality.outbound` / `v2.fastFinality.inbound`, each direction declared only
 ///      when its block exists. A declared bucket is enabled iff capacity or rate is non-zero (the
 ///      doctor's inference); an absent block leaves the direction untouched, exactly as before.
 ///   3. Neither env vars nor a declared bucket for either direction → the historical error stands,
 ///      naming both remedies (the env vars, or declaring the lane policy).
-/// lanes{} is owner intent — an env-driven apply never writes it back. There is no `make add-lane`
+/// lanes{} is owner intent - an env-driven apply never writes it back. There is no `make add-lane`
 /// flag surface for the v2{} blocks (deliberate: they are declared by a reviewed hand edit), so the
 /// closing hint is a hand-edit instruction; the doctor WARN closes the loop.
 ///
 /// Version scope: the fast-finality bucket only exists on 2.0.0 pools. FAST_FINALITY=true on an
 /// earlier pool keeps the historical fence (a warning; the standard bucket is written), and the
-/// ladder consults the core lane fields in that case — the declared source always matches the
+/// ladder consults the core lane fields in that case - the declared source always matches the
 /// bucket actually written.
 ///
 /// Usage examples:
@@ -144,7 +144,7 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
                 "_TOKEN_POOL environment variable. Alternatively, use the inline alias TOKEN_POOL=0x..."
             )
         );
-        (PoolVersions.Version poolVersion, string memory poolTypeAndVersion) = PoolVersion.resolve(s_poolAddress);
+        (PoolVersions.Version poolVersion, string memory poolTypeAndVersion) = PoolVersion._resolve(s_poolAddress);
         s_version = poolVersion;
 
         // ── Rung 2: a direction with no env vars takes the declared lanes{} policy ──
@@ -165,7 +165,7 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
         console.log(string.concat("Action:       ", "Update rate limits"));
         console.log(
             string.concat(
-                "Direction:    ", RateLimiterUtils.directionLabel(res.update.updateOutbound, res.update.updateInbound)
+                "Direction:    ", RateLimiterUtils._directionLabel(res.update.updateOutbound, res.update.updateInbound)
             )
         );
         console.log(s_fastFinality ? "Bucket:       Fast finality" : "Bucket:       Standard finality");
@@ -183,7 +183,7 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
 
         _logResolution(res, destChainName);
 
-        RateLimiterUtils.logRateLimiterState(
+        RateLimiterUtils._logRateLimiterState(
             TokenPool(s_poolAddress), ITokenPoolV1RateLimiter(s_poolAddress), s_selector, s_fastFinality, s_version
         );
 
@@ -206,8 +206,8 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
 
     // ── Input resolution (env > lanes{} > error) ────────────────
 
-    /// @dev Reads the rate-limit env vars through the env seams — the same semantics as
-    ///      `RateLimiterUtils.readRateLimitUpdate` (which reads the process env directly and stays
+    /// @dev Reads the rate-limit env vars through the env seams - the same semantics as
+    ///      `RateLimiterUtils._readRateLimitUpdate` (which reads the process env directly and stays
     ///      untouched for its other consumers): any of a direction's vars triggers the direction,
     ///      isEnabled defaults to true when CAPACITY or RATE is set, ENABLED overrides explicitly.
     function _readRateLimitUpdate() internal view returns (RateLimiterUtils.RateLimitUpdate memory u) {
@@ -233,10 +233,10 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
 
     /// @dev Resolves the per-direction buckets through the input ladder (see the contract natspec).
     ///      `fastFinalityBucket` selects the declared surface consulted: the core lane fields for
-    ///      the standard bucket, `v2.fastFinality.{outbound,inbound}` for the fast-finality bucket —
+    ///      the standard bucket, `v2.fastFinality.{outbound,inbound}` for the fast-finality bucket -
     ///      always the fields the doctor reconciles against the bucket being written. Ends with the
     ///      at-least-one-direction requirement, now naming both remedies. lanes{} is OWNER INTENT:
-    ///      an env-driven apply never writes it back — the hand-edit hint plus the doctor WARN close
+    ///      an env-driven apply never writes it back - the hand-edit hint plus the doctor WARN close
     ///      the loop through a reviewed edit by design.
     function _resolveRateLimitUpdate(
         RateLimiterUtils.RateLimitUpdate memory envUpdate,
@@ -278,7 +278,7 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
         }
 
         // Rung 1 cross-check: an env override that disagrees with the declared policy is a notice,
-        // never a revert (the doctor FAILs until reconciled). An undeclared bucket is not compared —
+        // never a revert (the doctor FAILs until reconciled). An undeclared bucket is not compared -
         // the same absent-means-undeclared rule the doctor applies.
         if (res.outboundFromEnv && res.outboundDeclared) {
             res.outboundDiverges =
@@ -314,14 +314,14 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
                     ? "lanes.<remote>.v2.fastFinality.{outbound,inbound} bucket(s)"
                     : "lanes.<remote> policy (capacity/rate, optional inbound{})",
                 " in ",
-                ProjectStore.display(res.configFound ? res.configName : "<local>")
+                ProjectStore._display(res.configFound ? res.configName : "<local>")
             )
         );
     }
 
     /// @dev Fills the declared axis-scoped buckets for the matched lane entry. Standard bucket: the
-    ///      core fields (`capacity`/`rate` are always declared on a lane entry — a missing key reads
-    ///      0, i.e. declared-disabled — and `inbound{}` is declared only when present), the exact
+    ///      core fields (`capacity`/`rate` are always declared on a lane entry - a missing key reads
+    ///      0, i.e. declared-disabled - and `inbound{}` is declared only when present), the exact
     ///      fields ApplyChainUpdates consumes. Fast-finality bucket: `v2.fastFinality.<direction>`,
     ///      each direction declared only when its block exists (the doctor's absent-means-undeclared
     ///      rule, `VerifyChain._checkLanePolicy`).
@@ -383,7 +383,7 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
                     res.laneKey,
                     res.fastFinality ? ".v2.fastFinality" : "",
                     " in ",
-                    ProjectStore.display(res.configName),
+                    ProjectStore._display(res.configName),
                     " (",
                     res.outboundFromLanes ? (res.inboundFromLanes ? "outbound + inbound" : "outbound") : "inbound",
                     ")"
@@ -400,7 +400,7 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
                     "No lanes{} entry for ",
                     destChainName,
                     " in ",
-                    ProjectStore.display(res.configName),
+                    ProjectStore._display(res.configName),
                     "; applying the env values (declare the lane to make the policy reviewable)"
                 )
             );
@@ -431,12 +431,12 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
             " rate=",
             vm.toString(declRate),
             ") in ",
-            ProjectStore.display(res.configName),
+            ProjectStore._display(res.configName),
             " - make doctor will FAIL until reconciled"
         );
     }
 
-    /// @dev The closing remediation hints. lanes{} is owner intent — applies never auto-write it,
+    /// @dev The closing remediation hints. lanes{} is owner intent - applies never auto-write it,
     ///      and `make add-lane` has no flag surface for the v2{} blocks (deliberate), so the hint is
     ///      a hand-edit instruction; the doctor WARN closes the loop through a reviewed edit.
     function _logEditHints(RateLimitResolution memory res) internal pure {
@@ -459,7 +459,7 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
             " ",
             _bucketPath(res, inbound),
             " (",
-            ProjectStore.display(res.configName),
+            ProjectStore._display(res.configName),
             "). Hand-edit the entry to capacity=",
             vm.toString(uint256(applied.capacity)),
             " rate=",
@@ -475,7 +475,7 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
     /// @dev Merges on-chain state with user input, logs the result, and broadcasts.
     function _applyRateLimitUpdate(RateLimiterUtils.RateLimitUpdate memory u) internal {
         // Seed from live state so untouched directions keep their current values.
-        (RateLimiter.Config memory outbound, RateLimiter.Config memory inbound) = RateLimiterUtils.getCurrentConfigs(
+        (RateLimiter.Config memory outbound, RateLimiter.Config memory inbound) = RateLimiterUtils._getCurrentConfigs(
             TokenPool(s_poolAddress), ITokenPoolV1RateLimiter(s_poolAddress), s_selector, s_fastFinality, s_version
         );
 
@@ -494,20 +494,22 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
             });
         }
 
-        RateLimiterUtils.logNewConfig(u.updateOutbound, outbound, u.updateInbound, inbound);
+        RateLimiterUtils._logNewConfig(u.updateOutbound, outbound, u.updateInbound, inbound);
         _broadcastRateLimitConfig(outbound, inbound);
     }
 
     /// @dev Routes the update through the version-dispatched action layer: pools at 2.0.0 and later
     ///      take `setRateLimitConfig(RateLimitConfigArgs[])`, earlier cataloged versions take
     ///      `setChainRateLimiterConfig`. `s_version` was resolved from on-chain `typeAndVersion()` by
-    ///      `PoolVersion.resolve` above (resolution stays script-side; the builder takes the enum).
+    ///      `PoolVersion._resolve` above (resolution stays script-side; the builder takes the enum).
     function _broadcastRateLimitConfig(RateLimiter.Config memory outbound, RateLimiter.Config memory inbound) internal {
         if (s_version < PoolVersions.Version.V2_0_0 && s_fastFinality) {
             console.log(
                 unicode"⚠️  Warning: FAST_FINALITY=true is ignored on v1 pools. Updating the standard bucket."
             );
         }
-        executeCalls(CctActions.setRateLimits(s_poolAddress, s_version, s_selector, s_fastFinality, outbound, inbound));
+        _executeCalls(
+            CctActions._setRateLimits(s_poolAddress, s_version, s_selector, s_fastFinality, outbound, inbound)
+        );
     }
 }

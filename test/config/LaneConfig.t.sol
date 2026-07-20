@@ -84,7 +84,7 @@ contract LaneConfigTest is Test {
     function _cleanAll(string memory name) internal {
         string memory cfg = _path(name);
         if (vm.exists(cfg)) vm.removeFile(cfg);
-        string memory proj = ProjectStore.path(name);
+        string memory proj = ProjectStore._path(name);
         if (vm.exists(proj)) vm.removeFile(proj);
     }
 
@@ -93,10 +93,10 @@ contract LaneConfigTest is Test {
     }
 
     function _projPath(string memory name) internal view returns (string memory) {
-        return ProjectStore.path(name);
+        return ProjectStore._path(name);
     }
 
-    /// @dev Writes a scratch chain config in the committed shape (all API/chain-fact schema keys —
+    /// @dev Writes a scratch chain config in the committed shape (all API/chain-fact schema keys -
     /// NO `lanes`/`roles`/`ccipBnM`, which live in `project/`), keyed by a fake-but-valid
     /// chainId/selector no other test uses.
     function _writeScratchChain(string memory name, uint256 chainId, uint64 selector) internal {
@@ -156,7 +156,7 @@ contract LaneConfigTest is Test {
         string memory before = vm.readFile(_projPath("zz-scratch-lane-a1"));
         bytes32 configBefore = keccak256(bytes(vm.readFile(_path("zz-scratch-lane-a1"))));
 
-        // A second lane rewrites `.lanes` only — addresses/roles/schema must be content-identical.
+        // A second lane rewrites `.lanes` only - addresses/roles/schema must be content-identical.
         sync.addLane("zz-scratch-lane-a1", "zz-scratch-lane-c1", CAPACITY, RATE);
         string memory after_ = vm.readFile(_projPath("zz-scratch-lane-a1"));
 
@@ -210,7 +210,7 @@ contract LaneConfigTest is Test {
     }
 
     // An existing entry with DIFFERENT capacity/rate is NOT silently no-op'd: the WARN path (message
-    // asserted in the tooling suite) still leaves the file byte-identical — the entry is never
+    // asserted in the tooling suite) still leaves the file byte-identical - the entry is never
     // rewritten in place, the operator must remove-then-add or hand-edit.
     function test_AddLane_ChangedArgsLeavesFileUnchanged() public {
         _writeScratchChain("zz-scratch-lane-a11", 888001101, 8880011010000000001);
@@ -346,8 +346,8 @@ contract LaneConfigTest is Test {
         _writeScratchChain("zz-scratch-lane-c7", 888000703, 8880007030000000003);
 
         // Seed a lane entry carrying every optional block (inbound + v2 fastFinality + v2 feeConfig) via
-        // the writer, then hand-inject the nested optionals onto it — as a reviewed hand edit would.
-        ProjectStore.seedIfAbsent("zz-scratch-lane-a7");
+        // the writer, then hand-inject the nested optionals onto it - as a reviewed hand edit would.
+        ProjectStore._seedIfAbsent("zz-scratch-lane-a7");
         vm.writeJson(
             string.concat(
                 "{\"zz-scratch-lane-b7\":{\"remoteSelector\":\"8880007020000000002\",",
@@ -482,7 +482,7 @@ contract LaneConfigTest is Test {
         _writeScratchChain("zz-scratch-lane-c8", 888000803, 8880008030000000003);
 
         // Sibling entry with nested inbound{} + v2{} blocks, as a reviewed hand edit would leave it.
-        ProjectStore.seedIfAbsent("zz-scratch-lane-a8");
+        ProjectStore._seedIfAbsent("zz-scratch-lane-a8");
         vm.writeJson(
             string.concat(
                 "{\"zz-scratch-lane-b8\":{\"remoteSelector\":\"8880008020000000002\",",

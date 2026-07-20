@@ -1,0 +1,63 @@
+{
+  "workflowId": "roles-handoff",
+  "summary": "Move the privileged roles of a deployment from the deployer EOA to a Safe, using the grant-new-before-revoke-old ceremony. The authoritative ordering and the pre-revoke gate are in roles.md.",
+  "inputs": {
+    "chain": "the chain selectorName",
+    "safe": "the recipient Safe address (deploy one with the deploy-safe step if absent)",
+    "mode": "safe (the accepts execute from the Safe)"
+  },
+  "steps": [
+    {
+      "stepId": "deploy-safe",
+      "primitive": "DeploySafe",
+      "parameters": { "SAFE_OWNERS": "<owners>", "SAFE_THRESHOLD": "<n>" },
+      "successCriteria": "a Safe is deployed at a deterministic address",
+      "outputs": { "safe": "the Safe address" }
+    },
+    {
+      "stepId": "grant-tar-role",
+      "primitive": "TransferTokenAdminRole",
+      "parameters": { "CHAIN": "$inputs.chain", "NEW_ADMIN": "$inputs.safe" },
+      "successCriteria": "the TokenAdminRegistry pendingAdministrator is the Safe",
+      "outputs": {}
+    },
+    {
+      "stepId": "grant-pool-owner",
+      "primitive": "TransferOwnership",
+      "parameters": { "ADDRESS": "<pool>", "NEW_OWNER": "$inputs.safe" },
+      "successCriteria": "the pool ownership transfer to the Safe is initiated (two-step)",
+      "outputs": {}
+    },
+    {
+      "stepId": "grant-admins",
+      "primitive": "SetDynamicConfig",
+      "parameters": { "CHAIN": "$inputs.chain", "RATE_LIMIT_ADMIN": "$inputs.safe", "FEE_ADMIN": "$inputs.safe" },
+      "successCriteria": "rateLimitAdmin and feeAdmin are the Safe (router preserved)",
+      "outputs": {}
+    },
+    {
+      "stepId": "accept-tar-role",
+      "primitive": "AcceptAdminRole",
+      "parameters": { "CHAIN": "$inputs.chain", "mode": "safe" },
+      "successCriteria": "the TokenAdminRegistry administrator is the Safe",
+      "outputs": {}
+    },
+    {
+      "stepId": "accept-pool-owner",
+      "primitive": "AcceptOwnership",
+      "parameters": { "ADDRESS": "<pool>", "mode": "safe" },
+      "successCriteria": "the pool owner is the Safe",
+      "outputs": {}
+    },
+    {
+      "stepId": "verify",
+      "primitive": "VerifyRoles",
+      "parameters": { "CHAIN": "$inputs.chain" },
+      "successCriteria": "the covered roles show pending or accepted to the Safe. The deployer EOA is still a residual holder (expected at this point), so roles-check does NOT yet exit 0. Do NOT revoke to force a clean check: the revoke (batch C), the pre-revoke gate, and the DENY completion sweep are in roles.md and must run in that order.",
+      "outputs": {}
+    }
+  ],
+  "outputs": { "safe": "$steps.deploy-safe.outputs.safe" },
+  "coverageNote": "This skeleton covers the TAR administrator, pool owner, rateLimitAdmin, and feeAdmin only. The full role surface (the token top-level admin via TransferTokenAdmin, SetCCIPAdmin / burnMintAdmin, lockbox and hooks owners, and the v1 LockRelease rebalancer) is enumerated in roles.md's step-0 declaration. Manifest-complete is NOT handoff-complete: reconcile against roles.md, not this subset.",
+  "ceremonyNote": "This manifest is the machine skeleton and deliberately contains NO revoke step. The authoritative grant-before-revoke ordering, the pre-revoke gate (roles-check must exit 0 for the pending state before any revoke), the token-admin grant/accept per template, and the residual-holder DENY sweep are in roles.md; do not add or reorder revokes from this skeleton alone."
+}

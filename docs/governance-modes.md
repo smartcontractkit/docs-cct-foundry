@@ -1,3 +1,7 @@
+---
+type: concept
+---
+
 # Governance modes
 
 Every write operation in this repo is defined once, as a `CctActions` builder that returns a
@@ -60,7 +64,7 @@ redesign.
 
 **After the roles handoff** ([roles.md → the ceremony](roles.md#the-eoa--safe-handoff-ceremony)) the
 Safe holds every privileged role, so every owner- or admin-gated command from that point on runs with
-`MODE=safe SAFE_ADDRESS=<safe>` — an EOA-mode run fails its authority preflight, by design. Read-only
+`MODE=safe SAFE_ADDRESS=<safe>` - an EOA-mode run fails its authority preflight, by design. Read-only
 commands (`roles-check`, `doctor`, getters) are unaffected.
 
 ## Safe mode environment variables

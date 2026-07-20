@@ -13,19 +13,19 @@ import {VerifyChain} from "../../script/config/VerifyChain.s.sol";
 /// external call frame.
 contract GroupHarness {
     function requireValidGroup(string memory g) external pure {
-        ProjectStore.requireValidGroup(g);
+        ProjectStore._requireValidGroup(g);
     }
 
     function group() external view returns (string memory) {
-        return ProjectStore.group();
+        return ProjectStore._group();
     }
 
     function seedIfAbsentIn(string memory g, string memory name) external {
-        ProjectStore.seedIfAbsentIn(g, name);
+        ProjectStore._seedIfAbsentIn(g, name);
     }
 
     function requireSchemaIn(string memory g, string memory name) external view {
-        ProjectStore.requireSchemaIn(g, name);
+        ProjectStore._requireSchemaIn(g, name);
     }
 }
 
@@ -64,7 +64,7 @@ contract TokenGroupsTest is Test {
     // The scratch group the notice test plants to prove the sweep SKIPS the zz-scratch-* class.
     string internal constant GRP_SKIP = "zz-scratch-groups-gskip";
 
-    /// @dev The canonical (2-space, sorted, no trailing newline) empty skeleton `seedIfAbsentIn` writes —
+    /// @dev The canonical (2-space, sorted, no trailing newline) empty skeleton `seedIfAbsentIn` writes -
     /// the exact bytes `vm.writeJson(SKELETON, path)` emits, pinned so a grouped seed is proven identical
     /// to a flat one. Mirrors the golden in ProjectCanonical.t.sol on a GROUPED path.
     string internal constant CANON_SKELETON = "{\n" '  "addresses": {\n' '    "active": {},\n' '    "deployments": {}\n'
@@ -102,33 +102,35 @@ contract TokenGroupsTest is Test {
     /// reads an unset `PROJECT_GROUP` in the forge-test context.
     function test_FlatDefault_ByteEquivalentToFlatLayout() public view {
         assertEq(
-            ProjectStore.relIn("", SEL_FLAT),
+            ProjectStore._relIn("", SEL_FLAT),
             string.concat("project/", SEL_FLAT, ".json"),
             "flat rel has no group segment"
         );
-        assertEq(ProjectStore.displayIn("", SEL_FLAT), string.concat("project/", SEL_FLAT, ".json"), "flat display");
+        assertEq(ProjectStore._displayIn("", SEL_FLAT), string.concat("project/", SEL_FLAT, ".json"), "flat display");
         assertEq(
-            ProjectStore.pathIn("", SEL_FLAT),
+            ProjectStore._pathIn("", SEL_FLAT),
             string.concat(vm.projectRoot(), "/project/", SEL_FLAT, ".json"),
             "flat abs path"
         );
         // The env-driven accessors resolve to the flat forms in the forge-test context (PROJECT_GROUP unset).
         assertEq(
-            ProjectStore.path(SEL_FLAT), ProjectStore.pathIn("", SEL_FLAT), "path() == flat pathIn in test context"
+            ProjectStore._path(SEL_FLAT), ProjectStore._pathIn("", SEL_FLAT), "path() == flat pathIn in test context"
         );
-        assertEq(ProjectStore.display(SEL_FLAT), ProjectStore.displayIn("", SEL_FLAT), "display() == flat displayIn");
+        assertEq(ProjectStore._display(SEL_FLAT), ProjectStore._displayIn("", SEL_FLAT), "display() == flat displayIn");
     }
 
     /// @dev A non-empty group inserts exactly one `<group>/` segment at every composer.
     function test_GroupedForms_InsertOneGroupSegment() public view {
-        assertEq(ProjectStore.relIn("usdx", SEL_FLAT), string.concat("project/usdx/", SEL_FLAT, ".json"), "grouped rel");
         assertEq(
-            ProjectStore.displayIn("usdx", SEL_FLAT),
+            ProjectStore._relIn("usdx", SEL_FLAT), string.concat("project/usdx/", SEL_FLAT, ".json"), "grouped rel"
+        );
+        assertEq(
+            ProjectStore._displayIn("usdx", SEL_FLAT),
             string.concat("project/usdx/", SEL_FLAT, ".json"),
             "grouped display"
         );
         assertEq(
-            ProjectStore.pathIn("usdx", SEL_FLAT),
+            ProjectStore._pathIn("usdx", SEL_FLAT),
             string.concat(vm.projectRoot(), "/project/usdx/", SEL_FLAT, ".json"),
             "grouped abs path"
         );
@@ -176,24 +178,24 @@ contract TokenGroupsTest is Test {
         for (uint256 i = 0; i < ok.length; i++) {
             harness.requireValidGroup(ok[i]); // must not revert
         }
-        assertEq(ProjectStore.relIn("usdx", "c"), "project/usdx/c.json", "usdx composes");
-        assertEq(ProjectStore.relIn("a-b-1", "c"), "project/a-b-1/c.json", "a-b-1 composes");
-        assertEq(ProjectStore.relIn("x0", "c"), "project/x0/c.json", "x0 composes");
-        assertEq(ProjectStore.relIn("", "c"), "project/c.json", "empty stays flat");
+        assertEq(ProjectStore._relIn("usdx", "c"), "project/usdx/c.json", "usdx composes");
+        assertEq(ProjectStore._relIn("a-b-1", "c"), "project/a-b-1/c.json", "a-b-1 composes");
+        assertEq(ProjectStore._relIn("x0", "c"), "project/x0/c.json", "x0 composes");
+        assertEq(ProjectStore._relIn("", "c"), "project/c.json", "empty stays flat");
     }
 
     // ---------------------------------------------------------------- (2) cross-group clobber isolation
 
     /// @dev The SAME selectorName in two groups resolves to two DISTINCT files under `project/<group>/`;
     /// seeding both leaves byte-identical skeletons, and a subtree write into group A never touches group
-    /// B (the whole point of the segment — separate mesh universes). Driven through the `*In` seam only
+    /// B (the whole point of the segment - separate mesh universes). Driven through the `*In` seam only
     /// (no env), which is exactly how a parallel-safe test reaches a specific group.
     function test_CrossGroupClobberIsolation_ViaInSeam() public {
         harness.seedIfAbsentIn(GRP_A, SEL_CLOBBER);
         harness.seedIfAbsentIn(GRP_B, SEL_CLOBBER);
 
-        string memory pathA = ProjectStore.pathIn(GRP_A, SEL_CLOBBER);
-        string memory pathB = ProjectStore.pathIn(GRP_B, SEL_CLOBBER);
+        string memory pathA = ProjectStore._pathIn(GRP_A, SEL_CLOBBER);
+        string memory pathB = ProjectStore._pathIn(GRP_B, SEL_CLOBBER);
         assertTrue(keccak256(bytes(pathA)) != keccak256(bytes(pathB)), "same chain in two groups -> distinct files");
         assertTrue(vm.exists(pathA) && vm.exists(pathB), "both grouped files seeded");
         // Fresh seeds are byte-identical (both the canonical empty skeleton).
@@ -202,7 +204,7 @@ contract TokenGroupsTest is Test {
         );
 
         bytes32 bBefore = keccak256(bytes(vm.readFile(pathB)));
-        // Subtree write into A ONLY (targeted `.addresses`, never a whole-file write) — the same write
+        // Subtree write into A ONLY (targeted `.addresses`, never a whole-file write) - the same write
         // shape the registry uses; here it is aimed at the grouped path via the seam.
         vm.writeJson(
             "{\"active\":{\"token\":\"0x1111111111111111111111111111111111111111\"},\"deployments\":{}}",
@@ -220,10 +222,10 @@ contract TokenGroupsTest is Test {
     // ---------------------------------------------------------------- (E) canonical golden in a group dir
 
     /// @dev `seedIfAbsentIn` creates the `project/<group>/` directory and writes the canonical empty
-    /// skeleton — byte-identical to the flat seed (2-space, sorted, NO trailing newline). Pins the golden
+    /// skeleton - byte-identical to the flat seed (2-space, sorted, NO trailing newline). Pins the golden
     /// on a GROUPED path and cross-checks against `jq --indent 2 -S` when ffi is available.
     function test_SeedIfAbsentIn_CreatesGroupDir_CanonicalSkeleton() public {
-        string memory p = ProjectStore.pathIn(GRP_SEED, SEL_SEED);
+        string memory p = ProjectStore._pathIn(GRP_SEED, SEL_SEED);
         assertFalse(vm.exists(p), "precondition: grouped file absent");
         harness.seedIfAbsentIn(GRP_SEED, SEL_SEED);
 
@@ -259,12 +261,12 @@ contract TokenGroupsTest is Test {
 
     // ---------------------------------------------------------------- (D) read-path safety / no env smear
 
-    /// @dev A READ-path schema check for a group whose file is ABSENT is a clean no-op — it must NOT
+    /// @dev A READ-path schema check for a group whose file is ABSENT is a clean no-op - it must NOT
     /// silently seed a file (the read paths never write). `requireSchemaIn` returns without creating
     /// `project/<group>/<sel>.json` (nor the directory).
     function test_RequireSchemaIn_AbsentFile_NoSilentSeed() public view {
         // Own group dir (never created by another test) so the directory assertion cannot flake.
-        string memory p = ProjectStore.pathIn(GRP_NOSEED, SEL_NOSEED);
+        string memory p = ProjectStore._pathIn(GRP_NOSEED, SEL_NOSEED);
         string memory dir = string.concat(vm.projectRoot(), "/project/", GRP_NOSEED);
         harness.requireSchemaIn(GRP_NOSEED, SEL_NOSEED); // must not revert, must not write
         assertFalse(vm.exists(p), "read-path schema check must NOT seed a file");
@@ -272,20 +274,20 @@ contract TokenGroupsTest is Test {
     }
 
     /// @dev No group-env smear: under `forge test` no suite ever sets `PROJECT_GROUP`, so `group()` reads
-    /// unset and returns "" — even in the same run where other tests drive specific groups through the
+    /// unset and returns "" - even in the same run where other tests drive specific groups through the
     /// `*In` seam. This is the invariant that makes the seam parallel-safe.
     function test_ForgeTestContext_GroupIsEmpty_NoEnvSmear() public {
         // Exercise a grouped seam write first, then prove group() is still the flat default.
         harness.seedIfAbsentIn(GRP_SMEAR, SEL_SMEAR);
         assertEq(harness.group(), "", "group() must be the flat default in the forge-test context (no env smear)");
-        assertEq(ProjectStore.path(SEL_SMEAR), ProjectStore.pathIn("", SEL_SMEAR), "env-driven path stays flat");
+        assertEq(ProjectStore._path(SEL_SMEAR), ProjectStore._pathIn("", SEL_SMEAR), "env-driven path stays flat");
         ProjectScratch.clean(SEL_SMEAR);
         ProjectScratch.cleanGroupDir(GRP_SMEAR);
     }
 
     // ---------------------------------------------------------------- (E) divergence-notice format
 
-    /// @dev The env-override divergence notice names the project file (`ProjectStore.display`) and the
+    /// @dev The env-override divergence notice names the project file (`ProjectStore._display`) and the
     /// `make adopt-token` reconcile command; it is side-effect free and byte-assertable. In the
     /// forge-test context `display` resolves the FLAT path (no env group); the GROUPED-path form
     /// (`project/<group>/<name>.json`) is pinned by the live/shell tier where a real `PROJECT_GROUP` is

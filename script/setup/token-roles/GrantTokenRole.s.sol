@@ -12,17 +12,17 @@ import {RolesProbes} from "../../../src/roles/RolesProbes.sol";
  *         AccessControl templates (`crosschain`, `burnmint`) get `grantRole` with the token's resolved
  *         role id; the Ownable `factory` template gets `grantMintRole`/`grantBurnRole`. A role the
  *         detected template does not carry is refused by name BEFORE any state-changing call
- *         (`RolesProbes.requireRoleOnTemplate`) — a naive `grantRole` with the fallback id would
+ *         (`RolesProbes._requireRoleOnTemplate`)  - a naive `grantRole` with the fallback id would
  *         succeed on-chain and move nothing. BYO tokens are refused (token-internal roles are not
  *         movable through the primitives).
  *
  * Required env vars:
- *   ROLE    — one of: minter, burner, burnMintAdmin, defaultAdmin (burnMintAdmin exists only on
- *             crosschain; defaultAdmin only on burnmint — the grant-model multi-holder admin)
+ *   ROLE    - one of: minter, burner, burnMintAdmin, defaultAdmin (burnMintAdmin exists only on
+ *             crosschain; defaultAdmin only on burnmint - the grant-model multi-holder admin)
  *
  * Optional env vars:
- *   TOKEN   — token address (defaults to the {CHAIN}_TOKEN / registry resolution ladder)
- *   HOLDER  — the grant recipient (defaults to the executing account: the Safe in MODE=safe)
+ *   TOKEN   - token address (defaults to the {CHAIN}_TOKEN / registry resolution ladder)
+ *   HOLDER  - the grant recipient (defaults to the executing account: the Safe in MODE=safe)
  *
  * Usage:
  *   ROLE=minter HOLDER=0xRecipient \
@@ -39,11 +39,11 @@ contract GrantTokenRole is TokenRoleScript {
 
         address token = _resolveToken(config, chainId);
 
-        RolesProbes.TokenRole role = RolesProbes.tokenRoleFromName(_roleName());
-        RolesProbes.TokenTemplate template = RolesProbes.detectTemplate(token);
-        RolesProbes.requireRoleOnTemplate(template, role);
+        RolesProbes.TokenRole role = RolesProbes._tokenRoleFromName(_roleName());
+        RolesProbes.TokenTemplate template = RolesProbes._detectTemplate(token);
+        RolesProbes._requireRoleOnTemplate(template, role);
 
-        address actor = executingAccount();
+        address actor = _executingAccount();
         address holder = _holder(actor);
         require(holder != address(0), "HOLDER must be a non-zero address");
 
@@ -53,27 +53,27 @@ contract GrantTokenRole is TokenRoleScript {
         console.log("========================================");
         console.log(string.concat("Chain:        ", chainName));
         console.log(string.concat("Token:        ", vm.toString(token)));
-        console.log(string.concat("Template:     ", RolesProbes.templateName(template)));
-        console.log(string.concat("Role:         ", RolesProbes.tokenRoleName(role)));
+        console.log(string.concat("Template:     ", RolesProbes._templateName(template)));
+        console.log(string.concat("Role:         ", RolesProbes._tokenRoleName(role)));
         console.log(string.concat("Holder:       ", vm.toString(holder)));
         console.log(string.concat("Actor:        ", vm.toString(actor)));
         console.log("========================================");
         console.log("");
 
-        requireTokenRoleAuthority(token, template, role, actor);
+        _requireTokenRoleAuthority(token, template, role, actor);
 
-        console.log(string.concat("\n[Step 1] Granting ", RolesProbes.tokenRoleName(role), " on ", chainName));
+        console.log(string.concat("\n[Step 1] Granting ", RolesProbes._tokenRoleName(role), " on ", chainName));
         if (template == RolesProbes.TokenTemplate.FactoryBurnMintERC20) {
             // Only Minter/Burner reach this branch (requireRoleOnTemplate refused the admin roles on
             // factory); the explicit check keeps a future role from silently mapping to grantBurnRole.
             if (role == RolesProbes.TokenRole.Minter) {
-                executeCalls(CctActions.grantMintRole(token, holder));
+                _executeCalls(CctActions._grantMintRole(token, holder));
             } else {
                 require(role == RolesProbes.TokenRole.Burner, "factory tokens carry only minter/burner roles");
-                executeCalls(CctActions.grantBurnRole(token, holder));
+                _executeCalls(CctActions._grantBurnRole(token, holder));
             }
         } else {
-            executeCalls(CctActions.grantRole(token, RolesProbes.tokenRoleId(token, role), holder));
+            _executeCalls(CctActions._grantRole(token, RolesProbes._tokenRoleId(token, role), holder));
         }
         console.log(unicode"✅ Role granted successfully!");
 
@@ -82,7 +82,7 @@ contract GrantTokenRole is TokenRoleScript {
         console.log(string.concat(unicode"✅ Token Role Granted on ", chainName, "!"));
         console.log("========================================");
         console.log(string.concat("Token:  ", helperConfig.getExplorerUrl(chainId, "/address/", token)));
-        console.log(string.concat("Role:   ", RolesProbes.tokenRoleName(role)));
+        console.log(string.concat("Role:   ", RolesProbes._tokenRoleName(role)));
         console.log(string.concat("Holder: ", vm.toString(holder)));
         console.log("========================================");
         console.log("");

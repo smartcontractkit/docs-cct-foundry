@@ -1,0 +1,9 @@
+{
+  "ClaimAndAcceptAdmin": {
+    "when_to_use": "Register a token you control in the TokenAdminRegistry in one atomic step. Prefer this over separate ClaimAdmin then AcceptAdminRole when you want a single Safe batch: AcceptAdminRole on its own preflight-requires the pending administrator to already be set, so the two standalone steps cannot be deferred into one batch, whereas this pair executes together.",
+    "preconditions": "The executing account must be resolvable as the token's admin through one of the three claim paths, auto-detected in precedence: getCCIPAdmin(), then owner(), then AccessControl DEFAULT_ADMIN_ROLE.",
+    "postconditions": "The TokenAdminRegistry administrator for the token is the executing account.",
+    "example": "CCIP_ADMIN_ADDRESS=0xYourAdmin forge script script/setup/ClaimAndAcceptAdmin.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account $KEYSTORE_NAME --broadcast",
+    "failure_modes": "Reverts if no claim path resolves the executing account as the token admin, or if the token is already registered to a different administrator."
+  }
+}

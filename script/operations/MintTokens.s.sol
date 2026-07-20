@@ -7,6 +7,7 @@ import {CrossChainToken} from "@chainlink/contracts-ccip/contracts/tokens/CrossC
 import {CctActions} from "../../src/actions/CctActions.sol";
 import {EoaExecutor} from "../../src/base/EoaExecutor.s.sol";
 
+/// @notice Mints tokens to a receiver (requires the signer to hold the token's minter role).
 contract MintTokens is EoaExecutor {
     HelperConfig public helperConfig;
 
@@ -26,7 +27,7 @@ contract MintTokens is EoaExecutor {
         console.log("========================================");
         console.log("");
 
-        // Get deployed token address — TOKEN env var takes priority, then {CHAIN}_TOKEN
+        // Get deployed token address - TOKEN env var takes priority, then {CHAIN}_TOKEN
         address tokenAddress = helperConfig.getDeployedToken(chainId);
         require(
             tokenAddress != address(0),
@@ -37,7 +38,7 @@ contract MintTokens is EoaExecutor {
             )
         );
 
-        // Get amount to mint — falls back to tokenAmountToMint in script/input/token.json if not set
+        // Get amount to mint - falls back to tokenAmountToMint in script/input/token.json if not set
         string memory tokenJson = vm.readFile("script/input/token.json");
         uint256 defaultMintAmount = vm.parseJsonUint(tokenJson, ".tokenAmountToMint");
         uint256 amount = vm.envOr("AMOUNT", defaultMintAmount);
@@ -53,7 +54,7 @@ contract MintTokens is EoaExecutor {
         console.log(string.concat("  Amount:                       ", vm.toString(amount)));
 
         // Get receiver address from environment variable or use broadcaster by default
-        address receiverAddress = vm.envOr("MINT_RECEIVER", broadcaster());
+        address receiverAddress = vm.envOr("MINT_RECEIVER", _broadcaster());
         console.log(string.concat("  Receiver:                     ", vm.toString(receiverAddress)));
         console.log("");
 
@@ -62,7 +63,7 @@ contract MintTokens is EoaExecutor {
                 "\n[Step 1] Minting ", vm.toString(amount), " ", token.symbol(), " to ", vm.toString(receiverAddress)
             )
         );
-        executeCalls(CctActions.mint(tokenAddress, receiverAddress, amount));
+        _executeCalls(CctActions._mint(tokenAddress, receiverAddress, amount));
         console.log(unicode"✅ Tokens minted successfully!");
 
         uint256 newBalance = token.balanceOf(receiverAddress);

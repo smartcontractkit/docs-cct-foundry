@@ -11,6 +11,7 @@ import {DeploymentUtils} from "../utils/DeploymentUtils.s.sol";
 import {DeploymentRecorder} from "../utils/DeploymentRecorder.s.sol";
 import {RegistryWriter} from "../../src/utils/RegistryWriter.sol";
 
+/// @notice Deploys a BurnMint token pool for a token and records it in the address registry.
 contract DeployBurnMintTokenPool is Script {
     HelperConfig public helperConfig;
 
@@ -32,7 +33,7 @@ contract DeployBurnMintTokenPool is Script {
         console.log("========================================");
         console.log("");
 
-        // Get deployed token address — TOKEN env var takes priority, then {CHAIN}_TOKEN
+        // Get deployed token address - TOKEN env var takes priority, then {CHAIN}_TOKEN
         address tokenAddress = helperConfig.getDeployedToken(chainId);
         require(
             tokenAddress != address(0),
@@ -71,8 +72,8 @@ contract DeployBurnMintTokenPool is Script {
         // Refuse to redeploy over a live registry entry (FORCE_REDEPLOY=true overrides). Keyed on the
         // unique per-symbol/per-pool-type/per-version deployment name so a BurnMint and a LockRelease
         // pool (or an old and a new version) for the same token never collide.
-        string memory symbol = DeploymentUtils.getSymbol(vm, tokenAddress);
-        RegistryWriter.guard(selectorName, DeploymentRecorder.poolName(symbol, "BurnMint"));
+        string memory symbol = DeploymentUtils._getSymbol(vm, tokenAddress);
+        RegistryWriter._guard(selectorName, DeploymentRecorder._poolName(symbol, "BurnMint"));
 
         vm.startBroadcast();
 
@@ -100,7 +101,7 @@ contract DeployBurnMintTokenPool is Script {
 
         vm.stopBroadcast();
 
-        // Assert the on-chain typeAndVersion matches the version composed into the registry key — a
+        // Assert the on-chain typeAndVersion matches the version composed into the registry key - a
         // cheap guard against a pinned-dependency mismatch (recording a 2.0.0 key for a stale pool).
         string memory expectedTypeAndVersion = string.concat("BurnMintTokenPool ", DeploymentRecorder.POOL_VERSION);
         require(
@@ -123,7 +124,7 @@ contract DeployBurnMintTokenPool is Script {
         console.log("");
         // Single writer: one call emits the detailed ledger file AND records the address in the
         // registry (deployments[{symbol}_BurnMintTokenPool_{version}] + active.tokenPool).
-        DeploymentRecorder.recordTokenPool(
+        DeploymentRecorder._recordTokenPool(
             vm, selectorName, config.chainNameIdentifier, tokenPoolAddress, tokenAddress, "BurnMint"
         );
         console.log("");

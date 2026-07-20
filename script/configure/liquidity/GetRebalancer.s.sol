@@ -47,8 +47,8 @@ contract GetRebalancer is Script {
 
         // Read path: never revert on the type/version axis. tryResolve degrades to UNKNOWN + the raw
         // on-chain string on anything uncataloged, so we can still branch on the type prefix.
-        (, PoolVersions.Version version, string memory full) = PoolVersion.tryResolve(tokenPoolAddress);
-        string memory typePrefix = PoolVersion.typePrefixOf(full);
+        (, PoolVersions.Version version, string memory full) = PoolVersion._tryResolve(tokenPoolAddress);
+        string memory typePrefix = PoolVersion._typePrefixOf(full);
         bool isLockRelease = keccak256(bytes(typePrefix)) == keccak256(bytes("LockReleaseTokenPool"));
 
         if (!isLockRelease) {

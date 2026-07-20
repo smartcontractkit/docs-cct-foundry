@@ -213,7 +213,7 @@ contract ApplyChainUpdatesLaneSourceTest is LaneReconcileScratch {
         _cleanupScratchOne(local);
     }
 
-    // CAPACITY alone: isEnabled defaults to true and the unset RATE reads 0 — the exact historical
+    // CAPACITY alone: isEnabled defaults to true and the unset RATE reads 0 - the exact historical
     // env semantics, pinned.
     function test_CapacityOnly_EnabledDefaultsTrue_RateZero() public {
         string memory local = _localChain(13);
@@ -318,7 +318,7 @@ contract ApplyChainUpdatesLaneSourceTest is LaneReconcileScratch {
         _cleanupScratchOne(local);
     }
 
-    // A declared 0/0 bucket is declared-disabled (enabled iff capacity or rate non-zero — the same
+    // A declared 0/0 bucket is declared-disabled (enabled iff capacity or rate non-zero - the same
     // inference the doctor's lanes rung uses).
     function test_NoEnv_DeclaredZeroZero_IsDeclaredDisabled() public {
         string memory local = _localChain(9);
