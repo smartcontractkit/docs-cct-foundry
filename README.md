@@ -46,7 +46,8 @@ copy-pasteable. The `make` golden path resolves the RPC and keystore from each c
 you never hand-export an RPC per chain; the raw `forge script` each target wraps is documented on the
 linked operations page as the escape hatch.
 
-Run these for EACH of your two chains (`<chain>` is a selectorName such as `ethereum-testnet-sepolia`; set
+Run these for EACH of your two chains (`<chain>` is a selectorName such as `ethereum-testnet-sepolia`;
+selectorNames may contain underscores, e.g. `binance_smart_chain-mainnet`; set
 its `rpcEnv` and `KEYSTORE_NAME` in `.env`, then `source .env`).
 
 1. **Onboard the chain from the CCIP API** ([operations/chains](docs/operations/chains.md)):

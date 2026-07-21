@@ -1695,8 +1695,8 @@ if offline_enabled; then
 
     # Project-path composition gate: a project-file path fragment (`"...project/"` followed by a
     # chain-name var) must be built ONLY by ProjectStore. Group support makes the path optionally
-    # `project/<group>/<name>.json`, so every path/display string goes through ProjectStore.path()/
-    # display(); a raw `"project/" + name` would be blind to the group. ProjectStore is the one
+    # `project/<group>/<name>.json`, so every path/display string goes through ProjectStore._path()/
+    # _display(); a raw `"project/" + name` would be blind to the group. ProjectStore is the one
     # sanctioned composer.
     inline_hits="$(grep -rnE 'project/"' --include='*.sol' src script 2>/dev/null | grep -v 'src/utils/ProjectStore.sol' || true)"
     if [ -z "$inline_hits" ]; then
@@ -1705,7 +1705,7 @@ if offline_enabled; then
     else
         fail=$((fail + 1))
         failures+=("project-path composition gate")
-        echo "[FAIL] project-path gate: compose via ProjectStore.path()/display() instead of inline:"
+        echo "[FAIL] project-path gate: compose via ProjectStore._path()/_display() instead of inline:"
         echo "$inline_hits" | sed 's/^/       | /'
     fi
 

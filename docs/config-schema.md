@@ -273,7 +273,7 @@ project/
     avalanche-fuji.json                 # group "usdx" (token #2)
 ```
 
-The group name is validated `[a-z0-9][a-z0-9-]*` (the same shape as chain names; a bad name FAILs with a
+The group name is validated `[a-z0-9][a-z0-9-]*` (dashes only, unlike chain names, which also allow underscores; a bad name FAILs with a
 named error). Each group is its own **mesh universe**: the doctor's lane reciprocity reads siblings in the
 same group directory, so a lane declared in one group never satisfies another's reciprocity, and a group's
 git diff is confined to its directory. `make add-lane`, `remove-lane`, `adopt-token`, `snapshot-chain`,
