@@ -281,6 +281,20 @@ contract VerifyChain is Script {
         return string.concat("config/chains/", name, ".json");
     }
 
+    /// @dev A valid POSIX shell env-var name: [A-Za-z_][A-Za-z0-9_]* (letters, digits, underscore, no
+    /// leading digit). An rpcEnv that fails this cannot be `export`ed, so the RPC-gated rungs go blind.
+    function _isValidEnvName(string memory name) private pure returns (bool) {
+        bytes memory b = bytes(name);
+        if (b.length == 0) return false;
+        for (uint256 i = 0; i < b.length; i++) {
+            bytes1 ch = b[i];
+            bool alpha = (ch >= "A" && ch <= "Z") || (ch >= "a" && ch <= "z") || ch == "_";
+            bool digit = ch >= "0" && ch <= "9";
+            if (i == 0 ? !alpha : !(alpha || digit)) return false;
+        }
+        return true;
+    }
+
     /// @dev Reads `project/<name>.json` (lanes/roles/addresses), or the empty JSON object `"{}"` when the
     /// chain has no project file yet. TOCTOU-safe via the probe so a scratch file removed by a parallel
     /// test never aborts the doctor. The empty-object sentinel (NOT `""`) is deliberate: an absent
@@ -686,6 +700,21 @@ contract VerifyChain is Script {
     // ---------------------------------------------------------------- 4. RPC
     function _checkRpc(string memory json) private returns (bool ok) {
         string memory rpcEnv = vm.parseJsonString(json, ".rpcEnv");
+        // A POSIX shell env-var name must be [A-Za-z_][A-Za-z0-9_]*. If the derived rpcEnv is not (most
+        // often a leading digit, e.g. "0G_..._RPC_URL"), `export`/dotenv silently rejects it, so the
+        // url below reads back empty and every RPC-gated rung SKIPs - a doctor that looks green while
+        // having verified nothing on-chain. Surface it as a WARN so the blind spot is visible; the fix
+        // is to set a valid CHAIN_NAME_IDENTIFIER / RPC_ENV (add-chain prefixes a leading digit).
+        if (!_isValidEnvName(rpcEnv)) {
+            _warn(
+                string.concat(
+                    "rpc: rpcEnv '",
+                    rpcEnv,
+                    "' is not a valid shell identifier (a shell cannot export it), so RPC-dependent checks",
+                    " below will SKIP - set a valid RPC_ENV in config/chains and your .env"
+                )
+            );
+        }
         string memory url = vm.envOr(rpcEnv, string(""));
         if (bytes(url).length == 0) {
             _skip(string.concat("rpc: env ", rpcEnv, " unset - add it to your .env to enable fork checks"));

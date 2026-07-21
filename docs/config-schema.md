@@ -159,21 +159,22 @@ a config file is a schema-rung FAIL naming the move (see
 > `chainNameIdentifier` as UPPER_SNAKE of the selectorName (e.g. `avalanche-testnet-fuji` →
 > `AVALANCHE_TESTNET_FUJI`) and `rpcEnv` as `<chainNameIdentifier>_RPC_URL`, so a fresh chain's names
 > may differ in style from the six bundled chains' hand-curated SHORT forms (`ETHEREUM_SEPOLIA`, not
-> `ETHEREUM_TESTNET_SEPOLIA`). You cannot always guess them - so `add-chain` **prints the exact
-> `chainNameIdentifier` and `rpcEnv` it generated** in its next-steps output. Override at generation
-> time with the `CHAIN_NAME_IDENTIFIER` / `RPC_ENV` env vars; these keys are hand-authored thereafter
-> (the sync never rewrites them).
+> `ETHEREUM_TESTNET_SEPOLIA`). A selectorName that starts with a digit gets a leading `_`, because a
+> POSIX shell env-var name cannot start with a digit: `0g-testnet-galileo-1` derives
+> `_0G_TESTNET_GALILEO_1` and the settable `rpcEnv` `_0G_TESTNET_GALILEO_1_RPC_URL`. You cannot always
+> guess the derived names, so `add-chain` **prints the exact `chainNameIdentifier` and `rpcEnv` it
+> generated** in its next-steps output. Override at generation time with the `CHAIN_NAME_IDENTIFIER` /
+> `RPC_ENV` env vars; these keys are hand-authored thereafter (the sync never rewrites them).
 >
-> **Digit-leading identifiers are not valid shell names.** The bundled `0g-testnet-galileo-1` carries
-> `chainNameIdentifier: 0G_GALILEO_TESTNET`, so its `<ID>_*` override vars (`0G_GALILEO_TESTNET_TOKEN`,
-> `0G_GALILEO_TESTNET_TOKEN_POOL`, ...) are digit-leading: `export 0G_...=` is refused by the shell, and
-> forge's `.env` autoload silently stops parsing the file at a digit-leading key (every later `.env`
-> line is then ignored too). Its `rpcEnv` is already the hand-curated shell-safe `ZERO_G_TESTNET_RPC_URL`
-> and belongs in `.env` as usual. Do not put `0G_...=` lines in `.env`; pass such vars inline via `env`:
-> `env '0G_GALILEO_TESTNET_TOKEN=0x...' forge script ...`. The deeper fix - a shell-safe
-> `chainNameIdentifier` alias (e.g. `ZERO_G_GALILEO_TESTNET`) for the bundled chain - is a breaking
-> rename and out of scope here; for a NEW chain pick one up front via `CHAIN_NAME_IDENTIFIER=` at
-> `add-chain` time.
+> **The bundled `0g-testnet-galileo-1` is the frozen exception.** For any NEW digit-leading chain the
+> derivation above prefixes `_`, and the doctor WARNs when a config's `rpcEnv` is not a valid shell
+> identifier, so the RPC-gated rungs never SKIP silently. The bundled `0g-testnet-galileo-1` predates
+> that behavior: it carries `chainNameIdentifier: 0G_GALILEO_TESTNET`, so its `<ID>_*` override vars
+> (`0G_GALILEO_TESTNET_TOKEN`, `0G_GALILEO_TESTNET_TOKEN_POOL`, ...) are digit-leading. `export 0G_...=`
+> is refused by the shell, and forge's `.env` autoload silently stops parsing the file at a digit-leading
+> key (every later `.env` line is then ignored too). Its `rpcEnv` is the hand-curated shell-safe
+> `ZERO_G_TESTNET_RPC_URL` and belongs in `.env` as usual. Do not put `0G_...=` lines in `.env`; pass
+> those vars inline via `env`: `env '0G_GALILEO_TESTNET_TOKEN=0x...' forge script ...`.
 
 > **Big integers are quoted STRINGS.** `chainSelector` (uint64) and `chainId` exceed JSON's safe integer
 > range (2^53), so they are stored as quoted decimals and read with `vm.parseJsonUint`, which parses
@@ -272,7 +273,7 @@ project/
     avalanche-fuji.json                 # group "usdx" (token #2)
 ```
 
-The group name is validated `[a-z0-9][a-z0-9-]*` (the same shape as chain names; a bad name FAILs with a
+The group name is validated `[a-z0-9][a-z0-9-]*` (dashes only, unlike chain names, which also allow underscores; a bad name FAILs with a
 named error). Each group is its own **mesh universe**: the doctor's lane reciprocity reads siblings in the
 same group directory, so a lane declared in one group never satisfies another's reciprocity, and a group's
 git diff is confined to its directory. `make add-lane`, `remove-lane`, `adopt-token`, `snapshot-chain`,

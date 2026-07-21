@@ -61,7 +61,7 @@ jq -c '{
   displayName: (.chain.displayName // .chain.name // ""),
   chainFamily: ((.chain.chainFamily // "EVM") | ascii_downcase),
   environment: (.chain.environment // "testnet"),
-  chainId: (.chain.chainId | tostring),
+  chainId: ((.chain.chainId // 0) | tostring),
   chainSelector: (.chain.chainSelector | tostring),
   explorerUrl: (.chainMetadata.explorer.url // ""),
   nativeCurrencySymbol: (.chainMetadata.nativeCurrency.symbol // "")

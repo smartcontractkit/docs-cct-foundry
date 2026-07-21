@@ -32,10 +32,15 @@ New chains are discovered automatically from `config/chains/`: `HelperConfig` sc
 Solidity edit is needed anywhere. For a newly added chain the `chainNameIdentifier` (and hence the
 `rpcEnv` and the `<ID>_TOKEN`/`<ID>_TOKEN_POOL` override prefix) is derived from the selectorName as
 UPPER_SNAKE, so it may differ in style from the bundled chains' curated short forms (for example
-`AVALANCHE_TESTNET_FUJI`, not `AVALANCHE_FUJI`). `add-chain` prints the exact `chainNameIdentifier` and
+`AVALANCHE_TESTNET_FUJI`, not `AVALANCHE_FUJI`). A selectorName that starts with a digit is prefixed
+with `_` so the derived `rpcEnv` is a valid shell variable name (`0g-testnet-galileo-1` derives
+`_0G_TESTNET_GALILEO_1`). `add-chain` prints the exact `chainNameIdentifier` and
 `rpcEnv` names it generated, plus your next steps: add the chain's RPC env var to `.env`, review the
 generated defaults in the config file, wire a lane with `make add-lane`, and re-run the doctor until it
 reports 0 FAIL.
+
+Names may contain underscores, which some CCIP selectorNames use (e.g.
+`binance_smart_chain-mainnet`); pass the name from `make discover` verbatim.
 
 Deploying your token and pool there is the golden path (see [Token operations](tokens.md) and [Token pool
 deployment](pools.md)). Then declare the lane policy with `make add-lane LOCAL=<name> REMOTE=<remote>
