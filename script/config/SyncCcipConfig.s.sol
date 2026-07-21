@@ -93,18 +93,18 @@ contract SyncCcipConfig is Script {
     function _skipManual(string memory name, string memory json) internal view returns (bool) {
         // Fail CLOSED on an unrecognized value: an unknown configSource must NOT fall back to "api" and
         // overwrite the addresses. Refuse the sync and name the fix (the doctor's schema rung agrees).
-        if (!ChainConfig.isKnownConfigSource(json)) {
+        if (!ChainConfig._isKnownConfigSource(json)) {
             revert(
                 string.concat(
                     "[sync] ",
                     name,
                     " has an unknown configSource \"",
-                    ChainConfig.configSource(json),
+                    ChainConfig._configSource(json),
                     "\" - use \"api\" or \"manual\"; refusing to sync so the addresses are not overwritten"
                 )
             );
         }
-        if (ChainConfig.isManual(json)) {
+        if (ChainConfig._isManual(json)) {
             console.log(
                 string.concat(
                     "[sync] SKIP ",
@@ -572,7 +572,7 @@ contract SyncCcipConfig is Script {
     /// first); a fetch failure reverts with the fetch script's named error (NOT_FOUND /
     /// API_UNREACHABLE), so `script/config/sync-check.sh` can classify its exit-code contract:
     /// 0 clean / 1 drift-or-config-error / 2 api-down.
-    /// @dev Field-by-field via the same `vm.parseJson*` paths `ChainConfig.load` uses — never a
+    /// @dev Field-by-field via the same `vm.parseJson*` paths `ChainConfig._load` uses — never a
     /// string-compare of serialized JSON (key reordering would false-positive). Reuses
     /// `ccipAddressKeys` so check and write cannot diverge.
     function check(string memory name) public {
@@ -782,34 +782,34 @@ contract SyncCcipConfig is Script {
         // Reject an unknown configSource on either side first, so two unrecognized values cannot read
         // as a matching "api" pair and slip past the cross-plane check below.
         require(
-            ChainConfig.isKnownConfigSource(localConfig),
+            ChainConfig._isKnownConfigSource(localConfig),
             string.concat("[add-lane] ", local, " has an unknown configSource - use \"api\" or \"manual\"")
         );
         require(
-            ChainConfig.isKnownConfigSource(remoteConfig),
+            ChainConfig._isKnownConfigSource(remoteConfig),
             string.concat("[add-lane] ", remote, " has an unknown configSource - use \"api\" or \"manual\"")
         );
         // Cross-plane refusal: a lane must connect two chains on the SAME address plane. One chain
         // sourced from the API and the other hand-maintained (`configSource: "manual"`) would wire a
         // lane across two different address directories, so refuse by name stating both planes.
         require(
-            ChainConfig.isManual(localConfig) == ChainConfig.isManual(remoteConfig),
+            ChainConfig._isManual(localConfig) == ChainConfig._isManual(remoteConfig),
             string.concat(
                 "[add-lane] cross-plane lane refused: ",
                 local,
                 " (configSource=",
-                ChainConfig.configSource(localConfig),
+                ChainConfig._configSource(localConfig),
                 ") and ",
                 remote,
                 " (configSource=",
-                ChainConfig.configSource(remoteConfig),
+                ChainConfig._configSource(remoteConfig),
                 ") are on different address planes - a lane must connect two chains on the same plane"
             )
         );
 
         // Seed the project skeleton on first touch so the targeted `.lanes` write never raw-reverts.
-        ProjectStore.seedIfAbsent(local);
-        string memory projectPath = ProjectStore.path(local);
+        ProjectStore._seedIfAbsent(local);
+        string memory projectPath = ProjectStore._path(local);
         string memory projectJson = vm.readFile(projectPath);
         if (vm.keyExistsJson(projectJson, string.concat(".lanes.", remote))) {
             string memory lanePath = string.concat(".lanes.", remote);
@@ -822,7 +822,7 @@ contract SyncCcipConfig is Script {
                         " -> ",
                         remote,
                         " already exists - no-op (edit ",
-                        ProjectStore.display(local),
+                        ProjectStore._display(local),
                         " to change policy)"
                     )
                 );
@@ -1063,11 +1063,11 @@ contract SyncCcipConfig is Script {
     /// non-EVM remotes: the store holds their base58 pool (via `adopt-token`'s non-EVM path), so a
     /// Solana remote with a declared pool does not trip this WARN.
     function _warnPlaceholderPool(string memory remote, string memory) internal view {
-        if (bytes(RegistryWriter.readString(remote, "tokenPool")).length == 0) {
+        if (bytes(RegistryWriter._readString(remote, "tokenPool")).length == 0) {
             console.log(
                 string.concat(
                     "[add-lane] WARN: no tokenPool in ",
-                    ProjectStore.display(remote),
+                    ProjectStore._display(remote),
                     " (addresses.active.tokenPool) - deploy one (script/deploy/DeployBurnMintTokenPool.s.sol or DeployLockReleaseTokenPool.s.sol), or for a non-EVM remote declare it (make adopt-token), before executing transfers over this lane"
                 )
             );
@@ -1097,7 +1097,7 @@ contract SyncCcipConfig is Script {
     function removeLane(string memory local, string memory remote) public {
         _requireSyncProfile();
         _requireConfigExists(local); // the chain must be onboarded
-        string memory projectPath = ProjectStore.path(local);
+        string memory projectPath = ProjectStore._path(local);
         string memory lanePath = string.concat(".lanes.", remote);
         if (!vm.exists(projectPath) || !vm.keyExistsJson(vm.readFile(projectPath), lanePath)) {
             console.log(
@@ -1107,7 +1107,7 @@ contract SyncCcipConfig is Script {
                     " -> ",
                     remote,
                     " is not declared - no-op (",
-                    ProjectStore.display(local),
+                    ProjectStore._display(local),
                     " unchanged)"
                 )
             );
@@ -1124,7 +1124,7 @@ contract SyncCcipConfig is Script {
         }
         vm.writeJson(lanesJson, projectPath, ".lanes");
         console.log(
-            string.concat("[remove-lane] removed lane ", local, " -> ", remote, " from ", ProjectStore.display(local))
+            string.concat("[remove-lane] removed lane ", local, " -> ", remote, " from ", ProjectStore._display(local))
         );
         console.log(
             string.concat(
