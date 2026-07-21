@@ -1,3 +1,7 @@
+---
+type: concept
+---
+
 # Chain config architecture
 
 How the chain-config infrastructure is wired: the `make` command surface, and the layered design that
@@ -7,7 +11,7 @@ keeps `config/chains/<selectorName>.json` true to the live CCIP REST API. For th
 ## Command reference
 
 Every target is a thin wrapper defined in the repo [`Makefile`](../Makefile); the raw `forge script` /
-`bash` command each runs is the escape hatch (also shown in the [README](../README.md#configuration)).
+`bash` command each runs is the escape hatch (also shown in the [operations: chains](operations/chains.md)).
 `FOUNDRY_PROFILE=sync` (which enables `ffi` for the `curl`+`jq` API fetch) is set **inside** the recipes
 that need it, never exported. Targets that touch the API need only `curl` + `jq` - no RPC URL, no keystore.
 
@@ -36,7 +40,7 @@ that need it, never exported. Targets that touch the API need only `curl` + `jq`
 API - see [`config-schema.md`](config-schema.md#the-file-name-is-the-canonical-ccip-selectorname)).
 
 **Which command when:** see the decision table in the
-[README → Which command when](../README.md#which-command-when) (not duplicated here). In short: `discover`
+[operations: chains](operations/chains.md) (not duplicated here). In short: `discover`
 to find a chain, `add-chain` to onboard it, `add-lane` to declare its lane policy, `adopt-token` to
 bring externally deployed contracts into the address registry, `sync`/`sync-all` to apply the API's
 current values, `sync-check` for the routine/CI drift verdict, and `doctor` for a deep single-chain
@@ -49,6 +53,26 @@ The canonical `0` clean / `1` drift / `2` API-unreachable contract belongs to
 `make sync-check` is **pass/fail only** - CI and automation call the script directly to tell drift
 (actionable) from an API flake (retry later). A scheduled workflow (`.github/workflows/config-drift.yml`)
 runs it weekly: drift fails visibly, an unreachable API only warns.
+
+## Applying config and reconciling with doctor
+
+The project store is your **declared source of truth**: the `lanes{}`, `poolPolicy{}`, `v2.ccv`, and
+`roles{}` intent, plus the recorded `addresses{}`. Two rules follow from that, and every config operation
+depends on them:
+
+- **Config-apply scripts change the chain but do NOT write your declaration back.** `UpdateCCVConfig`,
+  `UpdateRateLimiters`, `UpdateTokenTransferFeeConfig`, and the allowlist and ownership setters apply to the
+  live contract and leave the store untouched (applies never auto-write owner intent). Deploy scripts are
+  the one exception: they record the deployed address in the store.
+- **So after any config change, sync the store, then reconcile.** Declare the intent with the config-plane
+  targets: `make add-lane` / `make remove-lane` (lanes and rate limits), `make adopt-token` (an externally
+  deployed token's address), `make snapshot-chain` (backfill `roles{}` from chain), or a reviewed hand-edit
+  (`v2.ccv`, `poolPolicy`). Then reconcile against live: `make doctor CHAIN=<chain>` (config) and
+  `make roles-check CHAIN=<chain>` (authority). A declared value the chain contradicts is reported as drift,
+  by field.
+
+This declared-intent-versus-live split is what makes drift detectable: apply on-chain but never declare, and
+`doctor` has nothing to reconcile against.
 
 ## Architecture
 
@@ -342,4 +366,4 @@ flowchart LR
 - **[`deployed-addresses.md`](deployed-addresses.md)** - the deployed-address loop (the append-only
   `history/` ledger vs the machine-read `addresses{}` registry sub-store of `project/<selectorName>.json`),
   how one recorder call emits both, the resolution ladder, and the doctor's TAR reconciliation.
-- [README → Configuration](../README.md#configuration) · [README → Adding a New Chain](../README.md#adding-a-new-chain).
+- [operations: chains](operations/chains.md) · [operations: chains](operations/chains.md).

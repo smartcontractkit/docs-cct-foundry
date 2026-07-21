@@ -6,7 +6,7 @@ import {Vm} from "forge-std/Vm.sol";
 /// @title ChainConfig
 /// @notice Chain metadata is DATA, not code: every CCIP address, chain selector, and chain label the
 /// scripts need is read from a git-tracked `config/chains/<name>.json` file via `vm.parseJson*`
-/// cheatcodes, so supporting a new chain is a config edit reviewed in a pull request — no Solidity
+/// cheatcodes, so supporting a new chain is a config edit reviewed in a pull request - no Solidity
 /// changes and no redeploy of anything.
 /// @dev Schema per file (see `config/chains/ethereum-testnet-sepolia.json`):
 ///   - identity: `name`, `displayName`, `chainNameIdentifier` (the `{CHAIN}_*` env-var prefix,
@@ -19,7 +19,7 @@ import {Vm} from "forge-std/Vm.sol";
 ///     `verifier{type,url}` block naming the explorer-verification backend (read by the verify
 ///     tooling and validated by the doctor, not parsed into `Chain`).
 /// Project state (`lanes{}`, `roles{}`, deployed `addresses{}`) lives in `project/<selectorName>.json`,
-/// NOT here — this file is PURE API/chain facts (see `docs/config-schema.md`).
+/// NOT here - this file is PURE API/chain facts (see `docs/config-schema.md`).
 /// `chainId` and `chainSelector` are quoted decimal STRINGS (uint64 selectors exceed JSON's safe
 /// integer range) and are read with `vm.parseJsonUint`, which parses quoted decimals. Reads use
 /// targeted key paths (`vm.parseJsonAddress(json, ".ccip.router")`) rather than whole-struct
@@ -48,7 +48,7 @@ library ChainConfig {
     }
 
     /// @notice Reads a chain's full config record by config file name (e.g. "ethereum-testnet-sepolia").
-    function load(string memory name) internal view returns (Chain memory) {
+    function _load(string memory name) internal view returns (Chain memory) {
         return _parse(VM.readFile(_path(name)));
     }
 
@@ -60,9 +60,9 @@ library ChainConfig {
     /// Either way the caller gets a clean `ok = false`, never an aborted `HelperConfig` construction.
     /// @dev The parse must be guarded, not just the read: `_parse` is an internal call, so its
     /// cheatcode reverts on invalid JSON would propagate PAST a `try` that only wraps `readFile`.
-    /// `parseJsonUint(".chainId")` is the canary — it reverts on a partial document, and once it
+    /// `parseJsonUint(".chainId")` is the canary - it reverts on a partial document, and once it
     /// succeeds the file is complete valid JSON, so `_parse` reads every key without reverting.
-    function tryLoad(string memory name) internal view returns (bool ok, Chain memory c, uint256 declaredChainId) {
+    function _tryLoad(string memory name) internal view returns (bool ok, Chain memory c, uint256 declaredChainId) {
         if (!VM.exists(_path(name))) return (false, c, 0);
         string memory json;
         try VM.readFile(_path(name)) returns (string memory data) {
@@ -94,7 +94,7 @@ library ChainConfig {
     }
 
     /// @notice The chain's declared EVM chain ID (`0` for non-EVM chains such as Solana).
-    function chainId(string memory name) internal view returns (uint256) {
+    function _chainId(string memory name) internal view returns (uint256) {
         return VM.parseJsonUint(VM.readFile(_path(name)), ".chainId");
     }
 
@@ -102,22 +102,22 @@ library ChainConfig {
     /// config document: `"api"` (the CCIP REST API sync owns the addresses) or `"manual"` (a reviewed
     /// hand edit owns them, for an address plane the API does not serve). The `configSource` key is
     /// optional; an absent key reads as `"api"`.
-    function configSource(string memory json) internal view returns (string memory) {
+    function _configSource(string memory json) internal view returns (string memory) {
         if (!VM.keyExistsJson(json, ".configSource")) return "api";
         return VM.parseJsonString(json, ".configSource");
     }
 
     /// @notice True when this chain's `ccip{}` addresses are hand-maintained (`configSource: "manual"`),
     /// meaning the API sync must not write them and the doctor's API drift check does not apply.
-    function isManual(string memory json) internal view returns (bool) {
-        return keccak256(bytes(configSource(json))) == keccak256(bytes("manual"));
+    function _isManual(string memory json) internal view returns (bool) {
+        return keccak256(bytes(_configSource(json))) == keccak256(bytes("manual"));
     }
 
     /// @notice True when `configSource` is one of the two known planes (`"api"` or `"manual"`), which
     /// includes an absent key (it reads as `"api"`). A present-but-unrecognized value is NOT known: the
     /// sync must refuse it rather than fall back to `"api"` and overwrite a plane the operator marked.
-    function isKnownConfigSource(string memory json) internal view returns (bool) {
-        string memory source = configSource(json);
+    function _isKnownConfigSource(string memory json) internal view returns (bool) {
+        string memory source = _configSource(json);
         bytes32 h;
         assembly {
             h := keccak256(add(source, 0x20), mload(source))
@@ -125,11 +125,11 @@ library ChainConfig {
         return h == keccak256(bytes("api")) || h == keccak256(bytes("manual"));
     }
 
-    /// @notice Enumerates every configured chain by scanning `config/chains/*.json` — the config
+    /// @notice Enumerates every configured chain by scanning `config/chains/*.json` - the config
     /// name of each entry (file basename without `.json`, e.g. "ethereum-testnet-sepolia") feeds `load`.
     /// Directory contents ARE the chain list: dropping a new JSON file in makes the chain
     /// discoverable with no Solidity change.
-    function names() internal view returns (string[] memory) {
+    function _names() internal view returns (string[] memory) {
         Vm.DirEntry[] memory entries = VM.readDir(string.concat(VM.projectRoot(), "/config/chains"));
         string[] memory found = new string[](entries.length);
         uint256 count = 0;

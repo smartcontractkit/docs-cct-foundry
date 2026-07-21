@@ -75,7 +75,7 @@ library PoolVersions {
     /// @notice The capability range of `op` as `[introducedIn, removedIn)`. `removedIn == UNKNOWN`
     ///         means the operation exists on every cataloged version from `introducedIn` onward.
     ///         Ranges follow the source-verified per-version ABI surface of the TokenPool lineage.
-    function opRange(Op op) internal pure returns (Version introducedIn, Version removedIn) {
+    function _opRange(Op op) internal pure returns (Version introducedIn, Version removedIn) {
         if (op == Op.APPLY_CHAIN_UPDATES) return (Version.V1_5_1, Version.UNKNOWN);
         if (op == Op.APPLY_CHAIN_UPDATES_V150) return (Version.V1_5_0, Version.V1_5_1);
         if (op == Op.ADD_REMOTE_POOL) return (Version.V1_5_1, Version.UNKNOWN);
@@ -103,9 +103,9 @@ library PoolVersions {
 
     /// @notice Whether `version` supports `op` per the capability-range table. `UNKNOWN` supports
     ///         nothing (write paths must never reach a dispatch with an unresolved version).
-    function isSupported(Op op, Version version) internal pure returns (bool) {
+    function _isSupported(Op op, Version version) internal pure returns (bool) {
         if (version == Version.UNKNOWN) return false;
-        (Version introducedIn, Version removedIn) = opRange(op);
+        (Version introducedIn, Version removedIn) = _opRange(op);
         if (version < introducedIn) return false;
         if (removedIn != Version.UNKNOWN && version >= removedIn) return false;
         return true;
@@ -114,19 +114,19 @@ library PoolVersions {
     /// @notice Reverts with the named unsupported-for-operation error when `version` does not
     ///         support `op`. The message carries the pool address, the version, the supported
     ///         range, and the fix procedure.
-    function requireSupports(Op op, Version version, address pool) internal pure {
-        if (isSupported(op, version)) return;
-        (Version introducedIn, Version removedIn) = opRange(op);
+    function _requireSupports(Op op, Version version, address pool) internal pure {
+        if (_isSupported(op, version)) return;
+        (Version introducedIn, Version removedIn) = _opRange(op);
         revert(
             string.concat(
                 "UnsupportedPoolOperation: ",
-                opName(op),
+                _opName(op),
                 " is not available on pool ",
                 Strings.toHexString(pool),
                 " (contract version ",
-                toString(version),
+                _toString(version),
                 "). The operation exists on pool versions ",
-                rangeString(introducedIn, removedIn),
+                _rangeString(introducedIn, removedIn),
                 ". See ",
                 DOCS,
                 "#operation-ranges; the capability table lives in ",
@@ -138,7 +138,7 @@ library PoolVersions {
 
     /// @notice Parses an exact version token (e.g. `1.6.1`) to its catalog entry; `UNKNOWN` for
     ///         anything not cataloged (including `-dev` builds and empty strings).
-    function fromVersionToken(string memory token) internal pure returns (Version) {
+    function _fromVersionToken(string memory token) internal pure returns (Version) {
         bytes32 h;
         assembly {
             h := keccak256(add(token, 0x20), mload(token))
@@ -151,7 +151,7 @@ library PoolVersions {
     }
 
     /// @notice The version token of a catalog entry, for logs and error messages.
-    function toString(Version version) internal pure returns (string memory) {
+    function _toString(Version version) internal pure returns (string memory) {
         if (version == Version.V1_5_0) return "1.5.0";
         if (version == Version.V1_5_1) return "1.5.1";
         if (version == Version.V1_6_1) return "1.6.1";
@@ -160,13 +160,13 @@ library PoolVersions {
     }
 
     /// @notice Human-readable `[introducedIn, removedIn)` range for error messages.
-    function rangeString(Version introducedIn, Version removedIn) internal pure returns (string memory) {
-        if (removedIn == Version.UNKNOWN) return string.concat(toString(introducedIn), " and later");
-        return string.concat(toString(introducedIn), " up to but not including ", toString(removedIn));
+    function _rangeString(Version introducedIn, Version removedIn) internal pure returns (string memory) {
+        if (removedIn == Version.UNKNOWN) return string.concat(_toString(introducedIn), " and later");
+        return string.concat(_toString(introducedIn), " up to but not including ", _toString(removedIn));
     }
 
     /// @notice The operation name used in error messages.
-    function opName(Op op) internal pure returns (string memory) {
+    function _opName(Op op) internal pure returns (string memory) {
         if (op == Op.APPLY_CHAIN_UPDATES) return "applyChainUpdates (modern removes/adds shape)";
         if (op == Op.APPLY_CHAIN_UPDATES_V150) return "applyChainUpdates (1.5.0 single-argument shape)";
         if (op == Op.ADD_REMOTE_POOL) return "addRemotePool";

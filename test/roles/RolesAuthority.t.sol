@@ -9,7 +9,7 @@ import {RolesSnapshot} from "../../src/roles/RolesSnapshot.sol";
 import {RolesAuditor} from "../../src/roles/RolesAuditor.sol";
 import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 
-/// @dev Minimal Ownable surface — the `FactoryBurnMintERC20` DETECTION shape (owner(), no
+/// @dev Minimal Ownable surface - the `FactoryBurnMintERC20` DETECTION shape (owner(), no
 /// AccessControl). Detection keys on `owner()` answering while `DEFAULT_ADMIN_ROLE()` does not; a
 /// faithful stand-in for template detection without vendoring the factory token.
 contract MockOwnableToken {
@@ -20,7 +20,7 @@ contract MockOwnableToken {
     }
 }
 
-/// @dev A plain contract with none of the admin surfaces — the BYO/unknown detection shape.
+/// @dev A plain contract with none of the admin surfaces - the BYO/unknown detection shape.
 contract MockPlainToken {
     uint256 public x;
 }
@@ -36,7 +36,7 @@ contract MockPlainToken {
 ///   - an EOA-owned pool (no Safe/timelock) SKIPs the `governance{}` block, never FAILs;
 ///   - a non-enumerable AccessControl token's mint list is marked `complete:false` (the honesty rule).
 /// The live-testnet proof (`snapshot-chain` then `roles-check` against a real deployment, plus a
-/// `SCAN_FROM_BLOCK` event-scan run) is the cct-tester's job — this suite pins the mechanism on a fork.
+/// `SCAN_FROM_BLOCK` event-scan run) is the cct-tester's job - this suite pins the mechanism on a fork.
 contract RolesAuthorityTest is BaseForkTest {
     RolesSnapshot internal snap;
     RolesAuditor internal auditor;
@@ -62,7 +62,7 @@ contract RolesAuthorityTest is BaseForkTest {
     /// always starts clean (a gitignored leak is invisible to `git status`). The setUp() call is the
     /// guarantee; the end-of-test call keeps a green run residue-free.
     function _clean() private {
-        string memory poisonPath = ProjectStore.path(NOLEAK_SEL);
+        string memory poisonPath = ProjectStore._path(NOLEAK_SEL);
         if (vm.exists(poisonPath)) vm.removeFile(poisonPath);
     }
 
@@ -71,7 +71,7 @@ contract RolesAuthorityTest is BaseForkTest {
         return string.concat("{\"roles\":", rolesJson, "}");
     }
 
-    /// @dev The EXPLICIT `projectJson` a `build()` resolves the fixture token+pool from — passed as the
+    /// @dev The EXPLICIT `projectJson` a `build()` resolves the fixture token+pool from - passed as the
     /// 3rd `build` arg so resolution is fully test-local and NEVER reads `project/<name>.json` off disk.
     /// This is the isolation seam: no `TOKEN`/`TOKEN_POOL` process-global env (racy under forge's parallel
     /// executor) and no real project file can influence the fixture snapshot.
@@ -89,7 +89,7 @@ contract RolesAuthorityTest is BaseForkTest {
 
     function test_detectTemplate_crosschain() public view {
         assertEq(
-            uint256(RolesProbes.detectTemplate(fixtureToken)),
+            uint256(RolesProbes._detectTemplate(fixtureToken)),
             uint256(RolesProbes.TokenTemplate.CrossChainToken),
             "CrossChainToken must probe as crosschain"
         );
@@ -98,7 +98,7 @@ contract RolesAuthorityTest is BaseForkTest {
     function test_detectTemplate_burnmint() public {
         BurnMintERC20 bm = new BurnMintERC20("Burn Mint", "BM", 18, 0, 0);
         assertEq(
-            uint256(RolesProbes.detectTemplate(address(bm))),
+            uint256(RolesProbes._detectTemplate(address(bm))),
             uint256(RolesProbes.TokenTemplate.BurnMintERC20),
             "plain-AccessControl BurnMintERC20 must probe as burnmint (no defaultAdmin())"
         );
@@ -107,7 +107,7 @@ contract RolesAuthorityTest is BaseForkTest {
     function test_detectTemplate_factory() public {
         MockOwnableToken t = new MockOwnableToken();
         assertEq(
-            uint256(RolesProbes.detectTemplate(address(t))),
+            uint256(RolesProbes._detectTemplate(address(t))),
             uint256(RolesProbes.TokenTemplate.FactoryBurnMintERC20),
             "Ownable token must probe as factory"
         );
@@ -116,7 +116,7 @@ contract RolesAuthorityTest is BaseForkTest {
     function test_detectTemplate_byo() public {
         MockPlainToken t = new MockPlainToken();
         assertEq(
-            uint256(RolesProbes.detectTemplate(address(t))),
+            uint256(RolesProbes._detectTemplate(address(t))),
             uint256(RolesProbes.TokenTemplate.BYO),
             "token with no admin surface must probe as byo"
         );
@@ -126,7 +126,7 @@ contract RolesAuthorityTest is BaseForkTest {
         string[4] memory names = ["crosschain", "burnmint", "factory", "byo"];
         for (uint256 i = 0; i < names.length; i++) {
             assertEq(
-                RolesProbes.templateName(RolesProbes.templateFromName(names[i])),
+                RolesProbes._templateName(RolesProbes._templateFromName(names[i])),
                 names[i],
                 "template name must round-trip"
             );
@@ -139,7 +139,7 @@ contract RolesAuthorityTest is BaseForkTest {
     }
 
     function parseTemplate(string memory name) external pure returns (RolesProbes.TokenTemplate) {
-        return RolesProbes.templateFromName(name);
+        return RolesProbes._templateFromName(name);
     }
 
     // ---------------------------------------------------------------- snapshot fidelity
@@ -152,15 +152,15 @@ contract RolesAuthorityTest is BaseForkTest {
         assertEq(vm.parseJsonAddress(roles, ".token.address"), fixtureToken, "token.address");
         assertEq(vm.parseJsonAddress(roles, ".pool.address"), fixturePool, "pool.address");
 
-        (bool okOwner, address liveOwner) = RolesProbes.tryAddress(fixturePool, "owner()");
+        (bool okOwner, address liveOwner) = RolesProbes._tryAddress(fixturePool, "owner()");
         assertTrue(okOwner, "pool exposes owner()");
         assertEq(vm.parseJsonAddress(roles, ".pool.owner"), liveOwner, "pool.owner");
 
-        (bool okDa, address liveDa) = RolesProbes.tryAddress(fixtureToken, "defaultAdmin()");
+        (bool okDa, address liveDa) = RolesProbes._tryAddress(fixtureToken, "defaultAdmin()");
         assertTrue(okDa, "token exposes defaultAdmin()");
         assertEq(vm.parseJsonAddress(roles, ".token.defaultAdmin"), liveDa, "token.defaultAdmin");
 
-        (bool okCa, address liveCa) = RolesProbes.tryAddress(fixtureToken, "getCCIPAdmin()");
+        (bool okCa, address liveCa) = RolesProbes._tryAddress(fixtureToken, "getCCIPAdmin()");
         assertTrue(okCa, "token exposes getCCIPAdmin()");
         assertEq(vm.parseJsonAddress(roles, ".token.ccipAdmin"), liveCa, "token.ccipAdmin");
 
@@ -184,7 +184,7 @@ contract RolesAuthorityTest is BaseForkTest {
     function test_inducedDrift_failsNamingField() public {
         string memory roles =
             snap.build("ethereum-testnet-sepolia", baseJson, _fixtureProject(fixtureToken, fixturePool));
-        (bool okOwner, address realOwner) = RolesProbes.tryAddress(fixturePool, "owner()");
+        (bool okOwner, address realOwner) = RolesProbes._tryAddress(fixturePool, "owner()");
         assertTrue(okOwner, "pool exposes owner()");
         // mutate the declared pool.owner in-memory (never a real file) to an intruder
         string memory mutated = vm.replace(_wrap(roles), vm.toString(realOwner), vm.toString(makeAddr("intruder")));
@@ -270,8 +270,8 @@ contract RolesAuthorityTest is BaseForkTest {
             "\"}},\"schema\":3}"
         );
         // Plant the poisoned file on disk at project/<NOLEAK_SEL>.json (cleaned in setUp).
-        vm.writeFile(ProjectStore.path(NOLEAK_SEL), poisoned);
-        assertTrue(vm.exists(ProjectStore.path(NOLEAK_SEL)), "precondition: poisoned project file is on disk");
+        vm.writeFile(ProjectStore._path(NOLEAK_SEL), poisoned);
+        assertTrue(vm.exists(ProjectStore._path(NOLEAK_SEL)), "precondition: poisoned project file is on disk");
 
         // build() is given the FIXTURE declaration explicitly (3rd arg). If it ever read the on-disk
         // project file for NOLEAK_SEL (the upstream bug) it would resolve the poison token instead.

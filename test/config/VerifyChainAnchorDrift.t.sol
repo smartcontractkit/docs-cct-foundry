@@ -5,14 +5,14 @@ import {Test} from "forge-std/Test.sol";
 import {VerifyChain} from "../../script/config/VerifyChain.s.sol";
 import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 
-/// @title VerifyChainAnchorDriftTest — the roles anchor-drift WARN (`_warnAnchorDrift`, offline)
+/// @title VerifyChainAnchorDriftTest - the roles anchor-drift WARN (`_warnAnchorDrift`, offline)
 /// @notice The doctor's ROLES rung self-embeds each `roles.<x>.address` anchor so the auditor is
-/// self-contained, but a later deploy can repoint `addresses.active.<role>` off the anchored token —
+/// self-contained, but a later deploy can repoint `addresses.active.<role>` off the anchored token -
 /// the auditor would then reconcile the STALE anchored value clean (a false green). `_warnAnchorDrift`
 /// catches that: a declared anchor that DIVERGES from the store's active pointer emits exactly one WARN
 /// (naming both addresses + `make snapshot-chain`), while a matching anchor, an absent anchor, or a
-/// store with no active pointer stays silent. It is WARN-only (never FAIL) and needs no RPC — a pure
-/// file compare — so this suite pins the (fails, warns) contract as a unit test via
+/// store with no active pointer stays silent. It is WARN-only (never FAIL) and needs no RPC - a pure
+/// file compare - so this suite pins the (fails, warns) contract as a unit test via
 /// `warnAnchorDriftForTest`, which runs ONLY that check. Each test writes its own uniquely-named scratch
 /// project file (suites run in parallel and share the filesystem) and cleans it in setUp() (revert-safe).
 contract VerifyChainAnchorDriftTest is Test {
@@ -36,7 +36,7 @@ contract VerifyChainAnchorDriftTest is Test {
     function _clean() private {
         string[4] memory sels = [SEL_MATCH, SEL_NOACTIVE, SEL_NOANCHOR, SEL_DRIFT];
         for (uint256 i = 0; i < sels.length; i++) {
-            string memory p = ProjectStore.path(sels[i]);
+            string memory p = ProjectStore._path(sels[i]);
             if (vm.exists(p)) vm.removeFile(p);
         }
     }
@@ -44,7 +44,7 @@ contract VerifyChainAnchorDriftTest is Test {
     /// @dev Per-name variant for end-of-test cleanup (a test removes ONLY the file it owns; suite
     /// siblings run in parallel).
     function _clean(string memory sel) private {
-        string memory p = ProjectStore.path(sel);
+        string memory p = ProjectStore._path(sel);
         if (vm.exists(p)) vm.removeFile(p);
     }
 
@@ -60,15 +60,15 @@ contract VerifyChainAnchorDriftTest is Test {
             rolesBody,
             "},\"schema\":3}"
         );
-        vm.writeFile(ProjectStore.path(name), json);
+        vm.writeFile(ProjectStore._path(name), json);
     }
 
-    /// @dev `"<role>":"<addr>"` — an active-pointer fragment.
+    /// @dev `"<role>":"<addr>"` - an active-pointer fragment.
     function _active(string memory role, address addr) internal pure returns (string memory) {
         return string.concat("\"", role, "\":\"", vm.toString(addr), "\"");
     }
 
-    /// @dev `"<key>":{"address":"<addr>"}` — a roles anchor fragment (`token`/`pool`).
+    /// @dev `"<key>":{"address":"<addr>"}` - a roles anchor fragment (`token`/`pool`).
     function _anchor(string memory key, address addr) internal pure returns (string memory) {
         return string.concat("\"", key, "\":{\"address\":\"", vm.toString(addr), "\"}");
     }

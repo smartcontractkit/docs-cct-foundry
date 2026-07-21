@@ -1,3 +1,7 @@
+---
+type: concept
+---
+
 # Roles: the authority durable store and reconciliation
 
 This deployment's **privileged authority** - who can mint, burn, re-point the pool, throttle a lane,
@@ -28,19 +32,19 @@ rung), and for [the EOA → Safe handoff ceremony](#the-eoa--safe-handoff-ceremo
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'primaryColor':'#E8EDFB','primaryBorderColor':'#375BD2','primaryTextColor':'#1A2B6B','lineColor':'#375BD2','fontFamily':'ui-sans-serif, system-ui, sans-serif'}}}%%
 flowchart TB
-  subgraph GOV["governance{} (optional) — the recipient of a handoff"]
+  subgraph GOV["governance{} (optional) - the recipient of a handoff"]
     SAFE["Safe<br/>threshold + owners"]
     TL["TimelockController<br/>minDelay + proposers/cancellers/executors"]
   end
 
-  subgraph TOKEN["token — template-dispatched"]
+  subgraph TOKEN["token - template-dispatched"]
     DA["defaultAdmin / owner / defaultAdmins{}<br/>(top-level admin)"]
     CA["ccipAdmin<br/>(TAR registration authority)"]
-    BMA["burnMintRoleAdmins{}<br/>(admins MINTER/BURNER — crosschain)"]
+    BMA["burnMintRoleAdmins{}<br/>(admins MINTER/BURNER - crosschain)"]
     MB["minters{} / burners{}<br/>(MINTER_ROLE / BURNER_ROLE)"]
   end
 
-  subgraph POOL["pool — dual-generation"]
+  subgraph POOL["pool - dual-generation"]
     PO["owner (config authority)"]
     RLA["rateLimitAdmin (fast throttle)"]
     FA["feeAdmin (2.0.0)"]
@@ -71,7 +75,7 @@ flowchart TB
   DA -->|owner-gated| CA
 
   classDef out fill:#FFFFFF,stroke:#375BD2,stroke-dasharray:4 3,color:#1A2B6B;
-  TAROWNER["TAR CONTRACT owner\n= network operator (Chainlink) — OUT OF SCOPE"]:::out
+  TAROWNER["TAR CONTRACT owner\n= network operator (Chainlink) - OUT OF SCOPE"]:::out
 ```
 
 The reconcile engine reads every solid-outlined slot. The dashed **TAR contract owner** is the
@@ -100,7 +104,7 @@ Bootstrap a chain that has no `roles{}` yet:
 
 ```bash
 make snapshot-chain CHAIN=ethereum-testnet-sepolia    # writes the .roles block from the live chain
-git diff project/ethereum-testnet-sepolia.json        # review who holds what — the audit artifact (once a fork tracks project/)
+git diff project/ethereum-testnet-sepolia.json        # review who holds what - the audit artifact (once a fork tracks project/)
 make roles-check CHAIN=ethereum-testnet-sepolia        # should now report CLEAN (exit 0)
 ```
 
@@ -145,11 +149,11 @@ then decide which side is wrong:**
 %%{init: {'theme':'base','themeVariables':{'primaryColor':'#E8EDFB','primaryBorderColor':'#375BD2','primaryTextColor':'#1A2B6B','lineColor':'#375BD2','fontFamily':'ui-sans-serif, system-ui, sans-serif'}}}%%
 flowchart TD
   D["roles-check reports drift<br/>(names the field)"] --> S{"Did a GOVERNANCE-CRITICAL slot move<br/>to an address OUTSIDE the known-good set?<br/>(pool.owner, TAR administrator,<br/>a mint/burn holder, hooks.owner/policyEngine)"}
-  S -->|"Yes — possible compromise"| C["CONTAIN FIRST:<br/>throttle the affected lane via rateLimitAdmin now,<br/>freeze any pending two-step transfer,<br/>THEN investigate root cause"]
-  S -->|"No — a benign/expected field"| Q
+  S -->|"Yes - possible compromise"| C["CONTAIN FIRST:<br/>throttle the affected lane via rateLimitAdmin now,<br/>freeze any pending two-step transfer,<br/>THEN investigate root cause"]
+  S -->|"No - a benign/expected field"| Q
   C --> Q{"Was this on-chain change<br/>INTENDED?"}
-  Q -->|"No — the CHAIN drifted<br/>(unauthorized role move)"| R1["Remediate ON-CHAIN<br/>(transfer the role back / setPool back /<br/>setDynamicConfig) until chain == declaration"]
-  Q -->|"Yes — the declaration is stale<br/>(a deliberate authority change)"| R2["Update the DECLARATION<br/>via a reviewed edit or snapshot-chain,<br/>and PR the diff"]
+  Q -->|"No - the CHAIN drifted<br/>(unauthorized role move)"| R1["Remediate ON-CHAIN<br/>(transfer the role back / setPool back /<br/>setDynamicConfig) until chain == declaration"]
+  Q -->|"Yes - the declaration is stale<br/>(a deliberate authority change)"| R2["Update the DECLARATION<br/>via a reviewed edit or snapshot-chain,<br/>and PR the diff"]
   R1 --> V["make roles-check → exit 0"]
   R2 --> V
 ```
@@ -236,7 +240,7 @@ hand edit when the declaration must precede the on-chain move.
 
 After setup, every privileged role moves from the deployer EOA to the Safe, **in the correct order**.
 This repo ships building blocks, not an orchestrator: the ceremony is a documented sequence of
-single-purpose primitives you compose — step A as serial EOA broadcasts, steps B and C as ONE atomic
+single-purpose primitives you compose - step A as serial EOA broadcasts, steps B and C as ONE atomic
 Safe transaction each via
 [`ExecuteBatch` composition](governance-modes.md#batching-multiple-operations-into-one-safe-transaction).
 The ordering guarantees are properties of the role mechanisms (two-step accepts, grant-before-revoke),
@@ -277,39 +281,39 @@ sequenceDiagram
   G->>G: 0. commit the INTERMEDIATE declaration
   E->>E: A. grants + begins + one-step sets (serial, idempotent)
   E->>K: pre-C gate (SCAN_FROM_BLOCK=0)
-  K-->>E: exit 1 — accepts outstanding (expected mid-ceremony)
+  K-->>E: exit 1 - accepts outstanding (expected mid-ceremony)
   S->>S: B. ONE atomic batch: every accept
   S->>K: pre-C gate again
-  K-->>S: exit 0 — C is authorized
+  K-->>S: exit 0 - C is authorized
   S->>S: C. ONE atomic batch: revoke every residual EOA power
   G->>G: close-out: snapshot → commit FINAL declaration
   G->>K: roles-check + DENY=<deployerEOA> sweep + doctor
-  K-->>G: exit 0 + exit 0 — handoff complete
+  K-->>G: exit 0 + exit 0 - handoff complete
 ```
 
-The ceremony is **per token group**: thread the same group through every command — `PROJECT_GROUP=<g>`
+The ceremony is **per token group**: thread the same group through every command - `PROJECT_GROUP=<g>`
 on raw `forge script` and `roles-check.sh` runs, `GROUP=<g>` on the make verification steps (unset = the flat default group,
 byte-identical behavior). A chain's handoff is complete only when the close-out passes for EVERY group
 on that chain (a fresh clone's deployer EOA typically holds roles in all of them; the doctor's
 grouped-sibling notice is the reminder).
 
-### Step 0 — commit the intermediate declaration
+### Step 0 - commit the intermediate declaration
 
 Before anything executes, hand-edit the chain's `roles{}` (a reviewed edit of the pre-ceremony
-snapshot — this is the forward-intent edit the
+snapshot - this is the forward-intent edit the
 [snapshot footgun section](#the-snapshot-forward-intent-footgun) describes; do NOT run
 `snapshot-chain` mid-ceremony, it would clobber this declaration back to the pre-change chain state)
 to the state the chain must reach **before C**, in three parts:
 
-1. **Single-holder / two-step slots** — token `defaultAdmin`, `ccipAdmin`, TAR `administrator` (with
-   `pendingAdministrator: "0x0…0"` — the zero pending is code-enforced by the gate), pool
+1. **Single-holder / two-step slots** - token `defaultAdmin`, `ccipAdmin`, TAR `administrator` (with
+   `pendingAdministrator: "0x0…0"` - the zero pending is code-enforced by the gate), pool
    `owner`/`rateLimitAdmin`/`feeAdmin`, lockbox/hooks `owner`, v1-LR `rebalancer`: declare the **Safe**.
-2. **Enumerable membership lists** — lockbox/hooks `authorizedCallers`, factory minters/burners:
+2. **Enumerable membership lists** - lockbox/hooks `authorizedCallers`, factory minters/burners:
    declare the **live pre-C set INCLUDING the deployer EOA**. The EOA's removal from these sets IS
    batch C; a declaration that already excludes it can never pass before C runs.
-3. **Non-enumerable admin lists** — burnmint `defaultAdmins`, crosschain `burnMintRoleAdmins`: declare
+3. **Non-enumerable admin lists** - burnmint `defaultAdmins`, crosschain `burnMintRoleAdmins`: declare
    **`[<Safe>]`, never omit them.** The auditor SKIPs an undeclared holder list, so omitting these
-   lists would let the gate pass without proving the Safe's step-A grants landed — and batch C's
+   lists would let the gate pass without proving the Safe's step-A grants landed - and batch C's
    revokes, which need those grants, would then revert the whole atomic C. Non-enumerable
    minters/burners: declare their final holders (the pool(s)).
 
@@ -317,7 +321,7 @@ Commit the edit (fork-tracking-`project/` repos; otherwise archive the file with
 From here on, a `roles-check` field diff against this declaration is the ceremony's
 progress meter and crash-resume pointer.
 
-### Step A — the EOA grants (serial, idempotent, grant-only)
+### Step A - the EOA grants (serial, idempotent, grant-only)
 
 Simulate each command WITHOUT `--broadcast` first; broadcast only after the simulation's verify read
 matches. Every A command is a grant/begin/set that is safe to re-run. `$SAFE` is the Safe address;
@@ -325,15 +329,15 @@ add `PROJECT_GROUP=<g>` to each line for a grouped token.
 
 ```bash
 # 1. token top-level admin, template-dispatched (crosschain: beginDefaultAdminTransfer; burnmint:
-#    grantRole(DEFAULT_ADMIN) — GRANT-ONLY, the old holder's revoke is batch C; factory: transferOwnership)
+#    grantRole(DEFAULT_ADMIN) - GRANT-ONLY, the old holder's revoke is batch C; factory: transferOwnership)
 NEW_ADMIN=$SAFE forge script script/setup/token-roles/TransferTokenAdmin.s.sol --rpc-url $RPC --account $KEYSTORE_NAME --broadcast
-# verify: cast call $TOKEN "pendingDefaultAdmin()(address,uint48)" — first value == $SAFE (crosschain; burnmint: hasRole(0x00,$SAFE) == true)
+# verify: cast call $TOKEN "pendingDefaultAdmin()(address,uint48)" - first value == $SAFE (crosschain; burnmint: hasRole(0x00,$SAFE) == true)
 
 # 2. the slot a naive sweep forgets (crosschain only)
 ROLE=burnMintAdmin HOLDER=$SAFE forge script script/setup/token-roles/GrantTokenRole.s.sol --rpc-url $RPC --account $KEYSTORE_NAME --broadcast
 # verify: cast call $TOKEN "hasRole(bytes32,address)" $(cast call $TOKEN "BURN_MINT_ADMIN_ROLE()") $SAFE == true
 
-# 3. CCIP admin (one-step — moves immediately; the EOA's DEFAULT_ADMIN_ROLE can still reverse it until C)
+# 3. CCIP admin (one-step - moves immediately; the EOA's DEFAULT_ADMIN_ROLE can still reverse it until C)
 CCIP_ADMIN_ADDRESS=$SAFE forge script script/setup/token-roles/SetCCIPAdmin.s.sol --rpc-url $RPC --account $KEYSTORE_NAME --broadcast
 # verify: cast call $TOKEN "getCCIPAdmin()" == $SAFE
 
@@ -342,40 +346,40 @@ NEW_ADMIN=$SAFE forge script script/setup/TransferTokenAdminRole.s.sol --rpc-url
 # verify: TAR getTokenConfig(token).pendingAdministrator == $SAFE
 
 # 5. pool ownership (two-step)
-ENTITY_TYPE=tokenPool ADDRESS=$POOL NEW_OWNER=$SAFE forge script script/setup/transfer-ownership/TransferOwnership.s.sol --rpc-url $RPC --account $KEYSTORE_NAME --broadcast
-# verify: owner() still the EOA (Chainlink Ownable2Step has NO pendingOwner getter — the accept in B is the proof)
+ADDRESS=$POOL NEW_OWNER=$SAFE forge script script/setup/transfer-ownership/TransferOwnership.s.sol --rpc-url $RPC --account $KEYSTORE_NAME --broadcast
+# verify: owner() still the EOA (Chainlink Ownable2Step has NO pendingOwner getter - the accept in B is the proof)
 
 # 6. rateLimitAdmin + feeAdmin (one-step; the script reads the live router and passes it back unchanged)
 RATE_LIMIT_ADMIN=$SAFE FEE_ADMIN=$SAFE forge script script/configure/dynamic-config/SetDynamicConfig.s.sol --rpc-url $RPC --account $KEYSTORE_NAME --broadcast
 # verify: getDynamicConfig() == (router UNCHANGED, $SAFE, $SAFE)
 
-# 7-9. where present: lockbox owner, hooks owner (both ENTITY_TYPE legs of TransferOwnership, two-step),
+# 7-9. where present: lockbox owner, hooks owner (both generic Ownable legs of TransferOwnership, two-step),
 #      and v1-LR REBALANCER=$SAFE via script/configure/liquidity/SetRebalancer.s.sol (one-step)
 ```
 
 ### The pre-C gate
 
 ```bash
-SCAN_FROM_BLOCK=0 script/config/roles-check.sh <chain>     # caller-preset wins over .env — the scan stays OFF
+SCAN_FROM_BLOCK=0 script/config/roles-check.sh <chain>     # caller-preset wins over .env - the scan stays OFF
 echo $?   # must print 0 before C
 ```
 
-Run it after A (expect exit 1 naming the outstanding accepts — that diff is normal mid-ceremony) and
-again after B (must exit 0 — only then is C authorized). `SCAN_FROM_BLOCK` is pinned off because an
+Run it after A (expect exit 1 naming the outstanding accepts - that diff is normal mid-ceremony) and
+again after B (must exit 0 - only then is C authorized). `SCAN_FROM_BLOCK` is pinned off because an
 additive scan two-sided-compares and would FAIL on the residual EOA the intermediate declaration
 deliberately tolerates; the gate's WARN advising a scan re-run is deferred to the post-C close-out.
-The gate is the ONLY revoke-before-accept protection — the revoke primitives carry no pending checks.
+The gate is the ONLY revoke-before-accept protection - the revoke primitives carry no pending checks.
 
 The three Chainlink `Ownable2Step` slots (pool/lockbox/hooks) expose no `pendingOwner` getter, so the
 auditor reads the pending owner **from storage**, self-checked: the contract must answer
-`typeAndVersion()` and one of its first two storage slots must equal the live `owner()` — the other
+`typeAndVersion()` and one of its first two storage slots must equal the live `owner()` - the other
 slot is then the pending owner (the check covers both the `Ownable2Step` and the mirrored 1.5.0
 `ConfirmedOwner` layout). After step A the gate output therefore SHOWS each in-flight transfer as a
-`pendingOwner ... IN FLIGHT` WARN — verify it names the Safe before running B. A contract whose
+`pendingOwner ... IN FLIGHT` WARN - verify it names the Safe before running B. A contract whose
 layout fails the self-check is a visible SKIP (never a silently wrong read); for that case only, the
 B-accept executing from the Safe remains the proof the pending pointed at the right address.
 
-### Step B — the Safe accepts (one atomic batch)
+### Step B - the Safe accepts (one atomic batch)
 
 Emit each accept as its own named batch (`MODE=safe`, distinct `BATCH_NAME`), then compose and execute
 as ONE meta-transaction:
@@ -383,63 +387,63 @@ as ONE meta-transaction:
 ```bash
 MODE=safe SAFE_ADDRESS=$SAFE BATCH_NAME=b-accept-token ACCEPT=1 forge script script/setup/token-roles/TransferTokenAdmin.s.sol --rpc-url $RPC
 MODE=safe SAFE_ADDRESS=$SAFE BATCH_NAME=b-accept-tar forge script script/setup/AcceptAdminRole.s.sol --rpc-url $RPC
-MODE=safe SAFE_ADDRESS=$SAFE BATCH_NAME=b-accept-pool ENTITY_TYPE=tokenPool ADDRESS=$POOL forge script script/setup/transfer-ownership/AcceptOwnership.s.sol --rpc-url $RPC
-# (+ b-accept-lockbox / b-accept-hooks where present; burnmint tokens have NO accept leg — the step-A grantRole was already effective)
+MODE=safe SAFE_ADDRESS=$SAFE BATCH_NAME=b-accept-pool ADDRESS=$POOL forge script script/setup/transfer-ownership/AcceptOwnership.s.sol --rpc-url $RPC
+# (+ b-accept-lockbox / b-accept-hooks where present; burnmint tokens have NO accept leg - the step-A grantRole was already effective)
 BATCH_NAME=handoff-b BATCH_FILES=batches/b-accept-token.$CHAIN_ID.json,batches/b-accept-tar.$CHAIN_ID.json,batches/b-accept-pool.$CHAIN_ID.json \
   SAFE_ADDRESS=$SAFE SAFE_EXEC=direct SAFE_SIGNER_KEYS=$OWNER_KEY_1,$OWNER_KEY_2 \
   forge script script/governance/ExecuteBatch.s.sol --rpc-url $RPC --account $KEYSTORE_NAME --broadcast
 # verify: pool owner() == $SAFE, TAR administrator == $SAFE (pending 0x0), token defaultAdmin() == $SAFE
 ```
 
-That single `execTransaction` succeeding is itself the proof the Safe can execute — established BEFORE
+That single `execTransaction` succeeding is itself the proof the Safe can execute - established BEFORE
 anything is revoked. Batches are regenerated per run; never reuse a stale `batches/` file.
 
-### Step C — the Safe revokes (one atomic batch, LAST)
+### Step C - the Safe revokes (one atomic batch, LAST)
 
 Only after the pre-C gate prints exit 0. Before submitting, run the
-[independent-device safeTxHash verification](governance-modes.md#independent-signature-verification) —
+[independent-device safeTxHash verification](governance-modes.md#independent-signature-verification) -
 C is the irreversible step, so the three-channel hash check is mandatory.
 
 ```bash
 MODE=safe SAFE_ADDRESS=$SAFE BATCH_NAME=c-rv-mint ROLE=minter HOLDER=$DEPLOYER_EOA forge script script/setup/token-roles/RevokeTokenRole.s.sol --rpc-url $RPC
 MODE=safe SAFE_ADDRESS=$SAFE BATCH_NAME=c-rv-burn ROLE=burner HOLDER=$DEPLOYER_EOA forge script script/setup/token-roles/RevokeTokenRole.s.sol --rpc-url $RPC
 MODE=safe SAFE_ADDRESS=$SAFE BATCH_NAME=c-rv-bma ROLE=burnMintAdmin HOLDER=$DEPLOYER_EOA forge script script/setup/token-roles/RevokeTokenRole.s.sol --rpc-url $RPC
-# burnmint template: ALSO revoke the EOA's DEFAULT_ADMIN_ROLE — the Safe keeps its own step-A grant:
+# burnmint template: ALSO revoke the EOA's DEFAULT_ADMIN_ROLE - the Safe keeps its own step-A grant:
 # MODE=safe SAFE_ADDRESS=$SAFE BATCH_NAME=c-rv-da ROLE=defaultAdmin HOLDER=$DEPLOYER_EOA forge script script/setup/token-roles/RevokeTokenRole.s.sol --rpc-url $RPC
-# (ROLE=defaultAdmin is burnmint-only: crosschain refuses it by name — its single-holder slot already
-# moved via the two-step accept in B — and factory's top-level admin is the owner.)
+# (ROLE=defaultAdmin is burnmint-only: crosschain refuses it by name - its single-holder slot already
+# moved via the two-step accept in B - and factory's top-level admin is the owner.)
 # where present: remove the EOA from lockbox/hooks authorizedCallers (applyAuthorizedCallerUpdates).
 BATCH_NAME=handoff-c BATCH_FILES=... SAFE_ADDRESS=$SAFE SAFE_EXEC=direct SAFE_SIGNER_KEYS=$OWNER_KEY_1,$OWNER_KEY_2 \
   forge script script/governance/ExecuteBatch.s.sol --rpc-url $RPC --account $KEYSTORE_NAME --broadcast
 ```
 
-`RevokeTokenRole` requires `HOLDER=` explicitly — it has no default, because under `MODE=safe` the
+`RevokeTokenRole` requires `HOLDER=` explicitly - it has no default, because under `MODE=safe` the
 executing-account default would be the Safe itself, i.e. revoking the recipient's fresh grant. The
 ceremony never revokes anything from the Safe.
 
-### Close-out — commit the final declaration and prove it
+### Close-out - commit the final declaration and prove it
 
 ```bash
-make snapshot-chain CHAIN=<chain> [GROUP=<g>]      # NOW the snapshot is safe — the intent is executed
+make snapshot-chain CHAIN=<chain> [GROUP=<g>]      # NOW the snapshot is safe - the intent is executed
 git diff project/                                   # review: every holder == Safe, EOA gone from the sets
 git commit ...                                      # the FINAL EOA-free declaration
 script/config/roles-check.sh <chain>; echo $?       # exit 0
-DENY=$DEPLOYER_EOA script/config/roles-check.sh <chain>; echo $?   # exit 0 — the completion proof
+DENY=$DEPLOYER_EOA script/config/roles-check.sh <chain>; echo $?   # exit 0 - the completion proof
 make doctor CHAIN=<chain> [GROUP=<g>]               # roles rung green
 ```
 
 `roles-check` exit 0 alone cannot prove the EOA lost a NON-enumerable role (a residual `MINTER_ROLE`
 is invisible to a declared-holders reconcile); the `DENY` sweep point-checks every privileged slot on
-every contract in the store's `addresses{}` against the retired EOA — that second exit 0 is what
+every contract in the store's `addresses{}` against the retired EOA - that second exit 0 is what
 "handoff complete" means. Repeat per group: a chain-scoped `roles-check <chain>` run stays in ONE
 group (`PROJECT_GROUP=<g>` selects it; unset = the default group), so the close-out runs once per
-group — only the no-argument sweep crosses groups on its own. In this template repo `project/` is
+group - only the no-argument sweep crosses groups on its own. In this template repo `project/` is
 gitignored, so the two `git` steps apply to a fork that tracks `project/`; without one, archive the
 declaration files with your run evidence instead.
 
 ### Aborting before C
 
-Everything up to batch C is reversible — that is what grant-before-revoke buys. To stand down a
+Everything up to batch C is reversible - that is what grant-before-revoke buys. To stand down a
 half-done ceremony (wrong Safe, compromised signer, change of plan), undo in this order, then
 re-commit the pre-ceremony declaration:
 
@@ -452,7 +456,7 @@ re-commit the pre-ceremony declaration:
 2. **Reverse the one-step moves** (the EOA still holds each controlling parent before C):
    `SetCCIPAdmin` back to the EOA, `SetDynamicConfig` with the previous `rateLimitAdmin`/`feeAdmin`,
    `SetRebalancer` back where applicable.
-3. **Revoke the Safe's step-A grants** — the ONE place a revoke aimed at the Safe is legitimate,
+3. **Revoke the Safe's step-A grants** - the ONE place a revoke aimed at the Safe is legitimate,
    which is why it is a manual action here and never a primitive default: `RevokeTokenRole`
    `ROLE=burnMintAdmin HOLDER=$SAFE` (crosschain) or `ROLE=defaultAdmin HOLDER=$SAFE` (burnmint),
    run by the EOA while it still holds the admin.
@@ -463,25 +467,25 @@ re-commit the pre-ceremony declaration:
 two-step slots; "undoing" from there is a NEW handoff ceremony in the opposite direction, executed
 by the Safe.
 
-### Crashed mid-ceremony — resume
+### Crashed mid-ceremony - resume
 
 Run `script/config/roles-check.sh <chain>` (and `script/governance/VerifyRoles.s.sol` for the
 at-a-glance table). The failing fields against the COMMITTED declaration are the resume pointer, and
 **the direction of the diff matters**:
 
-- **At every crash point up to and including C**, a diff means the chain is BEHIND the declaration —
+- **At every crash point up to and including C**, a diff means the chain is BEHIND the declaration -
   execute the named next step. Never re-run A after B's accepts landed (A's begins would re-open
   pendings); A steps individually are idempotent, B re-runs revert atomically with no state change.
 - **The ONE exception is the window after C executed but before the final declaration is committed:**
   the still-committed INTERMEDIATE declaration now fails on exactly the enumerable EOA-membership rows
-  — the chain moved PAST the declaration. The fix is to commit the final declaration; re-adding the
+  - the chain moved PAST the declaration. The fix is to commit the final declaration; re-adding the
   EOA to the live sets to clear the diff would reopen exactly the hole C closed.
 
 ### Keeping it protected
 
 A **fresh deploy regresses the ceremony**: `DeployToken` grants MINTER/BURNER (and the burn-mint
 admin) to `ROLES_RECIPIENT`, which defaults to the deployer. After the handoff, deploy with
-`ROLES_RECIPIENT=$SAFE`, and let the periodic `DENY=$DEPLOYER_EOA` sweep catch any slip — it
+`ROLES_RECIPIENT=$SAFE`, and let the periodic `DENY=$DEPLOYER_EOA` sweep catch any slip - it
 enumerates from `addresses{}` (active + deployments), so a freshly deployed, not-yet-snapshotted
 token is in scope. Post-handoff, every owner-gated command runs `MODE=safe`
 ([governance-modes.md](governance-modes.md)).

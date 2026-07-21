@@ -48,7 +48,7 @@ contract SafeTxHashForkTest is BaseForkTest {
     }
 
     /// @dev GOTCHA regression: encoding the Solidity PARAMETER name `_nonce` instead of the EIP-712
-    ///      struct FIELD name `nonce` yields a DIFFERENT typehash — and a `safeTxHash` that never
+    ///      struct FIELD name `nonce` yields a DIFFERENT typehash - and a `safeTxHash` that never
     ///      matches signer devices. This pins the trap so it cannot be reintroduced.
     function test_SafeTxTypehash_NonceNotUnderscoreNonce() public pure {
         bytes32 wrongTypehash = keccak256(
@@ -63,7 +63,7 @@ contract SafeTxHashForkTest is BaseForkTest {
 
     function test_DomainSeparator_MatchesOnChain() public view {
         assertEq(
-            SafeTxHash.domainSeparator(block.chainid, address(safe)),
+            SafeTxHash._domainSeparator(block.chainid, address(safe)),
             safe.domainSeparator(),
             "local domain separator recompute must equal Safe.domainSeparator()"
         );
@@ -83,7 +83,7 @@ contract SafeTxHashForkTest is BaseForkTest {
             nonce: safe.nonce()
         });
         assertEq(
-            SafeTxHash.compute(block.chainid, address(safe), t),
+            SafeTxHash._compute(block.chainid, address(safe), t),
             safe.getTransactionHash(
                 t.to,
                 t.value,
@@ -128,7 +128,7 @@ contract SafeTxHashForkTest is BaseForkTest {
             nonce: nonce
         });
         assertEq(
-            SafeTxHash.compute(block.chainid, address(safe), t),
+            SafeTxHash._compute(block.chainid, address(safe), t),
             safe.getTransactionHash(
                 t.to,
                 t.value,
@@ -159,7 +159,7 @@ contract SafeTxHashForkTest is BaseForkTest {
     }
 
     /// @dev Idempotence: rerunning the deploy script for the same owners/threshold/salt returns the
-    ///      SAME address without reverting — the property a mirrored multi-chain rollout relies on.
+    ///      SAME address without reverting - the property a mirrored multi-chain rollout relies on.
     function test_DeploySafe_RerunReturnsSameAddress() public {
         address again = new DeploySafe().run();
         assertEq(again, address(safe), "rerun must return the same CREATE2 address");

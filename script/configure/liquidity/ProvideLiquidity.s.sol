@@ -36,11 +36,11 @@ contract ProvideLiquidity is LiquidityBase {
         address tokenPoolAddress = _resolvePool(chainId);
 
         (PoolVersions.Version poolVersion, string memory typeAndVersion) =
-            PoolVersion.requireLockReleaseLiquidity(tokenPoolAddress);
+            PoolVersion._requireLockReleaseLiquidity(tokenPoolAddress);
 
         address tokenAddress = address(ILockReleaseV1Liquidity(tokenPoolAddress).getToken());
-        address broadcasterAddr = broadcaster();
-        // The pool only lets its rebalancer add liquidity — refuse by name before broadcasting.
+        address broadcasterAddr = _broadcaster();
+        // The pool only lets its rebalancer add liquidity - refuse by name before broadcasting.
         _requireRebalancer(tokenPoolAddress, broadcasterAddr, "provideLiquidity");
 
         uint256 walletBalance = IERC20(tokenAddress).balanceOf(broadcasterAddr);
@@ -63,7 +63,7 @@ contract ProvideLiquidity is LiquidityBase {
         console.log("========================================");
         console.log(string.concat("Chain:        ", chainName));
         console.log(string.concat("Token Pool:   ", vm.toString(tokenPoolAddress)));
-        console.log(string.concat("Pool Version: ", PoolVersions.toString(poolVersion), " (", typeAndVersion, ")"));
+        console.log(string.concat("Pool Version: ", PoolVersions._toString(poolVersion), " (", typeAndVersion, ")"));
         console.log(string.concat("Token:        ", vm.toString(tokenAddress)));
         console.log(string.concat("Rebalancer:   ", vm.toString(broadcasterAddr)));
         console.log(string.concat("Amount:       ", vm.toString(amount)));
@@ -73,10 +73,10 @@ contract ProvideLiquidity is LiquidityBase {
         console.log(string.concat("[Step 1] Approving ", vm.toString(amount), " tokens to the pool"));
         console.log(string.concat("[Step 2] Providing ", vm.toString(amount), " tokens of liquidity"));
         // approve(pool, amount) then provideLiquidity(amount) as one atomic batch.
-        executeCalls(
-            CctActions.concat(
-                CctActions.approve(tokenAddress, tokenPoolAddress, amount),
-                CctActions.provideLiquidity(tokenPoolAddress, amount)
+        _executeCalls(
+            CctActions._concat(
+                CctActions._approve(tokenAddress, tokenPoolAddress, amount),
+                CctActions._provideLiquidity(tokenPoolAddress, amount)
             )
         );
         console.log(unicode"✅ Liquidity provided successfully!");

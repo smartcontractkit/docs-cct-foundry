@@ -32,7 +32,7 @@ contract AcceptAdminRoleSafeHarness is AcceptAdminRole {
         return "safe";
     }
 
-    function executeCalls(CctActions.Call[] memory calls) internal override {
+    function _executeCalls(CctActions.Call[] memory calls) internal override {
         for (uint256 i = 0; i < calls.length; i++) {
             captured.push(calls[i]);
         }
@@ -45,7 +45,7 @@ contract AcceptAdminRoleSafeHarness is AcceptAdminRole {
 
 /// @dev Test-only executor harness: pins the execution mode via an override instead of the `MODE`
 ///      environment variable, because `vm.setEnv` is process-wide and forge runs test contracts in
-///      parallel — flipping `MODE` in the environment would leak into every other suite's script runs.
+///      parallel - flipping `MODE` in the environment would leak into every other suite's script runs.
 contract ExecutorHarness is EoaExecutor {
     string private s_mode;
 
@@ -54,7 +54,7 @@ contract ExecutorHarness is EoaExecutor {
     }
 
     function exec(CctActions.Call[] memory calls) external {
-        executeCalls(calls);
+        _executeCalls(calls);
     }
 
     function _executionMode() internal view override returns (string memory) {
@@ -65,7 +65,7 @@ contract ExecutorHarness is EoaExecutor {
 /// @dev Test-only minimal v1.x LockRelease pool: mirrors the `ILockReleaseV1Liquidity` surface the action
 ///      layer targets (the real v1.x LockRelease pool is NOT in the vendored 2.0.0 package, so a shim stands
 ///      in for it exactly like `ILockReleaseV1Liquidity` itself). `provideLiquidity` pulls tokens via
-///      `transferFrom`, so the caller (the rebalancer — here the Safe) must have approved this pool first;
+///      `transferFrom`, so the caller (the rebalancer - here the Safe) must have approved this pool first;
 ///      the two happen in ONE Safe MultiSend, which is precisely what the flow test proves.
 contract MockLockReleaseV1Pool {
     IERC20 private immutable i_token;
@@ -132,7 +132,7 @@ contract SafeModeForkTest is BaseForkTest {
         registryModule = RegistryModuleOwnerCustom(networkConfig.registryModuleOwnerCustom);
 
         // Deploy the governed Safe (2-of-3) from the canonical v1.4.1 stack. All values are constant,
-        // so the CREATE2 address — and therefore every env var below — is identical across parallel
+        // so the CREATE2 address - and therefore every env var below - is identical across parallel
         // suites (the same reasoning the fixture env vars rely on).
         vm.setEnv(
             "SAFE_OWNERS",
@@ -149,7 +149,7 @@ contract SafeModeForkTest is BaseForkTest {
         safe = ISafe(new DeploySafe().run());
 
         vm.setEnv("SAFE_ADDRESS", vm.toString(address(safe)));
-        // Two of the three owner keys — meets the threshold. Test-only keys, never real secrets.
+        // Two of the three owner keys - meets the threshold. Test-only keys, never real secrets.
         vm.setEnv("SAFE_SIGNER_KEYS", string.concat(vm.toString(OWNER1_KEY), ",", vm.toString(OWNER2_KEY)));
         vm.setEnv("SAFE_EXEC", "");
         vm.setEnv("BATCH_NAME", "test-dispatch");
@@ -163,7 +163,7 @@ contract SafeModeForkTest is BaseForkTest {
     ///      the script signer.
     function test_ModeEoa_BroadcastsCalls() public {
         ExecutorHarness harness = new ExecutorHarness("eoa");
-        harness.exec(CctActions.registerAdminViaGetCCIPAdmin(address(registryModule), token));
+        harness.exec(CctActions._registerAdminViaGetCCIPAdmin(address(registryModule), token));
         assertEq(
             registry.getTokenConfig(token).pendingAdministrator,
             deployer,
@@ -172,11 +172,11 @@ contract SafeModeForkTest is BaseForkTest {
     }
 
     /// @dev Safe mode must NOT broadcast the inner calls; it emits the batch for review instead. This
-    ///      is the only test that drives the env-reading `SafeMode.run` path (via the dispatch), so the
+    ///      is the only test that drives the env-reading `SafeMode._run` path (via the dispatch), so the
     ///      `BATCH_NAME` set in setUp is race-free; the other tests pass parameters directly.
     function test_ModeSafe_EmitsBatchWithoutBroadcasting() public {
         ExecutorHarness harness = new ExecutorHarness("safe");
-        harness.exec(CctActions.registerAdminViaGetCCIPAdmin(address(registryModule), token));
+        harness.exec(CctActions._registerAdminViaGetCCIPAdmin(address(registryModule), token));
         assertEq(
             registry.getTokenConfig(token).pendingAdministrator,
             address(0),
@@ -193,18 +193,18 @@ contract SafeModeForkTest is BaseForkTest {
     function test_ModeUnknown_Reverts() public {
         ExecutorHarness harness = new ExecutorHarness("timelock");
         vm.expectRevert(bytes("Unknown MODE 'timelock': use 'eoa' (default) or 'safe'."));
-        harness.exec(CctActions.acceptAdminRole(address(registry), token));
+        harness.exec(CctActions._acceptAdminRole(address(registry), token));
     }
 
     /// @dev AcceptAdminRole's preflight compares the pending administrator against the account
-    ///      executing in the selected mode — the Safe in safe mode, the broadcaster otherwise. With
+    ///      executing in the selected mode - the Safe in safe mode, the broadcaster otherwise. With
     ///      the Safe pending, a safe-mode run passes preflight and builds the accept call; the
     ///      EOA-mode preflight still rejects a broadcaster that is not the pending administrator.
     function test_AcceptAdminRole_SafeMode_PreflightUsesExecutingAccount() public {
         // Make the Safe the pending administrator (claim executed by the Safe).
         vm.prank(deployer);
         CrossChainToken(token).setCCIPAdmin(address(safe));
-        _runSafeDirect("safe-claim", CctActions.registerAdminViaGetCCIPAdmin(address(registryModule), token));
+        _runSafeDirect("safe-claim", CctActions._registerAdminViaGetCCIPAdmin(address(registryModule), token));
         assertEq(registry.getTokenConfig(token).pendingAdministrator, address(safe), "Safe must be pending");
 
         // Safe-mode run passes preflight and builds the accept call (captured, not broadcast).
@@ -236,36 +236,36 @@ contract SafeModeForkTest is BaseForkTest {
     ///      the EOA calldata.
     function test_ByteEquality_SetupCatalog() public {
         _assertBatchRoundTrip(
-            "register-admin-via-owner", CctActions.registerAdminViaOwner(address(registryModule), token)
+            "register-admin-via-owner", CctActions._registerAdminViaOwner(address(registryModule), token)
         );
         _assertBatchRoundTrip(
-            "register-admin-via-getccipadmin", CctActions.registerAdminViaGetCCIPAdmin(address(registryModule), token)
+            "register-admin-via-getccipadmin", CctActions._registerAdminViaGetCCIPAdmin(address(registryModule), token)
         );
-        _assertBatchRoundTrip("accept-admin-role", CctActions.acceptAdminRole(address(registry), token));
+        _assertBatchRoundTrip("accept-admin-role", CctActions._acceptAdminRole(address(registry), token));
         _assertBatchRoundTrip(
             "registration-pair-via-owner",
-            CctActions.registerAndAcceptAdminViaOwner(address(registryModule), address(registry), token)
+            CctActions._registerAndAcceptAdminViaOwner(address(registryModule), address(registry), token)
         );
         _assertBatchRoundTrip(
             "registration-pair-via-getccipadmin",
-            CctActions.registerAndAcceptAdminViaGetCCIPAdmin(address(registryModule), address(registry), token)
+            CctActions._registerAndAcceptAdminViaGetCCIPAdmin(address(registryModule), address(registry), token)
         );
         _assertBatchRoundTrip(
             "register-admin-via-access-control",
-            CctActions.registerAccessControlDefaultAdmin(address(registryModule), token)
+            CctActions._registerAccessControlDefaultAdmin(address(registryModule), token)
         );
         _assertBatchRoundTrip(
             "registration-pair-via-access-control",
-            CctActions.registerAndAcceptAdminViaAccessControl(address(registryModule), address(registry), token)
+            CctActions._registerAndAcceptAdminViaAccessControl(address(registryModule), address(registry), token)
         );
-        _assertBatchRoundTrip("set-pool", CctActions.setPool(address(registry), token, pool));
+        _assertBatchRoundTrip("set-pool", CctActions._setPool(address(registry), token, pool));
         _assertBatchRoundTrip(
-            "transfer-admin-role", CctActions.transferAdminRole(address(registry), token, address(safe))
+            "transfer-admin-role", CctActions._transferAdminRole(address(registry), token, address(safe))
         );
-        _assertBatchRoundTrip("transfer-ownership", CctActions.transferOwnership(pool, address(safe)));
-        _assertBatchRoundTrip("accept-ownership", CctActions.acceptOwnership(pool));
+        _assertBatchRoundTrip("transfer-ownership", CctActions._transferOwnership(pool, address(safe)));
+        _assertBatchRoundTrip("accept-ownership", CctActions._acceptOwnership(pool));
         (uint64[] memory removes, TokenPool.ChainUpdate[] memory updates) = _laneInput();
-        _assertBatchRoundTrip("apply-chain-updates", CctActions.applyChainUpdates(pool, removes, updates));
+        _assertBatchRoundTrip("apply-chain-updates", CctActions._applyChainUpdates(pool, removes, updates));
     }
 
     function test_ByteEquality_ConfigureAndOperationsCatalog() public {
@@ -273,39 +273,39 @@ contract SafeModeForkTest is BaseForkTest {
         RateLimiter.Config memory inbound = RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0});
         _assertBatchRoundTrip(
             "set-rate-limits-v2",
-            CctActions.setRateLimits(pool, PoolVersions.Version.V2_0_0, EVM_SELECTOR, false, outbound, inbound)
+            CctActions._setRateLimits(pool, PoolVersions.Version.V2_0_0, EVM_SELECTOR, false, outbound, inbound)
         );
         _assertBatchRoundTrip(
             "set-rate-limits-v1",
-            CctActions.setRateLimits(pool, PoolVersions.Version.V1_6_1, EVM_SELECTOR, false, outbound, inbound)
+            CctActions._setRateLimits(pool, PoolVersions.Version.V1_6_1, EVM_SELECTOR, false, outbound, inbound)
         );
         _assertBatchRoundTrip(
-            "set-dynamic-config", CctActions.setDynamicConfig(pool, networkConfig.router, deployer, deployer)
+            "set-dynamic-config", CctActions._setDynamicConfig(pool, networkConfig.router, deployer, deployer)
         );
         _assertBatchRoundTrip(
-            "add-remote-pool", CctActions.addRemotePool(pool, EVM_SELECTOR, abi.encode(EVM_REMOTE_POOL))
+            "add-remote-pool", CctActions._addRemotePool(pool, EVM_SELECTOR, abi.encode(EVM_REMOTE_POOL))
         );
         _assertBatchRoundTrip(
-            "remove-remote-pool", CctActions.removeRemotePool(pool, EVM_SELECTOR, abi.encode(EVM_REMOTE_POOL))
+            "remove-remote-pool", CctActions._removeRemotePool(pool, EVM_SELECTOR, abi.encode(EVM_REMOTE_POOL))
         );
         address[] memory adds = new address[](1);
         adds[0] = deployer;
         address[] memory removals = new address[](0);
-        _assertBatchRoundTrip("apply-allowlist-updates", CctActions.applyAllowListUpdates(pool, removals, adds));
+        _assertBatchRoundTrip("apply-allowlist-updates", CctActions._applyAllowListUpdates(pool, removals, adds));
         _assertBatchRoundTrip(
-            "apply-authorized-caller-updates", CctActions.applyAuthorizedCallerUpdates(pool, adds, removals)
+            "apply-authorized-caller-updates", CctActions._applyAuthorizedCallerUpdates(pool, adds, removals)
         );
-        _assertBatchRoundTrip("mint", CctActions.mint(token, deployer, 1e18));
-        _assertBatchRoundTrip("lockbox-deposit", CctActions.lockboxDeposit(EVM_REMOTE_POOL, token, 1e18));
-        _assertBatchRoundTrip("lockbox-withdraw", CctActions.lockboxWithdraw(EVM_REMOTE_POOL, token, 1e18, deployer));
+        _assertBatchRoundTrip("mint", CctActions._mint(token, deployer, 1e18));
+        _assertBatchRoundTrip("lockbox-deposit", CctActions._lockboxDeposit(EVM_REMOTE_POOL, token, 1e18));
+        _assertBatchRoundTrip("lockbox-withdraw", CctActions._lockboxWithdraw(EVM_REMOTE_POOL, token, 1e18, deployer));
         address[] memory feeTokens = new address[](1);
         feeTokens[0] = token;
-        _assertBatchRoundTrip("withdraw-fee-tokens", CctActions.withdrawFeeTokens(pool, feeTokens, deployer));
+        _assertBatchRoundTrip("withdraw-fee-tokens", CctActions._withdrawFeeTokens(pool, feeTokens, deployer));
     }
 
     /// @dev PR #9 (lanes-as-data / version-dispatched pool ops / CCV config / v1.x LockRelease liquidity /
     ///      1.5.0 lane shape) added six new action-layer builders. The byte-equality contract is "for EVERY
-    ///      builder in the catalog", so every new builder must round-trip identically under Safe — this
+    ///      builder in the catalog", so every new builder must round-trip identically under Safe - this
     ///      extends the catalog to cover them. Targets are the fixture pool (a plausible target address is
     ///      all byte-equality needs; these builders are never executed here, only encoded and round-tripped).
     function test_ByteEquality_VersionedOpsCatalog() public {
@@ -322,13 +322,13 @@ contract SafeModeForkTest is BaseForkTest {
             inboundCCVs: inboundCCVs,
             thresholdInboundCCVs: new address[](0)
         });
-        _assertBatchRoundTrip("apply-ccv-config", CctActions.applyCCVConfigUpdates(pool, ccvArgs));
-        _assertBatchRoundTrip("set-ccv-threshold", CctActions.setThresholdAmount(pool, 500e18));
+        _assertBatchRoundTrip("apply-ccv-config", CctActions._applyCCVConfigUpdates(pool, ccvArgs));
+        _assertBatchRoundTrip("set-ccv-threshold", CctActions._setThresholdAmount(pool, 500e18));
 
         // v1.x LockRelease rebalancer / liquidity surface.
-        _assertBatchRoundTrip("set-rebalancer", CctActions.setRebalancer(pool, deployer));
-        _assertBatchRoundTrip("provide-liquidity", CctActions.provideLiquidity(pool, 1e18));
-        _assertBatchRoundTrip("withdraw-liquidity", CctActions.withdrawLiquidity(pool, 1e18));
+        _assertBatchRoundTrip("set-rebalancer", CctActions._setRebalancer(pool, deployer));
+        _assertBatchRoundTrip("provide-liquidity", CctActions._provideLiquidity(pool, 1e18));
+        _assertBatchRoundTrip("withdraw-liquidity", CctActions._withdrawLiquidity(pool, 1e18));
 
         // 1.5.0-shaped lane update (single-argument ChainUpdate[] with an `allowed` flag, one remote pool).
         ITokenPoolV150.ChainUpdate[] memory v150Updates = new ITokenPoolV150.ChainUpdate[](1);
@@ -340,14 +340,14 @@ contract SafeModeForkTest is BaseForkTest {
             outboundRateLimiterConfig: RateLimiter.Config({isEnabled: true, capacity: 1_000e18, rate: 0.1e18}),
             inboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0})
         });
-        _assertBatchRoundTrip("apply-chain-updates-v150", CctActions.applyChainUpdatesV150(pool, v150Updates));
+        _assertBatchRoundTrip("apply-chain-updates-v150", CctActions._applyChainUpdatesV150(pool, v150Updates));
 
         // Whole-chain teardown shapes emitted by RemoveChain.s.sol, proven Safe-executable.
         // Modern (1.5.1+): the selector in `toRemove`, an empty `toAdd`.
         uint64[] memory chainRemovals = new uint64[](1);
         chainRemovals[0] = EVM_SELECTOR;
         TokenPool.ChainUpdate[] memory noAdds = new TokenPool.ChainUpdate[](0);
-        _assertBatchRoundTrip("remove-chain-modern", CctActions.applyChainUpdates(pool, chainRemovals, noAdds));
+        _assertBatchRoundTrip("remove-chain-modern", CctActions._applyChainUpdates(pool, chainRemovals, noAdds));
 
         // 1.5.0: a single-argument `allowed:false` entry with disabled, zeroed rate configs.
         ITokenPoolV150.ChainUpdate[] memory v150Removal = new ITokenPoolV150.ChainUpdate[](1);
@@ -359,7 +359,7 @@ contract SafeModeForkTest is BaseForkTest {
             outboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0}),
             inboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0})
         });
-        _assertBatchRoundTrip("remove-chain-v150", CctActions.applyChainUpdatesV150(pool, v150Removal));
+        _assertBatchRoundTrip("remove-chain-v150", CctActions._applyChainUpdatesV150(pool, v150Removal));
     }
 
     /// @dev The token-roles / handoff builders extend the same byte-equality contract: every
@@ -367,52 +367,52 @@ contract SafeModeForkTest is BaseForkTest {
     ///      the step-B accept set, the step-C revoke set) round-trip from one shared fixture.
     function test_ByteEquality_TokenRolesAndHandoffCatalog() public {
         bytes32 minterRole = RolesProbes.MINTER_ROLE;
-        _assertBatchRoundTrip("grant-role", CctActions.grantRole(token, minterRole, address(safe)));
-        _assertBatchRoundTrip("revoke-role", CctActions.revokeRole(token, minterRole, deployer));
+        _assertBatchRoundTrip("grant-role", CctActions._grantRole(token, minterRole, address(safe)));
+        _assertBatchRoundTrip("revoke-role", CctActions._revokeRole(token, minterRole, deployer));
         _assertBatchRoundTrip(
-            "grant-then-revoke", CctActions.handOffRole(token, RolesProbes.DEFAULT_ADMIN_ROLE, address(safe), deployer)
+            "grant-then-revoke", CctActions._handOffRole(token, RolesProbes.DEFAULT_ADMIN_ROLE, address(safe), deployer)
         );
         _assertBatchRoundTrip(
-            "begin-default-admin-transfer", CctActions.beginDefaultAdminTransfer(token, address(safe))
+            "begin-default-admin-transfer", CctActions._beginDefaultAdminTransfer(token, address(safe))
         );
-        _assertBatchRoundTrip("accept-default-admin-transfer", CctActions.acceptDefaultAdminTransfer(token));
-        _assertBatchRoundTrip("set-ccip-admin", CctActions.setCCIPAdmin(token, address(safe)));
-        _assertBatchRoundTrip("grant-mint-role", CctActions.grantMintRole(token, address(safe)));
-        _assertBatchRoundTrip("grant-burn-role", CctActions.grantBurnRole(token, address(safe)));
-        _assertBatchRoundTrip("revoke-mint-role", CctActions.revokeMintRole(token, deployer));
-        _assertBatchRoundTrip("revoke-burn-role", CctActions.revokeBurnRole(token, deployer));
+        _assertBatchRoundTrip("accept-default-admin-transfer", CctActions._acceptDefaultAdminTransfer(token));
+        _assertBatchRoundTrip("set-ccip-admin", CctActions._setCCIPAdmin(token, address(safe)));
+        _assertBatchRoundTrip("grant-mint-role", CctActions._grantMintRole(token, address(safe)));
+        _assertBatchRoundTrip("grant-burn-role", CctActions._grantBurnRole(token, address(safe)));
+        _assertBatchRoundTrip("revoke-mint-role", CctActions._revokeMintRole(token, deployer));
+        _assertBatchRoundTrip("revoke-burn-role", CctActions._revokeBurnRole(token, deployer));
 
         // The composed ceremony batches, from one shared fixture (token/pool/registry/safe above).
-        CctActions.Call[] memory stepA = CctActions.concat(
-            CctActions.concat(
-                CctActions.beginDefaultAdminTransfer(token, address(safe)),
-                CctActions.grantRole(token, RolesProbes.BURN_MINT_ADMIN_ROLE, address(safe))
+        CctActions.Call[] memory stepA = CctActions._concat(
+            CctActions._concat(
+                CctActions._beginDefaultAdminTransfer(token, address(safe)),
+                CctActions._grantRole(token, RolesProbes.BURN_MINT_ADMIN_ROLE, address(safe))
             ),
-            CctActions.concat(
-                CctActions.concat(
-                    CctActions.setCCIPAdmin(token, address(safe)),
-                    CctActions.transferAdminRole(address(registry), token, address(safe))
+            CctActions._concat(
+                CctActions._concat(
+                    CctActions._setCCIPAdmin(token, address(safe)),
+                    CctActions._transferAdminRole(address(registry), token, address(safe))
                 ),
-                CctActions.concat(
-                    CctActions.transferOwnership(pool, address(safe)),
-                    CctActions.setDynamicConfig(pool, networkConfig.router, address(safe), address(safe))
+                CctActions._concat(
+                    CctActions._transferOwnership(pool, address(safe)),
+                    CctActions._setDynamicConfig(pool, networkConfig.router, address(safe), address(safe))
                 )
             )
         );
         _assertBatchRoundTrip("handoff-step-a", stepA);
-        CctActions.Call[] memory stepB = CctActions.concat(
-            CctActions.concat(
-                CctActions.acceptDefaultAdminTransfer(token), CctActions.acceptAdminRole(address(registry), token)
+        CctActions.Call[] memory stepB = CctActions._concat(
+            CctActions._concat(
+                CctActions._acceptDefaultAdminTransfer(token), CctActions._acceptAdminRole(address(registry), token)
             ),
-            CctActions.acceptOwnership(pool)
+            CctActions._acceptOwnership(pool)
         );
         _assertBatchRoundTrip("handoff-step-b", stepB);
-        CctActions.Call[] memory stepC = CctActions.concat(
-            CctActions.concat(
-                CctActions.revokeRole(token, RolesProbes.MINTER_ROLE, deployer),
-                CctActions.revokeRole(token, RolesProbes.BURNER_ROLE, deployer)
+        CctActions.Call[] memory stepC = CctActions._concat(
+            CctActions._concat(
+                CctActions._revokeRole(token, RolesProbes.MINTER_ROLE, deployer),
+                CctActions._revokeRole(token, RolesProbes.BURNER_ROLE, deployer)
             ),
-            CctActions.revokeRole(token, RolesProbes.BURN_MINT_ADMIN_ROLE, deployer)
+            CctActions._revokeRole(token, RolesProbes.BURN_MINT_ADMIN_ROLE, deployer)
         );
         _assertBatchRoundTrip("handoff-step-c", stepC);
     }
@@ -420,10 +420,10 @@ contract SafeModeForkTest is BaseForkTest {
     /// @dev The SVM remote parity case: an `applyChainUpdates` for a Solana remote must carry the raw
     ///      32-byte base58-decoded pool and token addresses IDENTICALLY in the EOA `Call[]`, the Safe
     ///      Transaction Builder JSON, and the Mode B payload. The decode goes through the same
-    ///      `ChainHandlers.prepareChainAddressData` the ApplyChainUpdates script feeds from, pinned
+    ///      `ChainHandlers._prepareChainAddressData` the ApplyChainUpdates script feeds from, pinned
     ///      against an independent base58 oracle (StringStoreNonEvm's Python-decoded constant).
     function test_ByteEquality_SvmRemoteLane() public {
-        bytes memory svmRemote = ChainHandlers.prepareChainAddressData(
+        bytes memory svmRemote = ChainHandlers._prepareChainAddressData(
             "ALh3xpZtujrfYZSiURBEHpeBFnzZEH37nY4BA4EHiiB5", ChainHandlers.ChainFamily.SVM
         );
         assertEq(svmRemote.length, 32, "SVM remote must encode to exactly 32 raw bytes");
@@ -444,7 +444,7 @@ contract SafeModeForkTest is BaseForkTest {
             outboundRateLimiterConfig: RateLimiter.Config({isEnabled: true, capacity: 1_000e18, rate: 0.1e18}),
             inboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0})
         });
-        CctActions.Call[] memory calls = CctActions.applyChainUpdates(pool, new uint64[](0), updates);
+        CctActions.Call[] memory calls = CctActions._applyChainUpdates(pool, new uint64[](0), updates);
         _assertBatchRoundTrip("apply-chain-updates-svm-remote", calls);
         // The raw 32 bytes are embedded verbatim in the calldata every mode carries.
         assertTrue(
@@ -461,7 +461,7 @@ contract SafeModeForkTest is BaseForkTest {
     ///      the IDENTICAL lane config on-chain.
     function test_ModeB_EndStateEqualsEoaPath() public {
         (uint64[] memory removes, TokenPool.ChainUpdate[] memory updates) = _laneInput();
-        CctActions.Call[] memory laneCalls = CctActions.applyChainUpdates(pool, removes, updates);
+        CctActions.Call[] memory laneCalls = CctActions._applyChainUpdates(pool, removes, updates);
 
         // (a) EOA path (pool still owned by the deployer).
         uint256 snapshot = vm.snapshotState();
@@ -470,11 +470,11 @@ contract SafeModeForkTest is BaseForkTest {
         bytes[] memory eoaRemotePools = TokenPool(pool).getRemotePools(EVM_SELECTOR);
         vm.revertToState(snapshot);
 
-        // (b) Safe path: two-step ownership handoff (accept runs through Mode B — a single-call Safe
+        // (b) Safe path: two-step ownership handoff (accept runs through Mode B - a single-call Safe
         // transaction), then the lane config through Mode B (also a single call).
         vm.prank(deployer);
         TokenPool(pool).transferOwnership(address(safe));
-        _runSafeDirect("modeb-accept-ownership", CctActions.acceptOwnership(pool));
+        _runSafeDirect("modeb-accept-ownership", CctActions._acceptOwnership(pool));
         assertEq(TokenPool(pool).owner(), address(safe), "Safe must own the pool after the Mode B accept");
 
         _runSafeDirect("modeb-apply-chain-updates", laneCalls);
@@ -496,7 +496,7 @@ contract SafeModeForkTest is BaseForkTest {
         CrossChainToken(token).setCCIPAdmin(address(safe));
 
         CctActions.Call[] memory pair =
-            CctActions.registerAndAcceptAdminViaGetCCIPAdmin(address(registryModule), address(registry), token);
+            CctActions._registerAndAcceptAdminViaGetCCIPAdmin(address(registryModule), address(registry), token);
         assertEq(pair.length, 2, "registration pair must be two calls");
         _runSafeDirect("modeb-registration-pair", pair);
 
@@ -511,7 +511,7 @@ contract SafeModeForkTest is BaseForkTest {
     function test_ModeB_RegistrationPair_AccessControl_AtomicBatch() public {
         AccessControlOnlyToken acToken = new AccessControlOnlyToken(address(safe));
 
-        CctActions.Call[] memory pair = CctActions.registerAndAcceptAdminViaAccessControl(
+        CctActions.Call[] memory pair = CctActions._registerAndAcceptAdminViaAccessControl(
             address(registryModule), address(registry), address(acToken)
         );
         assertEq(pair.length, 2, "AccessControl registration pair must be two calls");
@@ -527,7 +527,7 @@ contract SafeModeForkTest is BaseForkTest {
     ///      two-call batch, and `provideLiquidity` requires `msg.sender == rebalancer`. With the Safe as the
     ///      pool's rebalancer, that batch must (a) round-trip through the Safe Transaction Builder / MultiSend
     ///      byte-identically in the correct order (token approve, then pool provideLiquidity), and (b) execute
-    ///      atomically as ONE Safe transaction — the approve and the transferFrom it authorizes both run with
+    ///      atomically as ONE Safe transaction - the approve and the transferFrom it authorizes both run with
     ///      `msg.sender == Safe` inside the single MultiSend delegatecall, so the liquidity lands atomically.
     function test_ModeB_ProvideLiquidity_TwoCallBatch_UnderSafe() public {
         uint256 amount = 1_000e18;
@@ -536,8 +536,8 @@ contract SafeModeForkTest is BaseForkTest {
         deal(token, address(safe), amount);
 
         // The exact batch ProvideLiquidity.s.sol builds: approve(pool, amount) then provideLiquidity(amount).
-        CctActions.Call[] memory batch = CctActions.concat(
-            CctActions.approve(token, address(lrPool), amount), CctActions.provideLiquidity(address(lrPool), amount)
+        CctActions.Call[] memory batch = CctActions._concat(
+            CctActions._approve(token, address(lrPool), amount), CctActions._provideLiquidity(address(lrPool), amount)
         );
 
         // Structure: two calls, in order, targeting the token (approve) then the pool (provideLiquidity).
@@ -570,8 +570,8 @@ contract SafeModeForkTest is BaseForkTest {
     function test_ModeB_UnsortedSignatures_Revert() public {
         vm.prank(deployer);
         TokenPool(pool).transferOwnership(address(safe));
-        CctActions.Call[] memory calls = CctActions.acceptOwnership(pool);
-        (address to, uint256 value, bytes memory data, uint8 operation) = SafeMode.encodeForSafe(calls);
+        CctActions.Call[] memory calls = CctActions._acceptOwnership(pool);
+        (address to, uint256 value, bytes memory data, uint8 operation) = SafeMode._encodeForSafe(calls);
         bytes32 txHash =
             safe.getTransactionHash(to, value, data, operation, 0, 0, 0, address(0), address(0), safe.nonce());
 
@@ -591,12 +591,12 @@ contract SafeModeForkTest is BaseForkTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @dev Runs `calls` through the full Safe ceremony (batch emission for review, then the Mode B
-    ///      direct `execTransaction`) — the same code `MODE=safe SAFE_EXEC=direct` drives from the CLI,
+    ///      direct `execTransaction`) - the same code `MODE=safe SAFE_EXEC=direct` drives from the CLI,
     ///      with the batch name and Safe passed as parameters instead of process-wide env vars (forge
     ///      runs tests in parallel, so per-test `vm.setEnv` values would race across tests).
     function _runSafeDirect(string memory batchName, CctActions.Call[] memory calls) internal {
-        SafeMode.emitBatch(batchName, address(safe), calls);
-        SafeMode.execDirect(safe, calls);
+        SafeMode._emitBatch(batchName, address(safe), calls);
+        SafeMode._execDirect(safe, calls);
     }
 
     /// @dev Emits the Transaction Builder JSON for `calls`, parses it back, and asserts every
@@ -604,7 +604,7 @@ contract SafeModeForkTest is BaseForkTest {
     ///      Mode B payload (`encodeForSafe`) back to the same calls.
     function _assertBatchRoundTrip(string memory name, CctActions.Call[] memory calls) internal {
         // JSON leg (the Transaction Builder / Mode A artifact).
-        string memory path = SafeMode.emitBatch(name, address(safe), calls);
+        string memory path = SafeMode._emitBatch(name, address(safe), calls);
         string memory json = vm.readFile(path);
         for (uint256 i = 0; i < calls.length; i++) {
             string memory prefix = string.concat(".transactions[", vm.toString(i), "]");
@@ -630,7 +630,7 @@ contract SafeModeForkTest is BaseForkTest {
         );
 
         // Mode B leg (the execTransaction payload).
-        (address to, uint256 value, bytes memory data, uint8 operation) = SafeMode.encodeForSafe(calls);
+        (address to, uint256 value, bytes memory data, uint8 operation) = SafeMode._encodeForSafe(calls);
         if (calls.length == 1) {
             assertEq(operation, 0, string.concat(name, ": single call must be a CALL"));
             assertEq(to, calls[0].target, string.concat(name, ": Mode B 'to' mismatch"));

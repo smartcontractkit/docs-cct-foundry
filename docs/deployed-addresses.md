@@ -1,3 +1,7 @@
+---
+type: reference
+---
+
 # Deployed addresses: the project store
 
 Every deploy in this repo records its output in **two files**. They are not two sources of truth - they are
@@ -205,7 +209,7 @@ Wherever a deployed address is published for people to act on (a fork's tracked 
 runbook, a PR description), record the **verified** explorer URL next to it, at the same evidence bar as
 a tx hash: the link must show verified source, not just an address page. The verification workflow (the
 inline `--verify`, the standalone backfill, and the per-chain backends) is in
-[README → Verifying Deployed Contracts](../README.md#verifying-deployed-contracts).
+[operations: verification](operations/verification.md).
 
 ## Related
 
@@ -213,5 +217,5 @@ inline `--verify`, the standalone backfill, and the per-chain backends) is in
   config/chains field reference.
 - [`config-architecture.md`](config-architecture.md) - the one-writer-per-subtree store model and the sync
   tooling.
-- [README → Project store](../README.md#project-store--projectselectornamejson-the-default)
-  and [README → Sharing addresses with your team](../README.md#sharing-addresses-with-your-team).
+- [config schema: the project store](config-schema.md#the-project-store---projectselectornamejson)
+  and [the store model](concepts/store-model.md).

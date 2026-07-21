@@ -129,7 +129,7 @@ contract Mock150PoolWithApply is Mock150Pool {
 ///      try/catch (and expectRevert, which arms the next external call) applies to the call.
 contract ResolverShim {
     function resolve(address pool) external view returns (PoolVersions.Version, string memory) {
-        return PoolVersion.resolve(pool);
+        return PoolVersion._resolve(pool);
     }
 
     function resolveWith(address pool, string memory overrideSpec)
@@ -137,11 +137,11 @@ contract ResolverShim {
         view
         returns (PoolVersions.Version, string memory)
     {
-        return PoolVersion.resolveWith(pool, overrideSpec);
+        return PoolVersion._resolveWith(pool, overrideSpec);
     }
 
     function tryResolve(address pool) external view returns (bool, PoolVersions.Version, string memory) {
-        return PoolVersion.tryResolve(pool);
+        return PoolVersion._tryResolve(pool);
     }
 
     function remotePools(address pool, PoolVersions.Version version, uint64 selector)
@@ -149,11 +149,11 @@ contract ResolverShim {
         view
         returns (bytes[] memory)
     {
-        return PoolVersion.remotePools(pool, version, selector);
+        return PoolVersion._remotePools(pool, version, selector);
     }
 
     function requireSupports(PoolVersions.Op op, PoolVersions.Version version, address pool) external pure {
-        PoolVersions.requireSupports(op, version, pool);
+        PoolVersions._requireSupports(op, version, pool);
     }
 
     function setRateLimits(
@@ -164,7 +164,7 @@ contract ResolverShim {
         RateLimiter.Config memory outbound,
         RateLimiter.Config memory inbound
     ) external pure returns (CctActions.Call[] memory) {
-        return CctActions.setRateLimits(pool, version, selector, fastFinality, outbound, inbound);
+        return CctActions._setRateLimits(pool, version, selector, fastFinality, outbound, inbound);
     }
 }
 
@@ -200,7 +200,7 @@ contract RemoveRemotePoolHarness is RemoveRemotePool {
 
 /// @dev Exposes RemoveChain's version-dispatch switch (for byte-equal calldata proofs) and its
 ///      post-resolution body (for the isSupportedChain pre-check proof), each with an injected pool
-///      address — env-based pool resolution is process-global and cannot be exercised race-free
+///      address - env-based pool resolution is process-global and cannot be exercised race-free
 ///      while suites run in parallel, mirroring the Add/RemoveRemotePool harnesses.
 contract RemoveChainHarness is RemoveChain {
     function buildChainRemovalCalls(PoolVersions.Version version, address poolAddress, uint64 remoteChainSelector)
@@ -287,7 +287,7 @@ contract PoolVersionDispatchTest is Test {
     function test_Enum_UnknownSupportsNothing() public pure {
         for (uint256 op = 0; op <= uint256(type(PoolVersions.Op).max); op++) {
             assertFalse(
-                PoolVersions.isSupported(PoolVersions.Op(op), PoolVersions.Version.UNKNOWN),
+                PoolVersions._isSupported(PoolVersions.Op(op), PoolVersions.Version.UNKNOWN),
                 "UNKNOWN must support no operation"
             );
         }
@@ -330,22 +330,22 @@ contract PoolVersionDispatchTest is Test {
         for (uint256 i = 0; i < 4; i++) {
             PoolVersions.Version v = PoolVersions.Version(i + 1);
             assertEq(
-                PoolVersions.isSupported(op, v),
+                PoolVersions._isSupported(op, v),
                 expected[i],
-                string.concat(PoolVersions.opName(op), " x ", PoolVersions.toString(v))
+                string.concat(PoolVersions._opName(op), " x ", PoolVersions._toString(v))
             );
         }
     }
 
     function test_VersionTokenRoundTrip() public pure {
-        assertEq(uint256(PoolVersions.fromVersionToken("1.5.0")), uint256(PoolVersions.Version.V1_5_0), "1.5.0");
-        assertEq(uint256(PoolVersions.fromVersionToken("1.5.1")), uint256(PoolVersions.Version.V1_5_1), "1.5.1");
-        assertEq(uint256(PoolVersions.fromVersionToken("1.6.1")), uint256(PoolVersions.Version.V1_6_1), "1.6.1");
-        assertEq(uint256(PoolVersions.fromVersionToken("2.0.0")), uint256(PoolVersions.Version.V2_0_0), "2.0.0");
-        assertEq(uint256(PoolVersions.fromVersionToken("1.6.0")), uint256(PoolVersions.Version.UNKNOWN), "1.6.0");
-        assertEq(uint256(PoolVersions.fromVersionToken("")), uint256(PoolVersions.Version.UNKNOWN), "empty");
-        assertEq(PoolVersions.toString(PoolVersions.Version.V1_5_1), "1.5.1", "toString");
-        assertEq(PoolVersions.toString(PoolVersions.Version.UNKNOWN), "unknown", "toString unknown");
+        assertEq(uint256(PoolVersions._fromVersionToken("1.5.0")), uint256(PoolVersions.Version.V1_5_0), "1.5.0");
+        assertEq(uint256(PoolVersions._fromVersionToken("1.5.1")), uint256(PoolVersions.Version.V1_5_1), "1.5.1");
+        assertEq(uint256(PoolVersions._fromVersionToken("1.6.1")), uint256(PoolVersions.Version.V1_6_1), "1.6.1");
+        assertEq(uint256(PoolVersions._fromVersionToken("2.0.0")), uint256(PoolVersions.Version.V2_0_0), "2.0.0");
+        assertEq(uint256(PoolVersions._fromVersionToken("1.6.0")), uint256(PoolVersions.Version.UNKNOWN), "1.6.0");
+        assertEq(uint256(PoolVersions._fromVersionToken("")), uint256(PoolVersions.Version.UNKNOWN), "empty");
+        assertEq(PoolVersions._toString(PoolVersions.Version.V1_5_1), "1.5.1", "toString");
+        assertEq(PoolVersions._toString(PoolVersions.Version.UNKNOWN), "unknown", "toString unknown");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -354,7 +354,7 @@ contract PoolVersionDispatchTest is Test {
 
     function test_V150Builder_SelectorAndEncoding() public pure {
         ITokenPoolV150.ChainUpdate[] memory updates = _v150Add();
-        CctActions.Call[] memory calls = CctActions.applyChainUpdatesV150(POOL, updates);
+        CctActions.Call[] memory calls = CctActions._applyChainUpdatesV150(POOL, updates);
 
         assertEq(calls.length, 1, "one call");
         assertEq(calls[0].target, POOL, "target");
@@ -369,7 +369,7 @@ contract PoolVersionDispatchTest is Test {
 
     function test_ModernBuilder_SelectorUnchanged() public pure {
         (uint64[] memory removes, TokenPool.ChainUpdate[] memory updates) = _modernAdd();
-        CctActions.Call[] memory calls = CctActions.applyChainUpdates(POOL, removes, updates);
+        CctActions.Call[] memory calls = CctActions._applyChainUpdates(POOL, removes, updates);
         assertEq(bytes4(calls[0].data), bytes4(0xe8a1da17), "modern applyChainUpdates selector");
     }
 
@@ -596,7 +596,7 @@ contract PoolVersionDispatchTest is Test {
         assertEq(bytes4(calls[0].data), bytes4(0xdb6327dc), "1.5.0 selector");
         assertEq(
             calls[0].data,
-            CctActions.applyChainUpdatesV150(POOL, harness.convert(updates, replaceExisting))[0].data,
+            CctActions._applyChainUpdatesV150(POOL, harness.convert(updates, replaceExisting))[0].data,
             "1.5.0 dispatch calldata byte-equal to the direct builder"
         );
     }
@@ -604,7 +604,7 @@ contract PoolVersionDispatchTest is Test {
     function test_LaneUpdateDispatch_ModernVersionsShareOneShape() public view {
         (uint64[] memory removes, TokenPool.ChainUpdate[] memory updates) = _modernAdd();
         bool[] memory replaceExisting = new bool[](1);
-        bytes memory expected = CctActions.applyChainUpdates(POOL, removes, updates)[0].data;
+        bytes memory expected = CctActions._applyChainUpdates(POOL, removes, updates)[0].data;
 
         PoolVersions.Version[3] memory modern =
             [PoolVersions.Version.V1_5_1, PoolVersions.Version.V1_6_1, PoolVersions.Version.V2_0_0];
@@ -615,7 +615,7 @@ contract PoolVersionDispatchTest is Test {
             assertEq(
                 calls[0].data,
                 expected,
-                string.concat("modern dispatch calldata byte-equal for ", PoolVersions.toString(modern[i]))
+                string.concat("modern dispatch calldata byte-equal for ", PoolVersions._toString(modern[i]))
             );
         }
     }
@@ -684,7 +684,7 @@ contract PoolVersionDispatchTest is Test {
             assertEq(
                 calls[0].data,
                 expected,
-                string.concat("modern removal calldata byte-equal for ", PoolVersions.toString(modern[i]))
+                string.concat("modern removal calldata byte-equal for ", PoolVersions._toString(modern[i]))
             );
         }
     }
@@ -720,7 +720,7 @@ contract PoolVersionDispatchTest is Test {
             assertEq(
                 calls[0].data,
                 expected,
-                string.concat("v1 setter calldata byte-equal for ", PoolVersions.toString(v1Range[i]))
+                string.concat("v1 setter calldata byte-equal for ", PoolVersions._toString(v1Range[i]))
             );
         }
     }
@@ -1030,7 +1030,7 @@ contract RemoveChainForkTest is BaseForkTest {
 
     /// @notice Realistic teardown: the lane is added with ENABLED, non-zero rate limits (the live case,
     ///         not 0/0), the bucket is read before, and after RemoveChain the whole chain is unsupported
-    ///         AND the rate-limit bucket is gone/zeroed — proving removal is destructive of rate config,
+    ///         AND the rate-limit bucket is gone/zeroed - proving removal is destructive of rate config,
     ///         as the brain note now claims. Exercises the modern (2.0.0) removal branch on-chain.
     function test_RemoveChain_ModernPool_UnsupportsLaneAndClearsRateConfig() public {
         (, address poolAddress) = deployTokenAndPoolFixture();
@@ -1050,12 +1050,12 @@ contract RemoveChainForkTest is BaseForkTest {
         RateLimiter.Config memory ffIn = RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0});
         _exec(
             owner,
-            CctActions.setRateLimits(
+            CctActions._setRateLimits(
                 poolAddress, PoolVersions.Version.V2_0_0, MANTLE_SEPOLIA_SELECTOR, true, ffOut, ffIn
             )
         );
 
-        // The lane carries a live, ENABLED outbound rate limit before teardown — in BOTH the standard
+        // The lane carries a live, ENABLED outbound rate limit before teardown - in BOTH the standard
         // bucket (getCurrentRateLimiterState(sel, false)) and the fast-finality bucket (…, true).
         (RateLimiter.TokenBucket memory outBefore,) = pool.getCurrentRateLimiterState(MANTLE_SEPOLIA_SELECTOR, false);
         assertTrue(outBefore.isEnabled, "precondition: standard outbound rate limit not enabled");
@@ -1086,7 +1086,7 @@ contract RemoveChainForkTest is BaseForkTest {
     /// @notice REGRESSION for the fence-before-read fix. Runs RemoveChain's WHOLE `_removeChain` body
     ///         against a faithful 1.5.0 pool (singular getRemotePool only, NO plural getRemotePools).
     ///         The body must resolve the version first and read via the version-safe helper, then emit
-    ///         the 1.5.0 `allowed:false` removal encoding — which the mock records. On the pre-fix code
+    ///         the 1.5.0 `allowed:false` removal encoding - which the mock records. On the pre-fix code
     ///         (raw plural getRemotePools before dispatch) this reverts on the absent plural getter and
     ///         never completes; confirmed by temporarily reverting the fix in RemoveChain.s.sol (the
     ///         invoke reverts) and then restoring it (this test passes).
@@ -1115,7 +1115,7 @@ contract RemoveChainForkTest is BaseForkTest {
     ///         with RemoveRemotePool NEVER drops the chain: after the LAST pool is gone the chain is
     ///         still `isSupportedChain==true` but holds ZERO pools, at which point any inbound
     ///         releaseOrMint from that selector reverts `InvalidSourcePoolAddress` (TokenPool.sol:483-485,
-    ///         `isRemotePool` finds no match — driving a real OffRamp in-fork is impractical, so the
+    ///         `isRemotePool` finds no match - driving a real OffRamp in-fork is impractical, so the
     ///         zero-pool state is asserted and the consequence cited). Only RemoveChain fully unsupports
     ///         the lane.
     function test_RemoveRemotePool_LastPool_LeavesChainSupportedZeroPools_ThenRemoveChain() public {
@@ -1183,7 +1183,7 @@ contract RemoveChainForkTest is BaseForkTest {
             }),
             inboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0})
         });
-        return CctActions.applyChainUpdates(poolAddress, removes, adds);
+        return CctActions._applyChainUpdates(poolAddress, removes, adds);
     }
 
     function _contains(string memory s, string memory needle) internal pure returns (bool) {

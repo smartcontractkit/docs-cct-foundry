@@ -55,7 +55,7 @@ contract ApplyChainUpdatesForkTest is BaseForkTest {
         _assertSvmDestinationConfigured();
 
         // Second phase in the SAME test (forge runs tests in parallel, and both phases rewrite the
-        // script's fixed input path — separate tests would race on the file): the COMMITTED example.
+        // script's fixed input path - separate tests would race on the file): the COMMITTED example.
         vm.revertToState(cleanState);
         _runCommittedExample();
     }
@@ -86,7 +86,7 @@ contract ApplyChainUpdatesForkTest is BaseForkTest {
             pool.isSupportedChain(helperConfig.getSolanaDevnetConfig().chainSelector),
             "committed example: Solana Devnet not configured"
         );
-        // The example's second entry carries two remote pools — both must be registered.
+        // The example's second entry carries two remote pools - both must be registered.
         assertEq(
             pool.getRemotePools(helperConfig.getPlumeTestnetConfig().chainSelector).length,
             2,

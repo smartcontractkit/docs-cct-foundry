@@ -14,7 +14,7 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 /// canonical **selectorName** directory. The token, pool, and lock-box file bodies key by
 /// `chainNameIdentifier` (e.g. `ETHEREUM_SEPOLIA_TOKEN`), so those callers pass BOTH the selectorName
 /// (the directory) and the chainNameIdentifier (the body); the hooks file is named by symbol +
-/// poolType and carries a fixed `POOL_HOOKS` body key. Each deploy writes a NEW timestamped file —
+/// poolType and carries a fixed `POOL_HOOKS` body key. Each deploy writes a NEW timestamped file -
 /// pure create, never rewrite. `history/` is gitignored.
 library DeploymentUtils {
     /// @dev Saves a token deployment.
@@ -24,7 +24,7 @@ library DeploymentUtils {
     /// @param chainNameIdentifier Chain identifier string used in the file BODY (e.g. `ETHEREUM_SEPOLIA`)
     /// @param symbol          Token symbol, used as the file-name prefix
     /// @param tokenAddress    Address of the deployed token contract
-    function saveTokenDeployment(
+    function _saveTokenDeployment(
         Vm vm,
         string memory selectorName,
         string memory chainNameIdentifier,
@@ -57,7 +57,7 @@ library DeploymentUtils {
     /// @param tokenPoolAddress    Address of the deployed token pool contract
     /// @param tokenAddress        Address of the token the pool is deployed for (used to resolve the symbol)
     /// @param poolType            Pool type label used in the file name (e.g. `BurnMint`)
-    function saveTokenPoolDeployment(
+    function _saveTokenPoolDeployment(
         Vm vm,
         string memory selectorName,
         string memory chainNameIdentifier,
@@ -65,7 +65,7 @@ library DeploymentUtils {
         address tokenAddress,
         string memory poolType
     ) internal {
-        string memory symbol = getSymbol(vm, tokenAddress);
+        string memory symbol = _getSymbol(vm, tokenAddress);
         string memory deploymentDir = string.concat(vm.projectRoot(), "/history/token-pools/", selectorName, "/");
         vm.createDir(deploymentDir, true);
 
@@ -104,7 +104,7 @@ library DeploymentUtils {
     /// @param tokenAddress        Address of the token the pool is deployed for (used to resolve the symbol)
     /// @param lockBox             Address of the ERC20LockBox associated with this pool
     /// @param poolType            Pool type label used in the file name (e.g. `LockRelease`)
-    function saveLockReleaseTokenPoolDeployment(
+    function _saveLockReleaseTokenPoolDeployment(
         Vm vm,
         string memory selectorName,
         string memory chainNameIdentifier,
@@ -113,7 +113,7 @@ library DeploymentUtils {
         address lockBox,
         string memory poolType
     ) internal {
-        string memory symbol = getSymbol(vm, tokenAddress);
+        string memory symbol = _getSymbol(vm, tokenAddress);
         string memory deploymentDir = string.concat(vm.projectRoot(), "/history/token-pools/", selectorName, "/");
         vm.createDir(deploymentDir, true);
 
@@ -151,14 +151,14 @@ library DeploymentUtils {
     /// @param chainNameIdentifier Chain identifier string used in the file BODY (e.g. `ETHEREUM_SEPOLIA`)
     /// @param lockBoxAddress      Address of the deployed ERC20LockBox contract
     /// @param tokenAddress        Address of the token the lock box is deployed for (used to resolve the symbol)
-    function saveLockBoxDeployment(
+    function _saveLockBoxDeployment(
         Vm vm,
         string memory selectorName,
         string memory chainNameIdentifier,
         address lockBoxAddress,
         address tokenAddress
     ) internal {
-        string memory symbol = getSymbol(vm, tokenAddress);
+        string memory symbol = _getSymbol(vm, tokenAddress);
         string memory deploymentDir = string.concat(vm.projectRoot(), "/history/lock-boxes/", selectorName, "/");
         vm.createDir(deploymentDir, true);
 
@@ -185,7 +185,7 @@ library DeploymentUtils {
     /// @param symbol              Token symbol (distinguishes co-located tokens' hooks, matching the ledger)
     /// @param poolType            Pool type the hooks belong to
     /// @param hooksAddress        Address of the deployed AdvancedPoolHooks contract
-    function savePoolHooksDeployment(
+    function _savePoolHooksDeployment(
         Vm vm,
         string memory selectorName,
         string memory symbol,
@@ -210,7 +210,7 @@ library DeploymentUtils {
     /// the TOKEN_SYMBOL environment variable, or "unknown" if neither is available.
     /// `internal` so the single-writer `DeploymentRecorder` composes the registry key from the same
     /// symbol the ledger file is named with.
-    function getSymbol(Vm vm, address tokenAddress) internal view returns (string memory symbol) {
+    function _getSymbol(Vm vm, address tokenAddress) internal view returns (string memory symbol) {
         try IERC20Metadata(tokenAddress).symbol() returns (string memory s) {
             symbol = s;
         } catch {

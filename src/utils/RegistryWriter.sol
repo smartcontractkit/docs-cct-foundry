@@ -9,14 +9,14 @@ import {ChainHandlers} from "../../script/utils/ChainHandlers.s.sol";
 
 /// @title RegistryWriter
 /// @notice The deployed-address registry: the `addresses{}` sub-store of
-/// `project/<selectorName>.json`. Deploy scripts record their outputs here — one project file per
+/// `project/<selectorName>.json`. Deploy scripts record their outputs here - one project file per
 /// chain, keyed by the canonical CCIP **selectorName** (identical to `config/chains/<selectorName>.json`)
-/// — so a fresh deployment is immediately resolvable by every later script with no `export` step: the
+/// - so a fresh deployment is immediately resolvable by every later script with no `export` step: the
 /// store survives the terminal session that shell exports vanish with. Environment variables (`TOKEN`,
 /// `{CHAIN}_TOKEN`, ...) keep working and always take priority over the store (an env-driven run is
-/// READ-ONLY — it never writes back; the divergence notice names the reconcile command instead).
+/// READ-ONLY - it never writes back; the divergence notice names the reconcile command instead).
 ///
-/// @dev **Schema 3 — `active` role pointers + named `deployments` entries, both STRING-valued.**
+/// @dev **Schema 3 - `active` role pointers + named `deployments` entries, both STRING-valued.**
 /// ```jsonc
 /// // project/<selectorName>.json
 /// {
@@ -33,7 +33,7 @@ import {ChainHandlers} from "../../script/utils/ChainHandlers.s.sol";
 /// }
 /// ```
 /// Values are **family-validated strings** on write (EVM hex, or non-EVM base58 that base58-decodes to
-/// exactly 32 bytes — via `ChainHandlers`), so a project's non-EVM remote artifacts (the Solana token
+/// exactly 32 bytes - via `ChainHandlers`), so a project's non-EVM remote artifacts (the Solana token
 /// and pool an EVM pool's `applyChainUpdates` needs) live in the reviewed project file, not an ephemeral
 /// env var. `read(selectorName, role)` resolves `.addresses.active.<role>` (as an EVM `address`);
 /// `readString` returns the raw value for non-EVM resolution.
@@ -41,7 +41,7 @@ import {ChainHandlers} from "../../script/utils/ChainHandlers.s.sol";
 /// **Every write is subtree-isolated.** All writes go through targeted `vm.writeJson(_, path,
 /// ".addresses")`; the whole-file `vm.writeFile` is FORBIDDEN, because `addresses`/`lanes`/`roles`
 /// share one file and a whole-file write would clobber the sibling subtrees. The project file is
-/// seeded (all three subtrees) by `ProjectStore.seedIfAbsent` before any targeted write.
+/// seeded (all three subtrees) by `ProjectStore._seedIfAbsent` before any targeted write.
 ///
 /// Needs `fs_permissions` read-write on `./project` (covered by the repo's root permission).
 library RegistryWriter {
@@ -64,23 +64,23 @@ library RegistryWriter {
     // at the context, so tests can drive every branch directly.
     // ─────────────────────────────────────────────────────────────────────────
 
-    /// @notice Script-facing idempotency guard — call BEFORE `vm.startBroadcast()`. `deploymentName`
+    /// @notice Script-facing idempotency guard - call BEFORE `vm.startBroadcast()`. `deploymentName`
     /// is the unique `deployments` key (e.g. `BnM-T_BurnMintTokenPool_2.0.0`).
-    function guard(string memory selectorName, string memory deploymentName) internal {
+    function _guard(string memory selectorName, string memory deploymentName) internal {
         if (VM.isContext(VmSafe.ForgeContext.TestGroup)) return;
-        guardRedeploy(selectorName, deploymentName);
+        _guardRedeploy(selectorName, deploymentName);
     }
 
-    /// @notice Script-facing single-writer registry write — call after the deployment succeeds. Upserts
+    /// @notice Script-facing single-writer registry write - call after the deployment succeeds. Upserts
     /// BOTH the named `deployments[deploymentName]` entry AND the `active[role]` pointer in one call.
     /// Only a real broadcast (`--broadcast` / `--resume`) mutates the store.
-    function record(string memory selectorName, string memory role, string memory deploymentName, address addr)
+    function _record(string memory selectorName, string memory role, string memory deploymentName, address addr)
         internal
     {
         if (!VM.isContext(VmSafe.ForgeContext.ScriptBroadcast) && !VM.isContext(VmSafe.ForgeContext.ScriptResume)) {
             return;
         }
-        recordDeterministic(selectorName, role, deploymentName, addr);
+        _recordDeterministic(selectorName, role, deploymentName, addr);
     }
 
     /// @notice Deploy idempotency guard (deterministic core entry). If `deploymentName` already
@@ -90,18 +90,18 @@ library RegistryWriter {
     /// the project store itself is gitignored, so it is NOT in git history) so the post-deploy `record`
     /// registers the replacement. First-time flows (no project file / no entry for `deploymentName`) are
     /// complete no-ops.
-    function guardRedeploy(string memory selectorName, string memory deploymentName) internal {
-        guardRedeploy(selectorName, deploymentName, VM.envOr("FORCE_REDEPLOY", false));
+    function _guardRedeploy(string memory selectorName, string memory deploymentName) internal {
+        _guardRedeploy(selectorName, deploymentName, VM.envOr("FORCE_REDEPLOY", false));
     }
 
     /// @dev Deterministic core (the env read is split out so tests can exercise both the refuse and
-    /// the force branches without toggling `FORCE_REDEPLOY` — `vm.setEnv` is process-wide and would
+    /// the force branches without toggling `FORCE_REDEPLOY` - `vm.setEnv` is process-wide and would
     /// race parallel test suites).
-    function guardRedeploy(string memory selectorName, string memory deploymentName, bool forced) internal {
-        address existing = readDeployment(selectorName, deploymentName);
+    function _guardRedeploy(string memory selectorName, string memory deploymentName, bool forced) internal {
+        address existing = _readDeployment(selectorName, deploymentName);
         if (existing == address(0)) return; // first-time flow: nothing registered under this name
 
-        string memory path = ProjectStore.path(selectorName);
+        string memory path = ProjectStore._path(selectorName);
         if (!forced) {
             revert(
                 string.concat(
@@ -121,16 +121,16 @@ library RegistryWriter {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Reads (optional fallback — NEVER revert)
+    // Reads (optional fallback - NEVER revert)
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @notice Resolves a ROLE (`token`/`tokenPool`/`lockBox`/`poolHooks`) to the currently-active
     /// address from `.addresses.active.<role>` as an EVM `address`. `address(0)` when the file/key is
     /// absent OR the stored value is a non-EVM (base58) string (an EVM caller resolving a non-EVM chain);
-    /// use `readString` for the raw non-EVM value. Never reverts — callers treat the store as an
+    /// use `readString` for the raw non-EVM value. Never reverts - callers treat the store as an
     /// optional fallback.
-    function read(string memory selectorName, string memory role) internal view returns (address) {
-        string memory s = readString(selectorName, role);
+    function _read(string memory selectorName, string memory role) internal view returns (address) {
+        string memory s = _readString(selectorName, role);
         if (bytes(s).length == 0) return address(0);
         try VM.parseAddress(s) returns (address a) {
             return a;
@@ -142,7 +142,7 @@ library RegistryWriter {
     /// @notice Resolves a ROLE to its RAW stored string (EVM hex or non-EVM base58). Empty string when
     /// the file or the key is absent. Never reverts (see `read`). This is the non-EVM resolution path
     /// the frozen EVM getter surface (`read`) cannot serve.
-    function readString(string memory selectorName, string memory role) internal view returns (string memory) {
+    function _readString(string memory selectorName, string memory role) internal view returns (string memory) {
         string memory json = _readProjectJson(selectorName);
         if (bytes(json).length == 0) return "";
         string memory activeKey = string.concat(".addresses.active.", role);
@@ -156,8 +156,8 @@ library RegistryWriter {
 
     /// @notice Resolves a uniquely-named `deployments` entry (e.g. a specific pool type + version) as
     /// an EVM `address`. `address(0)` when the file or the key is absent (never reverts).
-    function readDeployment(string memory selectorName, string memory deploymentName) internal view returns (address) {
-        string memory s = readDeploymentString(selectorName, deploymentName);
+    function _readDeployment(string memory selectorName, string memory deploymentName) internal view returns (address) {
+        string memory s = _readDeploymentString(selectorName, deploymentName);
         if (bytes(s).length == 0) return address(0);
         try VM.parseAddress(s) returns (address a) {
             return a;
@@ -168,7 +168,7 @@ library RegistryWriter {
 
     /// @notice The RAW stored string of a named `deployments` entry (EVM hex or non-EVM base58). Empty
     /// when the file or the key is absent (never reverts).
-    function readDeploymentString(string memory selectorName, string memory deploymentName)
+    function _readDeploymentString(string memory selectorName, string memory deploymentName)
         internal
         view
         returns (string memory)
@@ -186,12 +186,12 @@ library RegistryWriter {
         return "";
     }
 
-    /// @dev TOCTOU-safe optional read of `project/<selectorName>.json` — a parallel test suite can
+    /// @dev TOCTOU-safe optional read of `project/<selectorName>.json` - a parallel test suite can
     /// remove or be mid-write to this file between checks (`vm.writeJson` truncates then writes), so a
     /// vanished/empty/partial snapshot resolves to "" rather than crashing an unrelated suite that
     /// merely constructed HelperConfig. The store is an OPTIONAL fallback that must NEVER revert.
     function _readProjectJson(string memory selectorName) private view returns (string memory) {
-        string memory path = ProjectStore.path(selectorName);
+        string memory path = ProjectStore._path(selectorName);
         if (!VM.exists(path)) return "";
         try VM.readFile(path) returns (string memory data) {
             return data;
@@ -201,19 +201,19 @@ library RegistryWriter {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Writes (subtree-isolated — NEVER writeFile the project file)
+    // Writes (subtree-isolated - NEVER writeFile the project file)
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @notice Upserts the `active[role]` pointer, preserving every other entry. EVM convenience
     /// wrapper (address → validated hex string).
-    function setActive(string memory selectorName, string memory role, address addr) internal {
-        setActiveString(selectorName, role, VM.toString(addr));
+    function _setActive(string memory selectorName, string memory role, address addr) internal {
+        _setActiveString(selectorName, role, VM.toString(addr));
     }
 
-    /// @notice Upserts the `active[role]` pointer with a raw (family-validated) string value — the
+    /// @notice Upserts the `active[role]` pointer with a raw (family-validated) string value - the
     /// non-EVM (base58) write path.
-    function setActiveString(string memory selectorName, string memory role, string memory value) internal {
-        ProjectStore.seedIfAbsent(selectorName);
+    function _setActiveString(string memory selectorName, string memory role, string memory value) internal {
+        ProjectStore._seedIfAbsent(selectorName);
         _validateForFamily(selectorName, value);
         _warnRepoint(selectorName, role, value);
         (string[] memory aKeys, string[] memory aVals, string[] memory dKeys, string[] memory dVals) =
@@ -221,7 +221,7 @@ library RegistryWriter {
         (aKeys, aVals) = _upsert(aKeys, aVals, role, value);
         _store(selectorName, aKeys, aVals, dKeys, dVals);
         console.log(
-            string.concat("Store updated: ", ProjectStore.display(selectorName), " (addresses.active.", role, ")")
+            string.concat("Store updated: ", ProjectStore._display(selectorName), " (addresses.active.", role, ")")
         );
     }
 
@@ -231,25 +231,25 @@ library RegistryWriter {
     /// non-empty pointer already exists and differs from `value`. First set and idempotent re-set are
     /// NOT repoints. Pure of side effects so the write paths gate the repoint warning on it and unit
     /// tests can assert it directly.
-    function wouldRepointActive(string memory selectorName, string memory role, string memory value)
+    function _wouldRepointActive(string memory selectorName, string memory role, string memory value)
         internal
         view
         returns (bool repoints, string memory previous)
     {
-        previous = readString(selectorName, role);
+        previous = _readString(selectorName, role);
         repoints = bytes(previous).length != 0 && keccak256(bytes(previous)) != keccak256(bytes(value));
     }
 
     /// @dev Warn LOUDLY (console only, no behavior change) when an `active[role]` pointer is about to
-    /// be silently repointed onto a different address — e.g. deploying a second token on a chain moves
+    /// be silently repointed onto a different address - e.g. deploying a second token on a chain moves
     /// `active.token` off the first fixture, hijacking the zero-export pointer every no-override script
-    /// resolves. The repoint still happens; the operator is told how to pin the previous address —
+    /// resolves. The repoint still happens; the operator is told how to pin the previous address -
     /// **naming the token group first** (a second token belongs in its own group, which leaves this
     /// store untouched), then the store-native re-adopt, then the env one-off. Never fires on a first set
     /// or idempotent re-set (see `wouldRepointActive`). Both write paths that touch `active[role]`
     /// (`setActiveString`/`recordDeterministicString`) route through here.
     function _warnRepoint(string memory selectorName, string memory role, string memory value) private view {
-        (bool repoints, string memory previous) = wouldRepointActive(selectorName, role, value);
+        (bool repoints, string memory previous) = _wouldRepointActive(selectorName, role, value);
         if (!repoints) return;
         string memory env = _roleEnvVar(role);
         console.log(
@@ -320,15 +320,15 @@ library RegistryWriter {
 
     /// @notice Upserts a named `deployments[deploymentName]` entry, preserving every other entry. EVM
     /// convenience wrapper.
-    function setDeployment(string memory selectorName, string memory deploymentName, address addr) internal {
-        setDeploymentString(selectorName, deploymentName, VM.toString(addr));
+    function _setDeployment(string memory selectorName, string memory deploymentName, address addr) internal {
+        _setDeploymentString(selectorName, deploymentName, VM.toString(addr));
     }
 
     /// @notice Upserts a named `deployments[deploymentName]` entry with a raw (family-validated) string.
-    function setDeploymentString(string memory selectorName, string memory deploymentName, string memory value)
+    function _setDeploymentString(string memory selectorName, string memory deploymentName, string memory value)
         internal
     {
-        ProjectStore.seedIfAbsent(selectorName);
+        ProjectStore._seedIfAbsent(selectorName);
         _validateForFamily(selectorName, value);
         (string[] memory aKeys, string[] memory aVals, string[] memory dKeys, string[] memory dVals) =
             _loadMaps(selectorName);
@@ -336,39 +336,39 @@ library RegistryWriter {
         _store(selectorName, aKeys, aVals, dKeys, dVals);
         console.log(
             string.concat(
-                "Store updated: ", ProjectStore.display(selectorName), " (addresses.deployments.", deploymentName, ")"
+                "Store updated: ", ProjectStore._display(selectorName), " (addresses.deployments.", deploymentName, ")"
             )
         );
     }
 
     /// @notice Back-compat alias: records a ROLE pointer (writes `active[role]`). Retained so callers
     /// that only need the resolvable-pointer semantics (and the resolution tests) keep working.
-    function set(string memory selectorName, string memory role, address addr) internal {
-        setActive(selectorName, role, addr);
+    function _set(string memory selectorName, string memory role, address addr) internal {
+        _setActive(selectorName, role, addr);
     }
 
     /// @notice Deterministic single-writer core (EVM): upserts `deployments[deploymentName]` AND
     /// `active[role]` in ONE subtree write. This is the anti-duplication write the deploy scripts route
     /// every artifact through (via `record`).
-    function recordDeterministic(
+    function _recordDeterministic(
         string memory selectorName,
         string memory role,
         string memory deploymentName,
         address addr
     ) internal {
-        recordDeterministicString(selectorName, role, deploymentName, VM.toString(addr));
+        _recordDeterministicString(selectorName, role, deploymentName, VM.toString(addr));
     }
 
-    /// @notice Deterministic single-writer core with a raw (family-validated) string value — the
+    /// @notice Deterministic single-writer core with a raw (family-validated) string value - the
     /// non-EVM (base58) declare/adopt path. Upserts both `deployments[deploymentName]` and
     /// `active[role]` in one subtree write, so the two can never drift apart.
-    function recordDeterministicString(
+    function _recordDeterministicString(
         string memory selectorName,
         string memory role,
         string memory deploymentName,
         string memory value
     ) internal {
-        ProjectStore.seedIfAbsent(selectorName);
+        ProjectStore._seedIfAbsent(selectorName);
         _validateForFamily(selectorName, value);
         _warnRepoint(selectorName, role, value);
         (string[] memory aKeys, string[] memory aVals, string[] memory dKeys, string[] memory dVals) =
@@ -379,7 +379,7 @@ library RegistryWriter {
         console.log(
             string.concat(
                 "Store updated: ",
-                ProjectStore.display(selectorName),
+                ProjectStore._display(selectorName),
                 " (addresses.deployments.",
                 deploymentName,
                 " + addresses.active.",
@@ -390,7 +390,7 @@ library RegistryWriter {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Family validation (EVM hex / non-EVM base58) — reads the chain's declared family
+    // Family validation (EVM hex / non-EVM base58) - reads the chain's declared family
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @dev Validates that `value` is a syntactically valid address for the chain's declared
@@ -401,7 +401,7 @@ library RegistryWriter {
     function _validateForFamily(string memory selectorName, string memory value) private view {
         ChainHandlers.ChainFamily fam = _family(selectorName);
         require(
-            ChainHandlers.validateChainAddress(value, fam),
+            ChainHandlers._validateChainAddress(value, fam),
             string.concat(
                 "[project] '",
                 value,
@@ -417,14 +417,14 @@ library RegistryWriter {
         string memory cfg = string.concat(VM.projectRoot(), "/config/chains/", selectorName, ".json");
         if (!VM.exists(cfg)) return ChainHandlers.ChainFamily.EVM;
         try VM.readFile(cfg) returns (string memory json) {
-            return ChainHandlers.parseChainFamily(VM.parseJsonString(json, ".chainFamily"));
+            return ChainHandlers._parseChainFamily(VM.parseJsonString(json, ".chainFamily"));
         } catch {
             return ChainHandlers.ChainFamily.EVM;
         }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Internal (de)serialization — canonical (sorted keys, 2-space via writeJson, no trailing newline)
+    // Internal (de)serialization - canonical (sorted keys, 2-space via writeJson, no trailing newline)
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @dev Drops `deploymentName` from `deployments` and clears any `active[role]` that pointed at the
@@ -452,7 +452,7 @@ library RegistryWriter {
         view
         returns (string[] memory aKeys, string[] memory aVals, string[] memory dKeys, string[] memory dVals)
     {
-        string memory path = ProjectStore.path(selectorName);
+        string memory path = ProjectStore._path(selectorName);
         if (!VM.exists(path)) {
             return (new string[](0), new string[](0), new string[](0), new string[](0));
         }
@@ -491,7 +491,7 @@ library RegistryWriter {
         // Compact JSON with explicitly-quoted string values; `active` before `deployments` (sorted).
         string memory addresses =
             string.concat("{\"active\":", _obj(aKeys, aVals), ",\"deployments\":", _obj(dKeys, dVals), "}");
-        VM.writeJson(addresses, ProjectStore.path(selectorName), ".addresses");
+        VM.writeJson(addresses, ProjectStore._path(selectorName), ".addresses");
     }
 
     /// @dev Serializes a `{key:"value"}` object as compact, sorted, string-valued JSON. Every value is
@@ -505,7 +505,7 @@ library RegistryWriter {
         return string.concat("{", inner, "}");
     }
 
-    /// @dev Insertion sort of (keys, vals) by byte-lexicographic key order — matches `jq -S` for the
+    /// @dev Insertion sort of (keys, vals) by byte-lexicographic key order - matches `jq -S` for the
     /// ASCII keys the store uses (role names, symbol_type_version deployment names). Small arrays.
     function _sort(string[] memory keys, string[] memory vals) private pure returns (string[] memory, string[] memory) {
         for (uint256 i = 1; i < keys.length; i++) {

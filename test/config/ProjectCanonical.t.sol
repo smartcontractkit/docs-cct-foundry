@@ -6,9 +6,9 @@ import {RegistryWriter} from "../../src/utils/RegistryWriter.sol";
 import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 import {ProjectScratch} from "../utils/ProjectScratch.sol";
 
-/// @title ProjectCanonicalTest — area B (canonical / zero-diff golden)
+/// @title ProjectCanonicalTest - area B (canonical / zero-diff golden)
 /// @notice Pins the `project/*.json` CANONICAL FORM the whole store depends on: forge
-/// `vm.writeJson`'s deterministic output — keys SORTED at every nesting level, 2-space indent, and
+/// `vm.writeJson`'s deterministic output - keys SORTED at every nesting level, 2-space indent, and
 /// **NO trailing newline**. A downstream fork tracks `project/`, so a no-op re-write MUST produce a
 /// zero git diff; that is exactly `writer output == jq --indent 2 -S` with the trailing newline
 /// normalized. Two independent goldens:
@@ -27,7 +27,7 @@ contract ProjectCanonicalTest is Test {
 
     address internal constant TOKEN = address(0x1111111111111111111111111111111111111111);
     address internal constant POOL = address(0x2222222222222222222222222222222222222222);
-    // A mixed-case (EIP-55 checksummed) hex value — the writer must emit it verbatim, not lowercase it.
+    // A mixed-case (EIP-55 checksummed) hex value - the writer must emit it verbatim, not lowercase it.
     address internal constant MIXED = address(0xabCDeF0123456789AbcdEf0123456789aBCDEF01);
 
     function setUp() public {
@@ -52,8 +52,8 @@ contract ProjectCanonicalTest is Test {
     /// serialization (spacing, key order, a stray trailing newline) is a hard failure, not a silent
     /// git-diff churn on the fork that tracks `project/`.
     function test_WriterOutput_ByteCanonical() public {
-        RegistryWriter.recordDeterministic(SEL_BYTE, "token", "SYM_Token", TOKEN);
-        string memory got = vm.readFile(ProjectStore.path(SEL_BYTE));
+        RegistryWriter._recordDeterministic(SEL_BYTE, "token", "SYM_Token", TOKEN);
+        string memory got = vm.readFile(ProjectStore._path(SEL_BYTE));
         string memory expected = string.concat(
             "{\n",
             '  "addresses": {\n',
@@ -82,9 +82,9 @@ contract ProjectCanonicalTest is Test {
         // Probe ffi availability BEFORE any write: a mid-body vm.skip strands the scratch file
         // (a plain `forge test` has ffi off, and the CI residue gate catches the leak).
         _skipUnlessFfi();
-        RegistryWriter.recordDeterministic(SEL_JQ, "token", "SYM_Token", TOKEN);
-        RegistryWriter.recordDeterministic(SEL_JQ, "tokenPool", "SYM_BurnMintTokenPool_2.0.0", POOL);
-        string memory path = ProjectStore.path(SEL_JQ);
+        RegistryWriter._recordDeterministic(SEL_JQ, "token", "SYM_Token", TOKEN);
+        RegistryWriter._recordDeterministic(SEL_JQ, "tokenPool", "SYM_BurnMintTokenPool_2.0.0", POOL);
+        string memory path = ProjectStore._path(SEL_JQ);
         string memory got = vm.readFile(path);
 
         string[] memory cmd = new string[](5);
@@ -131,15 +131,15 @@ contract ProjectCanonicalTest is Test {
     /// @dev No-op re-write byte-identity (the shasum idiom, no `make`): recording the SAME entries a
     /// second time leaves the file byte-identical, so a fork that tracks `project/` gets zero git diff.
     function test_NoOpReWrite_ByteIdentical() public {
-        RegistryWriter.recordDeterministic(SEL_NOOP, "token", "SYM_Token", TOKEN);
-        RegistryWriter.recordDeterministic(SEL_NOOP, "tokenPool", "SYM_BurnMintTokenPool_2.0.0", POOL);
-        bytes32 before = keccak256(bytes(vm.readFile(ProjectStore.path(SEL_NOOP))));
+        RegistryWriter._recordDeterministic(SEL_NOOP, "token", "SYM_Token", TOKEN);
+        RegistryWriter._recordDeterministic(SEL_NOOP, "tokenPool", "SYM_BurnMintTokenPool_2.0.0", POOL);
+        bytes32 before = keccak256(bytes(vm.readFile(ProjectStore._path(SEL_NOOP))));
 
         // Identical re-record: same keys, same values.
-        RegistryWriter.recordDeterministic(SEL_NOOP, "token", "SYM_Token", TOKEN);
-        RegistryWriter.recordDeterministic(SEL_NOOP, "tokenPool", "SYM_BurnMintTokenPool_2.0.0", POOL);
+        RegistryWriter._recordDeterministic(SEL_NOOP, "token", "SYM_Token", TOKEN);
+        RegistryWriter._recordDeterministic(SEL_NOOP, "tokenPool", "SYM_BurnMintTokenPool_2.0.0", POOL);
         assertEq(
-            keccak256(bytes(vm.readFile(ProjectStore.path(SEL_NOOP)))),
+            keccak256(bytes(vm.readFile(ProjectStore._path(SEL_NOOP)))),
             before,
             "a no-op re-write mutated the file (must be byte-identical - zero git diff)"
         );
@@ -150,9 +150,9 @@ contract ProjectCanonicalTest is Test {
     /// lowercased), a versioned deployment key containing dots is a single literal key, and the empty
     /// `lanes`/`roles` subtrees serialize as `{}`. The sorted order holds with multiple deployments.
     function test_EdgeKeys_MixedCaseHex_VersionedKey_EmptySubtrees() public {
-        RegistryWriter.recordDeterministic(SEL_EDGE, "poolHooks", "SYM_BurnMint_PoolHooks", MIXED);
-        RegistryWriter.recordDeterministic(SEL_EDGE, "token", "SYM_Token", TOKEN);
-        string memory got = vm.readFile(ProjectStore.path(SEL_EDGE));
+        RegistryWriter._recordDeterministic(SEL_EDGE, "poolHooks", "SYM_BurnMint_PoolHooks", MIXED);
+        RegistryWriter._recordDeterministic(SEL_EDGE, "token", "SYM_Token", TOKEN);
+        string memory got = vm.readFile(ProjectStore._path(SEL_EDGE));
 
         // Mixed-case value emitted verbatim.
         assertEq(
@@ -176,7 +176,7 @@ contract ProjectCanonicalTest is Test {
     }
 
     /// @dev The committed example ships in the exact canonical form: schema-3, no trailing newline, and
-    /// resolvable by the real readers (`RegistryWriter.read*`), plus an ffi-gated jq byte-equality.
+    /// resolvable by the real readers (`RegistryWriter._read*`), plus an ffi-gated jq byte-equality.
     function test_CommittedExample_IsCanonicalAndResolvable() public {
         string memory path = "project/ethereum-testnet-sepolia.example.json";
         string memory got = vm.readFile(path);
@@ -184,14 +184,14 @@ contract ProjectCanonicalTest is Test {
         assertTrue(bytes(got)[bytes(got).length - 1] != 0x0a, "committed example must have NO trailing newline");
         // Resolvable by the real readers: the reader keys on `project/<sel>.json`, so consume the example
         // by copying it verbatim to a scratch project file and reading THROUGH `RegistryWriter`.
-        vm.writeFile(ProjectStore.path(SEL_EXAMPLE), got);
+        vm.writeFile(ProjectStore._path(SEL_EXAMPLE), got);
         assertEq(
-            RegistryWriter.read(SEL_EXAMPLE, "tokenPool"),
+            RegistryWriter._read(SEL_EXAMPLE, "tokenPool"),
             address(0x2222222222222222222222222222222222222222),
             "example active.tokenPool must resolve through the real reader"
         );
         assertEq(
-            RegistryWriter.readDeployment(SEL_EXAMPLE, "BnM-T_BurnMintTokenPool_2.0.0"),
+            RegistryWriter._readDeployment(SEL_EXAMPLE, "BnM-T_BurnMintTokenPool_2.0.0"),
             address(0x2222222222222222222222222222222222222222),
             "example deployment entry must resolve through the real reader"
         );
@@ -236,7 +236,7 @@ contract ProjectCanonicalTest is Test {
             '  "schema": 3\n',
             "}"
         );
-        string memory path = ProjectStore.path(SEL_POLICY);
+        string memory path = ProjectStore._path(SEL_POLICY);
         vm.writeFile(path, doc);
 
         string[] memory full = new string[](6);

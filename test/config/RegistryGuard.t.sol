@@ -11,42 +11,42 @@ import {ProjectScratch} from "../utils/ProjectScratch.sol";
 /// @dev External wrapper so `vm.expectRevert` can observe the library's revert (internal library
 /// calls are inlined into the test frame otherwise), and so the tests drive the deterministic cores
 /// directly (the context-aware `guard`/`record` no-op under `forge test`, which is exactly the
-/// inertness `BaseForkTest` relies on — see `test_ContextAware_NoRegistryMutationUnderForgeTest`).
+/// inertness `BaseForkTest` relies on - see `test_ContextAware_NoRegistryMutationUnderForgeTest`).
 contract GuardHarness {
     function guardForced(string memory sel, string memory name, bool forced) external {
-        RegistryWriter.guardRedeploy(sel, name, forced);
+        RegistryWriter._guardRedeploy(sel, name, forced);
     }
 
     function guardEnv(string memory sel, string memory name) external {
-        RegistryWriter.guardRedeploy(sel, name);
+        RegistryWriter._guardRedeploy(sel, name);
     }
 
     function recordDeterministic(string memory sel, string memory role, string memory name, address addr) external {
-        RegistryWriter.recordDeterministic(sel, role, name, addr);
+        RegistryWriter._recordDeterministic(sel, role, name, addr);
     }
 
     function record(string memory sel, string memory role, string memory name, address addr) external {
-        RegistryWriter.record(sel, role, name, addr);
+        RegistryWriter._record(sel, role, name, addr);
     }
 
     function guard(string memory sel, string memory name) external {
-        RegistryWriter.guard(sel, name);
+        RegistryWriter._guard(sel, name);
     }
 
     function setActive(string memory sel, string memory role, address addr) external {
-        RegistryWriter.setActive(sel, role, addr);
+        RegistryWriter._setActive(sel, role, addr);
     }
 
     function setDeployment(string memory sel, string memory name, address addr) external {
-        RegistryWriter.setDeployment(sel, name, addr);
+        RegistryWriter._setDeployment(sel, name, addr);
     }
 
     function read(string memory sel, string memory role) external view returns (address) {
-        return RegistryWriter.read(sel, role);
+        return RegistryWriter._read(sel, role);
     }
 
     function readDeployment(string memory sel, string memory name) external view returns (address) {
-        return RegistryWriter.readDeployment(sel, name);
+        return RegistryWriter._readDeployment(sel, name);
     }
 }
 
@@ -99,8 +99,8 @@ contract RegistryGuardTest is Test {
     //     chain both record and both resolve; neither clobbers the other's deployments entry.
     function test_CrossPoolType_BothResolvable_NoClobber() public {
         string memory sel = SEL_CROSSPOOL;
-        string memory bmName = DeploymentRecorder.poolName(SYMBOL, "BurnMint");
-        string memory lrName = DeploymentRecorder.poolName(SYMBOL, "LockRelease");
+        string memory bmName = DeploymentRecorder._poolName(SYMBOL, "BurnMint");
+        string memory lrName = DeploymentRecorder._poolName(SYMBOL, "LockRelease");
 
         harness.recordDeterministic(sel, "tokenPool", bmName, POOL_BURNMINT);
         harness.recordDeterministic(sel, "tokenPool", lrName, POOL_LOCKRELEASE);
@@ -115,14 +115,14 @@ contract RegistryGuardTest is Test {
     // (2) DATA LAYER holds two versioned entries: because the deployments key carries the pool type +
     //     version, two version keys (1.6.1, 2.0.0) coexist without tripping the guard, both addresses
     //     resolve via readDeployment, and active.tokenPool mirrors the newest write. This proves ONLY
-    //     the storage layer — it is NOT a migration flow reachable through the deploy scripts:
+    //     the storage layer - it is NOT a migration flow reachable through the deploy scripts:
     //     `DeploymentRecorder.POOL_VERSION` is hardcoded "2.0.0", so the scripts only ever emit the
     //     _2.0.0 key. The 1.6.1 key below is hand-injected to exercise the data structure directly.
     function test_TwoVersionedEntries_CoexistInRegistryDataLayer() public {
         string memory sel = SEL_TWOVER;
-        // Hand-inject a 1.6.1 key (the scripts never emit it — POOL_VERSION is pinned to 2.0.0).
+        // Hand-inject a 1.6.1 key (the scripts never emit it - POOL_VERSION is pinned to 2.0.0).
         string memory oldName = string.concat(SYMBOL, "_BurnMintTokenPool_1.6.1");
-        string memory newName = DeploymentRecorder.poolName(SYMBOL, "BurnMint"); // ..._2.0.0
+        string memory newName = DeploymentRecorder._poolName(SYMBOL, "BurnMint"); // ..._2.0.0
 
         harness.recordDeterministic(sel, "tokenPool", oldName, POOL_V161);
 
@@ -139,8 +139,8 @@ contract RegistryGuardTest is Test {
     // (3) Same-name redeploy is guarded; forcing drops the entry and re-records; siblings survive.
     function test_SameNameRedeploy_Guarded_ForceDropsAndReRecords() public {
         string memory sel = SEL_REDEPLOY;
-        string memory name = DeploymentRecorder.poolName(SYMBOL, "BurnMint");
-        string memory sibling = DeploymentRecorder.lockBoxName(SYMBOL);
+        string memory name = DeploymentRecorder._poolName(SYMBOL, "BurnMint");
+        string memory sibling = DeploymentRecorder._lockBoxName(SYMBOL);
 
         harness.recordDeterministic(sel, "tokenPool", name, POOL_BURNMINT);
         harness.recordDeterministic(sel, "lockBox", sibling, POOL_LOCKRELEASE);
@@ -163,10 +163,10 @@ contract RegistryGuardTest is Test {
 
     // (4) Hooks replacement: new hooks for the same pool are guarded; FORCE_REDEPLOY replaces; the old
     //     address is still in the append-only ledger under history/ (the project store itself is
-    //     gitignored, so NOT in git history) — the registry drops it, per the guard's force path.
+    //     gitignored, so NOT in git history) - the registry drops it, per the guard's force path.
     function test_HooksReplacement_GuardedThenForced() public {
         string memory sel = SEL_HOOKS;
-        string memory name = DeploymentRecorder.hooksName(SYMBOL, "BurnMint");
+        string memory name = DeploymentRecorder._hooksName(SYMBOL, "BurnMint");
 
         harness.recordDeterministic(sel, "poolHooks", name, HOOKS_A);
         assertEq(harness.read(sel, "poolHooks"), HOOKS_A, "initial hooks active");
@@ -188,7 +188,7 @@ contract RegistryGuardTest is Test {
     //     invariant).
     function test_OneCallWritesBothStores() public {
         string memory sel = SEL_ONECALL;
-        string memory name = DeploymentRecorder.poolName(SYMBOL, "BurnMint");
+        string memory name = DeploymentRecorder._poolName(SYMBOL, "BurnMint");
 
         harness.recordDeterministic(sel, "tokenPool", name, POOL_BURNMINT);
 
@@ -198,12 +198,12 @@ contract RegistryGuardTest is Test {
     }
 
     // (6) Context-awareness preserved: under `forge test` (TestGroup) the context-aware wrappers are
-    //     no-ops — neither the guard nor the record touches the durable store. This is exactly why
+    //     no-ops - neither the guard nor the record touches the durable store. This is exactly why
     //     BaseForkTest can rerun the real deploy scripts as fixtures without mutating a real registry.
     function test_ContextAware_NoRegistryMutationUnderForgeTest() public {
         assertTrue(vm.isContext(VmSafe.ForgeContext.TestGroup), "precondition: running under forge test");
         string memory sel = SEL_CTXA;
-        string memory name = DeploymentRecorder.poolName(SYMBOL, "BurnMint");
+        string memory name = DeploymentRecorder._poolName(SYMBOL, "BurnMint");
 
         // Even with an entry that WOULD trip the deterministic guard, the context-aware guard no-ops.
         harness.setDeployment(sel, name, POOL_BURNMINT);
@@ -223,7 +223,7 @@ contract RegistryGuardTest is Test {
     // The env wrapper honors FORCE_REDEPLOY=true (the exact path the deploy scripts call).
     function test_EnvWrapperHonorsForceRedeploy() public {
         string memory sel = SEL_ENVFORCE;
-        string memory name = DeploymentRecorder.poolName(SYMBOL, "BurnMint");
+        string memory name = DeploymentRecorder._poolName(SYMBOL, "BurnMint");
         harness.recordDeterministic(sel, "tokenPool", name, POOL_BURNMINT);
         vm.setEnv("FORCE_REDEPLOY", "true");
         harness.guardEnv(sel, name); // must not revert
@@ -265,7 +265,7 @@ contract RegistryGuardTest is Test {
             "' is already deployed at ",
             vm.toString(addr),
             " (",
-            ProjectStore.path(sel),
+            ProjectStore._path(sel),
             "). Refusing to redeploy - set FORCE_REDEPLOY=true to deploy a replacement."
         );
     }

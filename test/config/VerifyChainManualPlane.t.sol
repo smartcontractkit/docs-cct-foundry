@@ -68,7 +68,7 @@ contract VerifyChainManualPlaneTest is Test {
     function _cleanAll(string memory name) internal {
         string memory cfg = _path(name);
         if (vm.exists(cfg)) vm.removeFile(cfg);
-        string memory proj = ProjectStore.path(name);
+        string memory proj = ProjectStore._path(name);
         if (vm.exists(proj)) vm.removeFile(proj);
     }
 

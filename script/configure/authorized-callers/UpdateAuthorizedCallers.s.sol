@@ -17,10 +17,10 @@ import {EoaExecutor} from "../../../src/base/EoaExecutor.s.sol";
  *   LOCK_BOX=0x...   ADD_ADDRESSES="0xAAA..."          forge script script/configure/authorized-callers/UpdateAuthorizedCallers.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account $KEYSTORE_NAME --broadcast
  *
  * Environment variables:
- *   POOL_HOOKS       — address of an AdvancedPoolHooks contract  (one of POOL_HOOKS or LOCK_BOX required)
- *   LOCK_BOX         — address of an ERC20LockBox contract       (one of POOL_HOOKS or LOCK_BOX required)
- *   ADD_ADDRESSES    — CSV or JSON array of addresses to add
- *   REMOVE_ADDRESSES — CSV or JSON array of addresses to remove
+ *   POOL_HOOKS       - address of an AdvancedPoolHooks contract  (one of POOL_HOOKS or LOCK_BOX required)
+ *   LOCK_BOX         - address of an ERC20LockBox contract       (one of POOL_HOOKS or LOCK_BOX required)
+ *   ADD_ADDRESSES    - CSV or JSON array of addresses to add
+ *   REMOVE_ADDRESSES - CSV or JSON array of addresses to remove
  */
 contract UpdateAuthorizedCallers is EoaExecutor {
     HelperConfig public helperConfig;
@@ -48,9 +48,10 @@ contract UpdateAuthorizedCallers is EoaExecutor {
         address contractAddress = isLockBox ? lockBox : poolHooks;
         string memory labelHeader = isLockBox ? "LockBox:      " : "Pool Hooks:   ";
 
-        // Parse caller updates — supports CSV ("0xA,0xB") or JSON array ("[\"0xA\",\"0xB\"]")
-        address[] memory addCallers = HelperUtils.parseAddressArray(vm, vm.envOr("ADD_ADDRESSES", string("")), "");
-        address[] memory removeCallers = HelperUtils.parseAddressArray(vm, vm.envOr("REMOVE_ADDRESSES", string("")), "");
+        // Parse caller updates - supports CSV ("0xA,0xB") or JSON array ("[\"0xA\",\"0xB\"]")
+        address[] memory addCallers = HelperUtils._parseAddressArray(vm, vm.envOr("ADD_ADDRESSES", string("")), "");
+        address[] memory removeCallers =
+            HelperUtils._parseAddressArray(vm, vm.envOr("REMOVE_ADDRESSES", string("")), "");
 
         require(
             addCallers.length > 0 || removeCallers.length > 0,
@@ -81,7 +82,7 @@ contract UpdateAuthorizedCallers is EoaExecutor {
         }
         console.log("");
 
-        executeCalls(CctActions.applyAuthorizedCallerUpdates(contractAddress, addCallers, removeCallers));
+        _executeCalls(CctActions._applyAuthorizedCallerUpdates(contractAddress, addCallers, removeCallers));
 
         console.log("");
         console.log("========================================");

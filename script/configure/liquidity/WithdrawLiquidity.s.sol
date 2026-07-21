@@ -36,11 +36,11 @@ contract WithdrawLiquidity is LiquidityBase {
         address tokenPoolAddress = _resolvePool(chainId);
 
         (PoolVersions.Version poolVersion, string memory typeAndVersion) =
-            PoolVersion.requireLockReleaseLiquidity(tokenPoolAddress);
+            PoolVersion._requireLockReleaseLiquidity(tokenPoolAddress);
 
         address tokenAddress = address(ILockReleaseV1Liquidity(tokenPoolAddress).getToken());
-        address broadcasterAddr = broadcaster();
-        // The pool only lets its rebalancer withdraw — refuse by name before broadcasting.
+        address broadcasterAddr = _broadcaster();
+        // The pool only lets its rebalancer withdraw - refuse by name before broadcasting.
         _requireRebalancer(tokenPoolAddress, broadcasterAddr, "withdrawLiquidity");
 
         // Surface the InsufficientLiquidity precondition up front (the pool reverts it when balance < amount).
@@ -53,7 +53,7 @@ contract WithdrawLiquidity is LiquidityBase {
         console.log("========================================");
         console.log(string.concat("Chain:        ", chainName));
         console.log(string.concat("Token Pool:   ", vm.toString(tokenPoolAddress)));
-        console.log(string.concat("Pool Version: ", PoolVersions.toString(poolVersion), " (", typeAndVersion, ")"));
+        console.log(string.concat("Pool Version: ", PoolVersions._toString(poolVersion), " (", typeAndVersion, ")"));
         console.log(string.concat("Token:        ", vm.toString(tokenAddress)));
         console.log(string.concat("Rebalancer:   ", vm.toString(broadcasterAddr)));
         console.log(string.concat("Pool Balance: ", vm.toString(poolBalance)));
@@ -62,7 +62,7 @@ contract WithdrawLiquidity is LiquidityBase {
         console.log("");
 
         console.log(string.concat("[Step 1] Withdrawing ", vm.toString(amount), " tokens of liquidity"));
-        executeCalls(CctActions.withdrawLiquidity(tokenPoolAddress, amount));
+        _executeCalls(CctActions._withdrawLiquidity(tokenPoolAddress, amount));
         console.log(unicode"✅ Liquidity withdrawn successfully!");
 
         console.log("");

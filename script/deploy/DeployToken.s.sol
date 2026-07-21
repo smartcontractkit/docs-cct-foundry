@@ -9,6 +9,7 @@ import {RegistryWriter} from "../../src/utils/RegistryWriter.sol";
 import {BaseERC20} from "@chainlink/contracts-ccip/contracts/tokens/BaseERC20.sol";
 import {CrossChainToken} from "@chainlink/contracts-ccip/contracts/tokens/CrossChainToken.sol";
 
+/// @notice Deploys a cross-chain ERC20 token (CrossChainToken) and records it in the address registry.
 contract DeployToken is Script {
     HelperConfig public helperConfig;
 
@@ -46,7 +47,7 @@ contract DeployToken is Script {
 
         // Refuse to redeploy over a live registry entry (FORCE_REDEPLOY=true overrides). Keyed on the
         // unique deployment name so distinct symbols on one chain never collide.
-        RegistryWriter.guard(selectorName, DeploymentRecorder.tokenName(tokenConfig.symbol));
+        RegistryWriter._guard(selectorName, DeploymentRecorder._tokenName(tokenConfig.symbol));
 
         vm.startBroadcast();
 
@@ -103,7 +104,7 @@ contract DeployToken is Script {
         console.log("");
         // Single writer: one call emits the detailed ledger file AND records the address in the
         // registry (deployments[{symbol}_Token] + active.token).
-        DeploymentRecorder.recordToken(vm, selectorName, chainNameIdentifier, tokenConfig.symbol, tokenAddress);
+        DeploymentRecorder._recordToken(vm, selectorName, chainNameIdentifier, tokenConfig.symbol, tokenAddress);
         console.log("");
         console.log("The address is registered in the address registry; later scripts resolve it automatically.");
         console.log("To override it for a session, set the environment variable:");
@@ -117,12 +118,12 @@ contract DeployToken is Script {
     /// @param tokenConfigPath Absolute path to the token JSON config file (e.g. `script/input/token.json`)
     /// @return config Populated TokenConfig struct with name, symbol, decimals, maxSupply, and preMint
     function _loadTokenConfig(string memory tokenConfigPath) internal view returns (TokenConfig memory config) {
-        config.name = vm.envOr("TOKEN_NAME", HelperUtils.getStringFromJson(vm, tokenConfigPath, ".name"));
-        config.symbol = vm.envOr("TOKEN_SYMBOL", HelperUtils.getStringFromJson(vm, tokenConfigPath, ".symbol"));
+        config.name = vm.envOr("TOKEN_NAME", HelperUtils._getStringFromJson(vm, tokenConfigPath, ".name"));
+        config.symbol = vm.envOr("TOKEN_SYMBOL", HelperUtils._getStringFromJson(vm, tokenConfigPath, ".symbol"));
         config.decimals =
-            uint8(vm.envOr("TOKEN_DECIMALS", HelperUtils.getUintFromJson(vm, tokenConfigPath, ".decimals")));
-        config.maxSupply = vm.envOr("TOKEN_MAX_SUPPLY", HelperUtils.getUintFromJson(vm, tokenConfigPath, ".maxSupply"));
-        config.preMint = vm.envOr("TOKEN_PRE_MINT", HelperUtils.getUintFromJson(vm, tokenConfigPath, ".preMint"));
+            uint8(vm.envOr("TOKEN_DECIMALS", HelperUtils._getUintFromJson(vm, tokenConfigPath, ".decimals")));
+        config.maxSupply = vm.envOr("TOKEN_MAX_SUPPLY", HelperUtils._getUintFromJson(vm, tokenConfigPath, ".maxSupply"));
+        config.preMint = vm.envOr("TOKEN_PRE_MINT", HelperUtils._getUintFromJson(vm, tokenConfigPath, ".preMint"));
         config.preMintRecipient = vm.envOr("TOKEN_PRE_MINT_RECIPIENT", address(0));
         config.ccipAdmin = vm.envOr("CCIP_ADMIN_ADDRESS", address(0));
 

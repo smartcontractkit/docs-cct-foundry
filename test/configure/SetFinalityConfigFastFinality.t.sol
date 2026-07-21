@@ -158,7 +158,7 @@ contract SetFinalityConfigFastFinalityTest is LaneReconcileScratch {
         _cleanupScratchOne(local);
     }
 
-    // No v2.fastFinality block declared (core-only lane): silent — the core fields never count as a
+    // No v2.fastFinality block declared (core-only lane): silent - the core fields never count as a
     // fast-finality declaration, so an env override cannot diverge from an absent declaration.
     function test_NoFastFinalityDeclaration_Silent() public {
         string memory local = _localChain(3);

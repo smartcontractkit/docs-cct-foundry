@@ -6,7 +6,7 @@ import {SetFinalityConfig} from "../../script/configure/finality-config/SetFinal
 import {LaneReconcileScratch} from "../config/VerifyChainLaneReconcile.t.sol";
 
 /// @dev Exposes SetFinalityConfig's finality-config input ladder with the env access swapped for an
-///      injectable fake (the `_env*` seams exist for exactly this — env vars are process-global and
+///      injectable fake (the `_env*` seams exist for exactly this - env vars are process-global and
 ///      forge runs suites in parallel, so tests must never vm.setEnv shared names). The resolution
 ///      reads the local chain config + project store from files, so each test pins block.chainid to
 ///      a uniquely-named scratch chain it writes.

@@ -28,24 +28,24 @@ import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 /// VIA_JSON_FILE=true  Reads config from script/input/apply-chain-updates.json.
 ///
 /// The JSON file allows configuring multiple destination chains and multiple remote pool addresses
-/// per chain in a single transaction — something that is impractical via inline CLI args.
+/// per chain in a single transaction - something that is impractical via inline CLI args.
 ///
 /// JSON schema:
 ///   {
-///     "sourcePool": "0x...",          // optional — overrides TOKEN_POOL / <CHAIN>_TOKEN_POOL env var
+///     "sourcePool": "0x...",          // optional - overrides TOKEN_POOL / <CHAIN>_TOKEN_POOL env var
 ///     "remoteChains": [
 ///       {
-///         "destChain": "MANTLE_SEPOLIA",         // required — chain name identifier
-///         "destChainFamily": "evm",              // optional — auto-detected; set "svm" for Solana
-///         "destChainSelector": 0,                // optional — auto-detected from destChain
-///         "destPools": ["0x...", "0x..."],        // required — one or more remote pool addresses
-///         "destToken": "0x...",                  // required — remote token address
-///         "outboundRateLimit": {                 // optional — defaults to disabled
+///         "destChain": "MANTLE_SEPOLIA",         // required - chain name identifier
+///         "destChainFamily": "evm",              // optional - auto-detected; set "svm" for Solana
+///         "destChainSelector": 0,                // optional - auto-detected from destChain
+///         "destPools": ["0x...", "0x..."],        // required - one or more remote pool addresses
+///         "destToken": "0x...",                  // required - remote token address
+///         "outboundRateLimit": {                 // optional - defaults to disabled
 ///           "enabled": false,
 ///           "capacity": 0,
 ///           "rate": 0
 ///         },
-///         "inboundRateLimit": {                  // optional — defaults to disabled
+///         "inboundRateLimit": {                  // optional - defaults to disabled
 ///           "enabled": false,
 ///           "capacity": 0,
 ///           "rate": 0
@@ -62,7 +62,7 @@ import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 ///   <SOURCE_CHAIN>_TOKEN_POOL     - Address of the token pool on the source chain
 ///                                   (or use the chain-agnostic alias: TOKEN_POOL=0x...)
 ///
-/// Environment Variables (EVM destinations — at least one form required):
+/// Environment Variables (EVM destinations - at least one form required):
 ///   DEST_TOKEN_POOL               - EVM address of the token pool on the destination chain
 ///                                   (overrides the chain-specific <DEST_CHAIN>_TOKEN_POOL var)
 ///   <DEST_CHAIN>_TOKEN_POOL       - EVM address of the token pool on the destination chain
@@ -79,7 +79,7 @@ import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 ///                                   (base58 for SVM)
 ///   DEST_TOKEN                    - Destination token address in its native format
 ///
-/// Environment Variables (optional — rate limiting disabled by default):
+/// Environment Variables (optional - rate limiting disabled by default):
 ///   OUTBOUND_RATE_LIMIT_CAPACITY  - uint128, token bucket capacity (isEnabled defaults to true when set)
 ///   OUTBOUND_RATE_LIMIT_RATE      - uint128, token bucket refill rate (isEnabled defaults to true when set)
 ///   OUTBOUND_RATE_LIMIT_ENABLED   - true/false (optional override; defaults to true if CAPACITY/RATE provided)
@@ -87,7 +87,7 @@ import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 ///   INBOUND_RATE_LIMIT_RATE       - uint128, token bucket refill rate (isEnabled defaults to true when set)
 ///   INBOUND_RATE_LIMIT_ENABLED    - true/false (optional override; defaults to true if CAPACITY/RATE provided)
 ///
-/// Rate-limit input resolution ladder (CLI mode, per direction — matching the repo's
+/// Rate-limit input resolution ladder (CLI mode, per direction - matching the repo's
 /// inline > env > registry idiom):
 ///   1. Any of the direction's rate-limit env vars set → the env values win. When the local chain
 ///      config declares a diverging lanes{} policy
@@ -100,7 +100,7 @@ import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 ///      (disabled).
 ///   3. Neither env vars nor a lanes{} entry → the historical default stands: disabled buckets
 ///      (the console says so).
-/// lanes{} is owner intent — an env-driven apply never writes it back. The printed `make add-lane`
+/// lanes{} is owner intent - an env-driven apply never writes it back. The printed `make add-lane`
 /// hint plus the doctor WARN close the loop through a reviewed edit by design.
 contract ApplyChainUpdates is EoaExecutor {
     HelperConfig public helperConfig;
@@ -135,7 +135,7 @@ contract ApplyChainUpdates is EoaExecutor {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // JSON file mode  — multiple chains, multiple pools per chain
+    // JSON file mode  - multiple chains, multiple pools per chain
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @dev Reads the JSON config file and applies chain updates for every entry in remoteChains[].
@@ -144,7 +144,7 @@ contract ApplyChainUpdates is EoaExecutor {
         uint256 sourceChainId = block.chainid;
         string memory json = vm.readFile(JSON_INPUT_FILE);
 
-        // Resolve source pool — JSON "sourcePool" field takes priority, then falls back to env vars.
+        // Resolve source pool - JSON "sourcePool" field takes priority, then falls back to env vars.
         address poolAddress;
         if (vm.keyExistsJson(json, ".sourcePool") && bytes(vm.parseJsonString(json, ".sourcePool")).length > 0) {
             poolAddress = vm.parseJsonAddress(json, ".sourcePool");
@@ -219,9 +219,11 @@ contract ApplyChainUpdates is EoaExecutor {
         console.log(
             string.concat("[Step 1] Applying chain updates to pool on ", helperConfig.getChainName(sourceChainId))
         );
-        (PoolVersions.Version poolVersion, string memory poolTypeAndVersion) = PoolVersion.resolve(poolAddress);
+        (PoolVersions.Version poolVersion, string memory poolTypeAndVersion) = PoolVersion._resolve(poolAddress);
         console.log(string.concat("Pool contract: ", poolTypeAndVersion));
-        executeCalls(_buildLaneUpdateCalls(poolVersion, poolAddress, chainSelectorRemovals, chainUpdates, shouldRemove));
+        _executeCalls(
+            _buildLaneUpdateCalls(poolVersion, poolAddress, chainSelectorRemovals, chainUpdates, shouldRemove)
+        );
         console.log(unicode"✅ Chain updates applied successfully!");
 
         console.log("");
@@ -299,7 +301,7 @@ contract ApplyChainUpdates is EoaExecutor {
         } else {
             meta.destChainFamilyStr = bytes(destConfig.chainFamily).length > 0 ? destConfig.chainFamily : string("evm");
         }
-        meta.destChainFamily = ChainHandlers.parseChainFamily(meta.destChainFamilyStr);
+        meta.destChainFamily = ChainHandlers._parseChainFamily(meta.destChainFamilyStr);
 
         if (vm.keyExistsJson(json, string.concat(prefix, ".destChainSelector"))) {
             meta.chainSelector = uint64(vm.parseJsonUint(json, string.concat(prefix, ".destChainSelector")));
@@ -328,10 +330,10 @@ contract ApplyChainUpdates is EoaExecutor {
     ) internal pure returns (JsonChainAddrs memory addrs) {
         addrs.rawTokenAddress = vm.parseJsonString(json, string.concat(prefix, ".destToken"));
         require(
-            ChainHandlers.validateChainAddress(addrs.rawTokenAddress, destChainFamily),
+            ChainHandlers._validateChainAddress(addrs.rawTokenAddress, destChainFamily),
             string.concat("Invalid ", destChainFamilyStr, " token address: ", addrs.rawTokenAddress)
         );
-        addrs.tokenEncoded = ChainHandlers.prepareChainAddressData(addrs.rawTokenAddress, destChainFamily);
+        addrs.tokenEncoded = ChainHandlers._prepareChainAddressData(addrs.rawTokenAddress, destChainFamily);
 
         addrs.rawPoolAddresses = vm.parseJsonStringArray(json, string.concat(prefix, ".destPools"));
         require(
@@ -342,10 +344,10 @@ contract ApplyChainUpdates is EoaExecutor {
         addrs.encodedPools = new bytes[](addrs.rawPoolAddresses.length);
         for (uint256 p = 0; p < addrs.rawPoolAddresses.length; p++) {
             require(
-                ChainHandlers.validateChainAddress(addrs.rawPoolAddresses[p], destChainFamily),
+                ChainHandlers._validateChainAddress(addrs.rawPoolAddresses[p], destChainFamily),
                 string.concat("Invalid ", destChainFamilyStr, " pool address: ", addrs.rawPoolAddresses[p])
             );
-            addrs.encodedPools[p] = ChainHandlers.prepareChainAddressData(addrs.rawPoolAddresses[p], destChainFamily);
+            addrs.encodedPools[p] = ChainHandlers._prepareChainAddressData(addrs.rawPoolAddresses[p], destChainFamily);
         }
     }
 
@@ -393,20 +395,20 @@ contract ApplyChainUpdates is EoaExecutor {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // CLI / env var mode  — single destination chain (original behaviour)
+    // CLI / env var mode  - single destination chain (original behaviour)
     // ─────────────────────────────────────────────────────────────────────────
 
     function _runFromEnv() internal {
         // Get destination chain name from environment variable
         string memory destChainName = vm.envString("DEST_CHAIN");
 
-        // Look up chain config by name — covers both EVM and non-EVM destinations.
+        // Look up chain config by name - covers both EVM and non-EVM destinations.
         // DEST_CHAIN_FAMILY / DEST_CHAIN_SELECTOR env vars always take precedence.
         HelperConfig.NetworkConfig memory destConfig = helperConfig.getDestChainConfig(destChainName);
         string memory destChainFamilyStr = vm.envOr(
             "DEST_CHAIN_FAMILY", bytes(destConfig.chainFamily).length > 0 ? destConfig.chainFamily : string("evm")
         );
-        ChainHandlers.ChainFamily destChainFamily = ChainHandlers.parseChainFamily(destChainFamilyStr);
+        ChainHandlers.ChainFamily destChainFamily = ChainHandlers._parseChainFamily(destChainFamilyStr);
 
         uint256 sourceChainId = block.chainid;
 
@@ -564,19 +566,19 @@ contract ApplyChainUpdates is EoaExecutor {
 
         // Validate addresses for their destination chain family.
         require(
-            ChainHandlers.validateChainAddress(dest.rawPoolAddress, destChainFamily),
+            ChainHandlers._validateChainAddress(dest.rawPoolAddress, destChainFamily),
             string.concat("Invalid ", destChainFamilyStr, " pool address: ", dest.rawPoolAddress)
         );
         require(
-            ChainHandlers.validateChainAddress(dest.rawTokenAddress, destChainFamily),
+            ChainHandlers._validateChainAddress(dest.rawTokenAddress, destChainFamily),
             string.concat("Invalid ", destChainFamilyStr, " token address: ", dest.rawTokenAddress)
         );
 
         // Encode addresses for the destination chain family.
-        // EVM:   abi.encode(address)  — 32-byte ABI-padded word
-        // SVM:   raw 32 bytes          — base58-decoded Solana public key
-        dest.poolEncoded = ChainHandlers.prepareChainAddressData(dest.rawPoolAddress, destChainFamily);
-        dest.tokenEncoded = ChainHandlers.prepareChainAddressData(dest.rawTokenAddress, destChainFamily);
+        // EVM:   abi.encode(address)  - 32-byte ABI-padded word
+        // SVM:   raw 32 bytes          - base58-decoded Solana public key
+        dest.poolEncoded = ChainHandlers._prepareChainAddressData(dest.rawPoolAddress, destChainFamily);
+        dest.tokenEncoded = ChainHandlers._prepareChainAddressData(dest.rawTokenAddress, destChainFamily);
     }
 
     /// @dev Builds the ChainUpdate payload and calls applyChainUpdates on the pool.
@@ -615,11 +617,11 @@ contract ApplyChainUpdates is EoaExecutor {
         });
 
         // Apply the chain updates through the shared action layer.
-        (PoolVersions.Version poolVersion, string memory poolTypeAndVersion) = PoolVersion.resolve(poolAddress);
+        (PoolVersions.Version poolVersion, string memory poolTypeAndVersion) = PoolVersion._resolve(poolAddress);
         console.log(string.concat("Pool contract: ", poolTypeAndVersion));
         bool[] memory replaceExisting = new bool[](1);
         replaceExisting[0] = chainAlreadyConfigured;
-        executeCalls(
+        _executeCalls(
             _buildLaneUpdateCalls(poolVersion, poolAddress, chainSelectorRemovals, chainUpdates, replaceExisting)
         );
         console.log(unicode"✅ Chain updates applied successfully!");
@@ -627,7 +629,7 @@ contract ApplyChainUpdates is EoaExecutor {
 
     /// @dev The exhaustive version switch of the lane-update dispatch: 1.5.0 takes the
     ///      single-argument encoding, every later cataloged version takes the modern
-    ///      (removes[], adds[]) encoding. `PoolVersion.resolve` refuses uncataloged versions before
+    ///      (removes[], adds[]) encoding. `PoolVersion._resolve` refuses uncataloged versions before
     ///      this switch runs, and a version added to the catalog without a branch here fails loudly
     ///      instead of falling through to the modern encoding.
     function _buildLaneUpdateCalls(
@@ -639,13 +641,13 @@ contract ApplyChainUpdates is EoaExecutor {
     ) internal pure returns (CctActions.Call[] memory) {
         if (version == PoolVersions.Version.V1_5_0) {
             console.log("Pool contract version 1.5.0 detected; using the 1.5.0 lane-update encoding.");
-            return CctActions.applyChainUpdatesV150(poolAddress, _toV150Updates(chainUpdates, replaceExisting));
+            return CctActions._applyChainUpdatesV150(poolAddress, _toV150Updates(chainUpdates, replaceExisting));
         }
         if (
             version == PoolVersions.Version.V1_5_1 || version == PoolVersions.Version.V1_6_1
                 || version == PoolVersions.Version.V2_0_0
         ) {
-            return CctActions.applyChainUpdates(poolAddress, chainSelectorRemovals, chainUpdates);
+            return CctActions._applyChainUpdates(poolAddress, chainSelectorRemovals, chainUpdates);
         }
         revert(
             "ApplyChainUpdates: pool version has no lane-update dispatch branch; extend the switch here and the catalog in src/PoolVersions.sol"
@@ -699,7 +701,7 @@ contract ApplyChainUpdates is EoaExecutor {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Rate-limit input resolution  — env > lanes{} > disabled default (CLI mode)
+    // Rate-limit input resolution  - env > lanes{} > disabled default (CLI mode)
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @dev How the CLI-mode rate-limit buckets were resolved, per direction, plus everything the
@@ -738,7 +740,7 @@ contract ApplyChainUpdates is EoaExecutor {
 
     /// @dev Resolves the CLI-mode rate-limit buckets through the two-rung input ladder, per
     ///      direction (see the contract natspec). lanes{} is OWNER INTENT: an env-driven apply
-    ///      never writes it back — the `make add-lane` hint plus the doctor WARN close the loop
+    ///      never writes it back - the `make add-lane` hint plus the doctor WARN close the loop
     ///      through a reviewed edit by design.
     function _resolveRateLimiterConfigs(string memory destChainName, uint64 destChainSelector)
         internal
@@ -766,7 +768,7 @@ contract ApplyChainUpdates is EoaExecutor {
 
         // Rung 1 cross-check: an env override that disagrees with the declared policy is a notice,
         // never a revert (the doctor FAILs until reconciled). An undeclared inbound{} block is not
-        // compared — same absent-means-undeclared rule the doctor applies.
+        // compared - same absent-means-undeclared rule the doctor applies.
         if (res.lane.found && res.outboundFromEnv) {
             res.outboundDiverges = _diverges(res.outbound, res.lane.capacity, res.lane.rate);
         }
@@ -802,7 +804,7 @@ contract ApplyChainUpdates is EoaExecutor {
         });
     }
 
-    /// @dev A declared bucket as a RateLimiter.Config: enabled iff capacity or rate is non-zero —
+    /// @dev A declared bucket as a RateLimiter.Config: enabled iff capacity or rate is non-zero -
     ///      the same inference the doctor's lanes rung uses (declared 0/0 is declared-disabled).
     function _declaredConfig(uint256 capacity, uint256 rate) internal pure returns (RateLimiter.Config memory) {
         bool enabled = capacity != 0 || rate != 0;
@@ -825,10 +827,10 @@ contract ApplyChainUpdates is EoaExecutor {
     ///      the ladder resolves; the empty JSON object `"{}"` when the chain has no project file yet (read
     ///      as "no lane declared"). The `"{}"` sentinel (NOT `""`) is deliberate: `keyExistsJson("", …)`
     ///      REVERTS ("EOF while parsing"), whereas `keyExistsJson("{}", …)` returns false. Mirrors
-    ///      `LanePolicySource._localProjectJson` — the duplication is deliberate (see the contract
+    ///      `LanePolicySource._localProjectJson` - the duplication is deliberate (see the contract
     ///      natspec); keep the two BYTE-mirrored.
     function _localProjectJson(string memory name) internal view returns (string memory) {
-        string memory p = ProjectStore.path(name);
+        string memory p = ProjectStore._path(name);
         if (!vm.exists(p)) return "{}";
         string memory data = vm.readFile(p);
         return bytes(data).length == 0 ? "{}" : data;
@@ -837,12 +839,12 @@ contract ApplyChainUpdates is EoaExecutor {
     /// @dev The local chain's config file (matched on the declared `chainId` == block.chainid),
     ///      discovered the same way HelperConfig discovers chains: by scanning `config/chains/`.
     function _findLocalChainConfig() internal view returns (bool found, string memory name, string memory json) {
-        string[] memory names = ChainConfig.names();
+        string[] memory names = ChainConfig._names();
         for (uint256 i = 0; i < names.length; i++) {
             string memory path = string.concat(vm.projectRoot(), "/config/chains/", names[i], ".json");
             // A file deleted or half-written between the directory scan and the read (parallel
             // test suites clean up scratch configs) is skipped, never an aborted run. Cheatcodes
-            // are external calls to the VM contract, so try/catch applies directly — no self-call
+            // are external calls to the VM contract, so try/catch applies directly - no self-call
             // (forge rejects address(this) in script contracts at runtime).
             try vm.readFile(path) returns (string memory candidate) {
                 try vm.parseJsonUint(candidate, ".chainId") returns (uint256 declaredChainId) {
@@ -858,8 +860,8 @@ contract ApplyChainUpdates is EoaExecutor {
     }
 
     /// @dev Finds the lanes{} entry for the destination in the local chain config. Match by remote
-    ///      chain name first — a lanes key IS the remote's config file basename, and DEST_CHAIN may
-    ///      carry either that basename or the remote's chainNameIdentifier — then fall back to
+    ///      chain name first - a lanes key IS the remote's config file basename, and DEST_CHAIN may
+    ///      carry either that basename or the remote's chainNameIdentifier - then fall back to
     ///      remoteSelector equality (the same join key the doctor's lanes rung reconciles on).
     function _findDeclaredLane(string memory json, string memory destChainName, uint64 destChainSelector)
         internal
@@ -873,7 +875,7 @@ contract ApplyChainUpdates is EoaExecutor {
             if (_sameString(keys[i], destChainName)) _readDeclaredLane(json, keys[i], lane);
         }
         for (uint256 i = 0; i < keys.length && !lane.found; i++) {
-            (bool ok, ChainConfig.Chain memory c,) = ChainConfig.tryLoad(keys[i]);
+            (bool ok, ChainConfig.Chain memory c,) = ChainConfig._tryLoad(keys[i]);
             if (ok && _sameString(c.chainNameIdentifier, destChainName)) _readDeclaredLane(json, keys[i], lane);
         }
         for (uint256 i = 0; i < keys.length && !lane.found; i++) {
@@ -942,12 +944,12 @@ contract ApplyChainUpdates is EoaExecutor {
     ///      config file of that name exists, otherwise the file whose chainNameIdentifier matches;
     ///      falls back to the raw DEST_CHAIN value when the remote has no config file yet.
     function _remoteConfigName(string memory destChainName) internal view returns (string memory) {
-        string[] memory names = ChainConfig.names();
+        string[] memory names = ChainConfig._names();
         for (uint256 i = 0; i < names.length; i++) {
             if (_sameString(names[i], destChainName)) return names[i];
         }
         for (uint256 i = 0; i < names.length; i++) {
-            (bool ok, ChainConfig.Chain memory c,) = ChainConfig.tryLoad(names[i]);
+            (bool ok, ChainConfig.Chain memory c,) = ChainConfig._tryLoad(names[i]);
             if (ok && _sameString(c.chainNameIdentifier, destChainName)) return names[i];
         }
         return destChainName;
@@ -963,7 +965,7 @@ contract ApplyChainUpdates is EoaExecutor {
                     "  Rate limits resolved from lanes.",
                     res.lane.key,
                     " in ",
-                    ProjectStore.display(res.configName),
+                    ProjectStore._display(res.configName),
                     " (",
                     res.outboundFromLanes ? (res.inboundFromLanes ? "outbound + inbound" : "outbound") : "inbound",
                     ")"
@@ -975,7 +977,7 @@ contract ApplyChainUpdates is EoaExecutor {
                 string.concat(
                     "  No rate-limit env vars and no lanes{} entry for ",
                     destChainName,
-                    res.configFound ? string.concat(" in ", ProjectStore.display(res.configName)) : "",
+                    res.configFound ? string.concat(" in ", ProjectStore._display(res.configName)) : "",
                     "; rate limiting disabled (default). Set the env vars, or declare the lane: make add-lane"
                 )
             );
@@ -1013,12 +1015,12 @@ contract ApplyChainUpdates is EoaExecutor {
             " rate=",
             vm.toString(declaredRate),
             ") in ",
-            ProjectStore.display(res.configName),
+            ProjectStore._display(res.configName),
             " - make doctor will FAIL until reconciled"
         );
     }
 
-    /// @dev The closing remediation hint. lanes{} is owner intent — applies never auto-write it;
+    /// @dev The closing remediation hint. lanes{} is owner intent - applies never auto-write it;
     ///      this hint plus the doctor WARN close the loop through a reviewed edit by design. Note
     ///      `make add-lane` skips an EXISTING entry (duplicate = byte-identical no-op), so the
     ///      divergence variant names the hand edit first.
@@ -1030,7 +1032,7 @@ contract ApplyChainUpdates is EoaExecutor {
                     unicode"⚠️  Applied rate limits diverge from declared lanes.",
                     res.lane.key,
                     " in ",
-                    ProjectStore.display(res.configName),
+                    ProjectStore._display(res.configName),
                     ". Reconcile the declaration: edit the entry to the applied values, or remove it and run: ",
                     res.addLaneCommand
                 )
@@ -1039,7 +1041,7 @@ contract ApplyChainUpdates is EoaExecutor {
             console.log(
                 string.concat(
                     unicode"⚠️  This lane is not declared in lanes{} (",
-                    ProjectStore.display(res.configName),
+                    ProjectStore._display(res.configName),
                     "). Declare it: ",
                     res.addLaneCommand
                 )

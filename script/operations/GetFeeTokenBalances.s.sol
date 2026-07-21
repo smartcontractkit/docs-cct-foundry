@@ -9,7 +9,7 @@ import {TokenPool} from "@chainlink/contracts-ccip/contracts/pools/TokenPool.sol
 
 /// @notice Displays the fee token balances currently held by a token pool.
 ///
-/// @dev Read-only inspection script — no --broadcast flag required.
+/// @dev Read-only inspection script - no --broadcast flag required.
 ///      Run this before WithdrawFeeTokens to confirm which tokens have accrued fees
 ///      and to preview the filtered list that would be passed to the withdrawal.
 ///
@@ -18,12 +18,12 @@ import {TokenPool} from "@chainlink/contracts-ccip/contracts/pools/TokenPool.sol
 ///      If the pool does not support fee inspection, the script will revert with an
 ///      informative message.
 ///
-/// @dev Callable by anyone — no signing or keystore required.
+/// @dev Callable by anyone - no signing or keystore required.
 ///
 /// Environment Variables (required):
 ///   FEE_TOKENS - Comma-separated or JSON array of ERC20 token addresses to inspect.
 ///                Only ERC20 tokens are supported. Native tokens (ETH, AVAX, etc.) are
-///                NOT supported — do not pass address(0).
+///                NOT supported - do not pass address(0).
 ///                CSV example:  "0xAAA...,0xBBB..."
 ///                JSON example: '["0xAAA...","0xBBB..."]'
 ///
@@ -60,8 +60,8 @@ contract GetFeeTokenBalances is Script {
         // ── Parse fee token list ───────────────────────────────────────────
         // Accepts CSV ("0xA,0xB") or JSON array ("[\"0xA\",\"0xB\"]").
         // NOTE: Only ERC20 tokens are supported. Native tokens (ETH, AVAX, etc.)
-        // are NOT supported — do not pass address(0).
-        address[] memory feeTokens = HelperUtils.parseAddressArray(vm, vm.envOr("FEE_TOKENS", string("")), "");
+        // are NOT supported - do not pass address(0).
+        address[] memory feeTokens = HelperUtils._parseAddressArray(vm, vm.envOr("FEE_TOKENS", string("")), "");
         require(
             feeTokens.length > 0, "FEE_TOKENS is required: provide a CSV or JSON array of token addresses to inspect."
         );
@@ -88,7 +88,7 @@ contract GetFeeTokenBalances is Script {
         // ── Inspect balances ───────────────────────────────────────────────
         console.log("Fee Token Balances:");
         (uint256 nonZeroCount, address[] memory tokensToWithdraw) =
-            FeeTokenLogger.logFeeTokenBalances(vm, tokenPoolAddress, feeTokens);
+            FeeTokenLogger._logFeeTokenBalances(vm, tokenPoolAddress, feeTokens);
 
         // ── Summary ────────────────────────────────────────────────────────
         console.log("");

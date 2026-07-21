@@ -9,16 +9,16 @@ import {Vm} from "forge-std/Vm.sol";
 /// is needed) a matching `config/chains/zz-scratch-*.json` carrying only `.chainFamily` so
 /// `RegistryWriter._validateForFamily` resolves. Both patterns are gitignored
 /// (`project/zz-scratch-*.json`, `config/chains/zz-scratch-*.json`), so a leak from a mid-test revert is
-/// invisible to `git status` and would deterministically brick a later `forge test` — hence the HARD
+/// invisible to `git status` and would deterministically brick a later `forge test` - hence the HARD
 /// rule that every suite sweeps ALL its basenames via `clean` in `setUp()` (revert-safe, before the
 /// body). A test may ADDITIONALLY remove the fixtures it exclusively owns as its last step (green-path
-/// hygiene, so a green run leaves no residue); it must never sweep suite-wide at end-of-test — forge
+/// hygiene, so a green run leaves no residue); it must never sweep suite-wide at end-of-test - forge
 /// runs a suite's tests in parallel, and a broad end sweep deletes a running sibling's files.
 ///
-/// Basenames MUST be unique per test (`zz-scratch-<suite>-<test>`): `ProjectStore.seedIfAbsent` +
+/// Basenames MUST be unique per test (`zz-scratch-<suite>-<test>`): `ProjectStore._seedIfAbsent` +
 /// forge's parallel suites race silently on a shared basename.
 ///
-/// Test write targets must NEVER use a bundled chain's real selectorName — a stranded fake would be
+/// Test write targets must NEVER use a bundled chain's real selectorName - a stranded fake would be
 /// silently resolved by that chain's zero-export ladder on a later script run. Use the
 /// `zz-scratch-*` / `zz-tt-*` / `local-*` prefixes; the CI "no test residue (any filename)"
 /// inventory gate enforces the no-residue invariant.
@@ -35,8 +35,8 @@ library ProjectScratch {
     }
 
     /// @notice Write a COMPLETE, discovery-safe scratch chain-config for a `zz-scratch-*` selectorName.
-    /// It MUST carry every field `HelperConfig`'s construction-time scan (`ChainConfig.tryLoad` →
-    /// `_parse`) reads — a minimal `{chainFamily}` stub would revert that scan (`parseJsonUint
+    /// It MUST carry every field `HelperConfig`'s construction-time scan (`ChainConfig._tryLoad` →
+    /// `_parse`) reads - a minimal `{chainFamily}` stub would revert that scan (`parseJsonUint
     /// ".chainSelector"`) and crash EVERY parallel `HelperConfig` construction, not just this suite's.
     /// EVM scratch tests that only exercise the store need no config (`RegistryWriter._family`
     /// defaults to EVM when the config is absent); seed an EVM config only when the test resolves the
@@ -49,7 +49,7 @@ library ProjectScratch {
     {
         // Built as a raw JSON string (NOT vm.serialize*): forge's serialization journal is keyed by the
         // object handle and accumulates across calls, so reusing a handle across tests can emit an
-        // inconsistent (even empty) document — which then makes `_family`'s `parseJsonString` revert EOF.
+        // inconsistent (even empty) document - which then makes `_family`'s `parseJsonString` revert EOF.
         // A raw string is deterministic per call.
         string memory json = string.concat(
             "{",
@@ -112,7 +112,7 @@ library ProjectScratch {
     }
 
     /// @notice Remove ONLY the project file, leaving a REAL (committed) `config/chains/<name>.json`
-    /// intact — for tests that resolve a real configured chain's selectorName through `HelperConfig`.
+    /// intact - for tests that resolve a real configured chain's selectorName through `HelperConfig`.
     function cleanProject(string memory selectorName) internal {
         string memory p = projectPath(selectorName);
         if (VM.exists(p)) VM.removeFile(p);
@@ -122,7 +122,7 @@ library ProjectScratch {
     /// from setUp()). A grouped project file lives at `project/<group>/<selectorName>.json`; the whole
     /// `zz-scratch-*` group directory is gitignored (`project/zz-scratch-*/`), so a leaked dir from a
     /// mid-test revert is invisible to `git status` yet would poison a later "no stray group dir"
-    /// assertion — the same HARD setUp() rule as the flat store. Removes the group directory and
+    /// assertion - the same HARD setUp() rule as the flat store. Removes the group directory and
     /// everything under it.
     function cleanGroupDir(string memory group) internal {
         string memory d = string.concat(VM.projectRoot(), "/project/", group);
@@ -132,7 +132,7 @@ library ProjectScratch {
     /// @notice Directory-shaped cleanup for the append-only `history/<category>/<selectorName>/` ledger:
     /// removes the per-artifact scratch directory under EVERY category (revert-safe; call from setUp()).
     /// The ledger dirs are gitignored (`history/`), so a leaked scratch dir from a mid-test revert is
-    /// invisible to `git status` yet would poison a later "append-only / no stray dir" assertion — hence
+    /// invisible to `git status` yet would poison a later "append-only / no stray dir" assertion - hence
     /// the same HARD setUp() rule as the project store.
     function cleanHistory(string memory selectorName) internal {
         string[4] memory categories = ["tokens", "token-pools", "lock-boxes", "advanced-pool-hooks"];

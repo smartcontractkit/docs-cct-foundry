@@ -7,7 +7,7 @@ import {HelperConfig} from "../../script/HelperConfig.s.sol";
 /// @title HelperConfigGoldenDataTest
 /// @notice Golden-data parity for the `config/chains` JSON: the addresses, selectors, and the genuinely
 /// hand-authored key (`chainNameIdentifier`) below are pinned as LITERALS captured
-/// from HelperConfig — they must NOT change.
+/// from HelperConfig - they must NOT change.
 /// @dev The API-served identity/metadata fields (`chainName`/`displayName`, `chainFamily`, `explorerUrl`,
 /// `nativeCurrencySymbol`) are SOURCED from the CCIP REST API by the config sync and pinned to the API
 /// truth (captured live 2026-07-09): 0g `chainName` "0g Galileo 1" / `explorerUrl` ".../0g.ai" /

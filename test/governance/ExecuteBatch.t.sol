@@ -17,7 +17,7 @@ import {SafeMode} from "../../src/base/SafeMode.sol";
 /// @notice Proofs for composing independently emitted Safe batches into ONE meta-transaction.
 ///         - The loader is the emitter's exact inverse (round-trip byte equality over the catalog).
 ///         - `loadMany` merges in the given order, and the merged calls equal the concatenation of
-///           the per-operation builders — i.e. the calldata the EOA mode would broadcast.
+///           the per-operation builders - i.e. the calldata the EOA mode would broadcast.
 ///         - A full CCT setup (accept pool ownership + claim/accept registration pair + setPool +
 ///           applyChainUpdates) executes as ONE `execTransaction` consuming ONE Safe nonce, landing
 ///           the same pool/registry state as the sequential EOA path.
@@ -78,30 +78,30 @@ contract ExecuteBatchForkTest is BaseForkTest {
     ///      emitter writes, the loader returns byte-identically.
     function test_Loader_RoundTripsEmitter() public {
         _assertRoundTrip(
-            "p311-rt-pair", CctActions.registerAndAcceptAdminViaGetCCIPAdmin(registryModule, address(registry), token)
+            "p311-rt-pair", CctActions._registerAndAcceptAdminViaGetCCIPAdmin(registryModule, address(registry), token)
         );
-        _assertRoundTrip("p311-rt-setpool", CctActions.setPool(address(registry), token, pool));
+        _assertRoundTrip("p311-rt-setpool", CctActions._setPool(address(registry), token, pool));
         (uint64[] memory removes, TokenPool.ChainUpdate[] memory updates) = _laneInput();
-        _assertRoundTrip("p311-rt-lane", CctActions.applyChainUpdates(pool, removes, updates));
-        _assertRoundTrip("p311-rt-deposit", CctActions.lockboxDeposit(EVM_REMOTE_POOL, token, 1e18));
+        _assertRoundTrip("p311-rt-lane", CctActions._applyChainUpdates(pool, removes, updates));
+        _assertRoundTrip("p311-rt-deposit", CctActions._lockboxDeposit(EVM_REMOTE_POOL, token, 1e18));
     }
 
-    /// @dev `loadMany` merges in the given order and equals the concatenation of the builders —
+    /// @dev `loadMany` merges in the given order and equals the concatenation of the builders -
     ///      the "merged inner calldata == concatenation of per-op EOA calldata" proof.
     function test_LoadMany_MergesInOrder() public {
         CctActions.Call[] memory pair =
-            CctActions.registerAndAcceptAdminViaGetCCIPAdmin(registryModule, address(registry), token);
-        CctActions.Call[] memory setPoolCall = CctActions.setPool(address(registry), token, pool);
+            CctActions._registerAndAcceptAdminViaGetCCIPAdmin(registryModule, address(registry), token);
+        CctActions.Call[] memory setPoolCall = CctActions._setPool(address(registry), token, pool);
         (uint64[] memory removes, TokenPool.ChainUpdate[] memory updates) = _laneInput();
-        CctActions.Call[] memory lane = CctActions.applyChainUpdates(pool, removes, updates);
+        CctActions.Call[] memory lane = CctActions._applyChainUpdates(pool, removes, updates);
 
         string[] memory paths = new string[](3);
-        paths[0] = SafeMode.emitBatch("p311-merge-pair", address(safe), pair);
-        paths[1] = SafeMode.emitBatch("p311-merge-setpool", address(safe), setPoolCall);
-        paths[2] = SafeMode.emitBatch("p311-merge-lane", address(safe), lane);
+        paths[0] = SafeMode._emitBatch("p311-merge-pair", address(safe), pair);
+        paths[1] = SafeMode._emitBatch("p311-merge-setpool", address(safe), setPoolCall);
+        paths[2] = SafeMode._emitBatch("p311-merge-lane", address(safe), lane);
 
-        CctActions.Call[] memory merged = SafeBatchLoader.loadMany(paths, block.chainid, address(safe));
-        CctActions.Call[] memory expected = CctActions.concat(CctActions.concat(pair, setPoolCall), lane);
+        CctActions.Call[] memory merged = SafeBatchLoader._loadMany(paths, block.chainid, address(safe));
+        CctActions.Call[] memory expected = CctActions._concat(CctActions._concat(pair, setPoolCall), lane);
 
         assertEq(merged.length, expected.length, "merged call count mismatch");
         for (uint256 i = 0; i < merged.length; i++) {
@@ -116,17 +116,17 @@ contract ExecuteBatchForkTest is BaseForkTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     /// @dev The full CCT setup as ONE Safe transaction: accept pool ownership, claim+accept the
-    ///      registry administrator, setPool, applyChainUpdates — one `execTransaction`, one nonce.
+    ///      registry administrator, setPool, applyChainUpdates - one `execTransaction`, one nonce.
     ///      The pool/registry end state must equal the sequential EOA path's.
     function test_MergedBatch_ModeB_FullSetup_OneNonce() public {
         // Sequential EOA reference (deployer does everything), captured on a snapshot.
         uint256 snapshot = vm.snapshotState();
-        CctActions.Call[] memory eoaSetup = CctActions.concat(
-            CctActions.registerAndAcceptAdminViaGetCCIPAdmin(registryModule, address(registry), token),
-            CctActions.setPool(address(registry), token, pool)
+        CctActions.Call[] memory eoaSetup = CctActions._concat(
+            CctActions._registerAndAcceptAdminViaGetCCIPAdmin(registryModule, address(registry), token),
+            CctActions._setPool(address(registry), token, pool)
         );
         (uint64[] memory removes, TokenPool.ChainUpdate[] memory updates) = _laneInput();
-        eoaSetup = CctActions.concat(eoaSetup, CctActions.applyChainUpdates(pool, removes, updates));
+        eoaSetup = CctActions._concat(eoaSetup, CctActions._applyChainUpdates(pool, removes, updates));
         _exec(deployer, eoaSetup);
         address eoaPool = registry.getPool(token);
         bytes memory eoaRemoteToken = TokenPool(pool).getRemoteToken(EVM_SELECTOR);
@@ -140,22 +140,23 @@ contract ExecuteBatchForkTest is BaseForkTest {
         TokenPool(pool).transferOwnership(address(safe));
 
         string[] memory paths = new string[](4);
-        paths[0] = SafeMode.emitBatch("p311-full-accept-own", address(safe), CctActions.acceptOwnership(pool));
-        paths[1] = SafeMode.emitBatch(
+        paths[0] = SafeMode._emitBatch("p311-full-accept-own", address(safe), CctActions._acceptOwnership(pool));
+        paths[1] = SafeMode._emitBatch(
             "p311-full-pair",
             address(safe),
-            CctActions.registerAndAcceptAdminViaGetCCIPAdmin(registryModule, address(registry), token)
+            CctActions._registerAndAcceptAdminViaGetCCIPAdmin(registryModule, address(registry), token)
         );
-        paths[2] =
-            SafeMode.emitBatch("p311-full-setpool", address(safe), CctActions.setPool(address(registry), token, pool));
+        paths[2] = SafeMode._emitBatch(
+            "p311-full-setpool", address(safe), CctActions._setPool(address(registry), token, pool)
+        );
         paths[3] =
-            SafeMode.emitBatch("p311-full-lane", address(safe), CctActions.applyChainUpdates(pool, removes, updates));
+            SafeMode._emitBatch("p311-full-lane", address(safe), CctActions._applyChainUpdates(pool, removes, updates));
 
-        CctActions.Call[] memory merged = SafeBatchLoader.loadMany(paths, block.chainid, address(safe));
+        CctActions.Call[] memory merged = SafeBatchLoader._loadMany(paths, block.chainid, address(safe));
         assertEq(merged.length, 5, "full setup must merge to five calls");
 
         uint256 nonceBefore = safe.nonce();
-        SafeMode.execDirect(safe, merged);
+        SafeMode._execDirect(safe, merged);
         assertEq(safe.nonce(), nonceBefore + 1, "the whole setup must consume exactly ONE Safe nonce");
 
         assertEq(TokenPool(pool).owner(), address(safe), "Safe must own the pool");
@@ -172,12 +173,13 @@ contract ExecuteBatchForkTest is BaseForkTest {
         CrossChainToken(token).setCCIPAdmin(address(safe));
 
         string[] memory paths = new string[](2);
-        paths[0] =
-            SafeMode.emitBatch("p311-rev-accept", address(safe), CctActions.acceptAdminRole(address(registry), token));
-        paths[1] = SafeMode.emitBatch(
-            "p311-rev-claim", address(safe), CctActions.registerAdminViaGetCCIPAdmin(registryModule, token)
+        paths[0] = SafeMode._emitBatch(
+            "p311-rev-accept", address(safe), CctActions._acceptAdminRole(address(registry), token)
         );
-        CctActions.Call[] memory merged = SafeBatchLoader.loadMany(paths, block.chainid, address(safe));
+        paths[1] = SafeMode._emitBatch(
+            "p311-rev-claim", address(safe), CctActions._registerAdminViaGetCCIPAdmin(registryModule, token)
+        );
+        CctActions.Call[] memory merged = SafeBatchLoader._loadMany(paths, block.chainid, address(safe));
 
         // expectRevert arms the next EXTERNAL call, so the internal library path goes through a shim.
         vm.expectRevert(bytes("GS013"));
@@ -193,22 +195,22 @@ contract ExecuteBatchForkTest is BaseForkTest {
 
     function test_Loader_RejectsChainIdMismatch() public {
         string memory path = "batches/p311-wrong-chain.json";
-        SafeBatchEmitter.write(
-            path, block.chainid + 1, address(safe), "p311-wrong-chain", "test", CctActions.acceptOwnership(pool)
+        SafeBatchEmitter._write(
+            path, block.chainid + 1, address(safe), "p311-wrong-chain", "test", CctActions._acceptOwnership(pool)
         );
         vm.expectRevert();
         this.loadAndValidateExternal(path, block.chainid, address(safe));
     }
 
     function test_Loader_RejectsForeignSafe() public {
-        string memory path = SafeMode.emitBatch("p311-foreign-safe", deployer, CctActions.acceptOwnership(pool));
+        string memory path = SafeMode._emitBatch("p311-foreign-safe", deployer, CctActions._acceptOwnership(pool));
         vm.expectRevert();
         this.loadAndValidateExternal(path, block.chainid, address(safe));
     }
 
     function test_Loader_RejectsEmptyBatch() public {
         string memory path = "batches/p311-empty.json";
-        SafeBatchEmitter.write(path, block.chainid, address(safe), "p311-empty", "test", new CctActions.Call[](0));
+        SafeBatchEmitter._write(path, block.chainid, address(safe), "p311-empty", "test", new CctActions.Call[](0));
         vm.expectRevert();
         this.loadAndValidateExternal(path, block.chainid, address(safe));
     }
@@ -219,12 +221,12 @@ contract ExecuteBatchForkTest is BaseForkTest {
         view
         returns (CctActions.Call[] memory)
     {
-        return SafeBatchLoader.loadAndValidate(path, chainId, expectedSafe);
+        return SafeBatchLoader._loadAndValidate(path, chainId, expectedSafe);
     }
 
     /// @dev external shim so expectRevert applies to the whole Mode B execution.
     function execDirectExternal(ISafe execSafe, CctActions.Call[] memory calls) external {
-        SafeMode.execDirect(execSafe, calls);
+        SafeMode._execDirect(execSafe, calls);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -238,10 +240,10 @@ contract ExecuteBatchForkTest is BaseForkTest {
     function test_Gas_MergedVsSequential() public {
         // Prerequisite: lane configured, pool owned by the Safe.
         (uint64[] memory removes, TokenPool.ChainUpdate[] memory updates) = _laneInput();
-        _exec(deployer, CctActions.applyChainUpdates(pool, removes, updates));
+        _exec(deployer, CctActions._applyChainUpdates(pool, removes, updates));
         vm.prank(deployer);
         TokenPool(pool).transferOwnership(address(safe));
-        SafeMode.execDirect(safe, CctActions.acceptOwnership(pool));
+        SafeMode._execDirect(safe, CctActions._acceptOwnership(pool));
 
         CctActions.Call[][] memory ops = new CctActions.Call[][](3);
         ops[0] = _rateLimitOp(200e18, 0.2e18);
@@ -254,7 +256,7 @@ contract ExecuteBatchForkTest is BaseForkTest {
         uint256 sequentialGas;
         for (uint256 i = 0; i < ops.length; i++) {
             uint256 before = gasleft();
-            SafeMode.execDirect(safe, ops[i]);
+            SafeMode._execDirect(safe, ops[i]);
             sequentialGas += before - gasleft();
         }
         (RateLimiter.TokenBucket memory sequentialState,) =
@@ -262,9 +264,9 @@ contract ExecuteBatchForkTest is BaseForkTest {
         vm.revertToState(snapshot);
 
         // (b) one merged meta-transaction.
-        CctActions.Call[] memory merged = CctActions.concat(CctActions.concat(ops[0], ops[1]), ops[2]);
+        CctActions.Call[] memory merged = CctActions._concat(CctActions._concat(ops[0], ops[1]), ops[2]);
         uint256 beforeMerged = gasleft();
-        SafeMode.execDirect(safe, merged);
+        SafeMode._execDirect(safe, merged);
         uint256 mergedGas = beforeMerged - gasleft();
         (RateLimiter.TokenBucket memory mergedState,) = TokenPool(pool).getCurrentRateLimiterState(EVM_SELECTOR, false);
 
@@ -280,8 +282,8 @@ contract ExecuteBatchForkTest is BaseForkTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     function _assertRoundTrip(string memory name, CctActions.Call[] memory calls) internal {
-        string memory path = SafeMode.emitBatch(name, address(safe), calls);
-        (uint256 chainId, address batchSafe, CctActions.Call[] memory loaded) = SafeBatchLoader.load(path);
+        string memory path = SafeMode._emitBatch(name, address(safe), calls);
+        (uint256 chainId, address batchSafe, CctActions.Call[] memory loaded) = SafeBatchLoader._load(path);
         assertEq(chainId, block.chainid, string.concat(name, ": chainId mismatch"));
         assertEq(batchSafe, address(safe), string.concat(name, ": safe mismatch"));
         assertEq(loaded.length, calls.length, string.concat(name, ": call count mismatch"));
@@ -293,7 +295,7 @@ contract ExecuteBatchForkTest is BaseForkTest {
     }
 
     function _rateLimitOp(uint128 capacity, uint128 rate) internal view returns (CctActions.Call[] memory) {
-        return CctActions.setRateLimits(
+        return CctActions._setRateLimits(
             pool,
             PoolVersions.Version.V2_0_0,
             EVM_SELECTOR,

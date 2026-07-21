@@ -9,13 +9,13 @@ import {EoaExecutor} from "../../src/base/EoaExecutor.s.sol";
 
 /**
  * @notice Initiates a transfer of the token admin role to a new address.
- * @dev This is step 1 of a two-step process — the new admin must run AcceptAdminRole to complete it.
+ * @dev This is step 1 of a two-step process - the new admin must run AcceptAdminRole to complete it.
  *
  * Required env vars:
- *   NEW_ADMIN  — address of the new administrator
+ *   NEW_ADMIN  - address of the new administrator
  *
  * Optional env vars:
- *   TOKEN      — inline alias for the token address (takes priority over {CHAIN}_TOKEN)
+ *   TOKEN      - inline alias for the token address (takes priority over {CHAIN}_TOKEN)
  *
  * Usage:
  *   NEW_ADMIN=0xNewAdminAddress forge script script/setup/TransferTokenAdminRole.s.sol \
@@ -40,7 +40,7 @@ contract TransferTokenAdminRole is EoaExecutor {
         console.log("========================================");
         console.log("");
 
-        // Get deployed token address — TOKEN env var takes priority, then {CHAIN}_TOKEN
+        // Get deployed token address - TOKEN env var takes priority, then {CHAIN}_TOKEN
         address tokenAddress = helperConfig.getDeployedToken(chainId);
         require(
             tokenAddress != address(0),
@@ -68,7 +68,7 @@ contract TransferTokenAdminRole is EoaExecutor {
         console.log(string.concat("  Pending Administrator:        ", vm.toString(pendingAdmin)));
         console.log(string.concat("  New Admin:                    ", vm.toString(newAdmin)));
 
-        address signer = broadcaster();
+        address signer = _broadcaster();
         console.log(string.concat("  Signer:                       ", vm.toString(signer)));
         console.log("");
 
@@ -96,7 +96,7 @@ contract TransferTokenAdminRole is EoaExecutor {
         );
 
         console.log(string.concat("\n[Step 1] Transferring admin role for token on ", chainName));
-        executeCalls(CctActions.transferAdminRole(config.tokenAdminRegistry, tokenAddress, newAdmin));
+        _executeCalls(CctActions._transferAdminRole(config.tokenAdminRegistry, tokenAddress, newAdmin));
         console.log(unicode"✅ Admin role transfer initiated successfully!");
 
         console.log("");

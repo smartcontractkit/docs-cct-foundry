@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {SyncCcipConfig} from "../../script/config/SyncCcipConfig.s.sol";
 
 /// @notice Pins the pure rules of the chain-config tooling (`script/config/SyncCcipConfig.s.sol`):
-/// chain-name validation (names become file paths and shell arguments — path traversal and shell
+/// chain-name validation (names become file paths and shell arguments - path traversal and shell
 /// metacharacters must be refused up front) and the derived-default conventions used by add-chain.
 contract SyncToolingRulesTest is Test {
     SyncCcipConfig internal sync;

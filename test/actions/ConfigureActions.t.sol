@@ -14,7 +14,7 @@ import {BaseForkTest} from "../BaseForkTest.t.sol";
 /// @dev A minimal pool that exposes ONLY the v1.x rate-limiter surface (`setChainRateLimiterConfig` +
 ///      the two per-direction getters) and NOT the v2 `getCurrentRateLimiterState(uint64,bool)` getter.
 ///      It faithfully stores the config the v1 setter writes, so the v1 dispatch path can be
-///      fork-executed and read back — the 1.6.x generation is not in this repo's dependency set,
+///      fork-executed and read back - the 1.6.x generation is not in this repo's dependency set,
 ///      so a minimal faithful v1 ABI is the honest way to prove the dual-generation dispatch
 ///      routes correctly.
 contract MockV1RateLimiterPool {
@@ -103,7 +103,7 @@ contract ConfigureActionsForkTest is BaseForkTest {
             outboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0}),
             inboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0})
         });
-        _exec(asOwner, CctActions.applyChainUpdates(p, new uint64[](0), updates));
+        _exec(asOwner, CctActions._applyChainUpdates(p, new uint64[](0), updates));
     }
 
     function _cfg(bool enabled, uint128 capacity, uint128 rate) internal pure returns (RateLimiter.Config memory) {
@@ -111,14 +111,14 @@ contract ConfigureActionsForkTest is BaseForkTest {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Rate limits — standard and fast-finality buckets, asserted via getters
+    // Rate limits - standard and fast-finality buckets, asserted via getters
     // ─────────────────────────────────────────────────────────────────────────
 
     function test_RateLimits_StandardBucket_ViaGetter() public {
         RateLimiter.Config memory out = _cfg(true, 1_000e18, 10e18);
         RateLimiter.Config memory inb = _cfg(true, 2_000e18, 20e18);
 
-        _exec(owner, CctActions.setRateLimits(pool, PoolVersions.Version.V2_0_0, SELECTOR, false, out, inb));
+        _exec(owner, CctActions._setRateLimits(pool, PoolVersions.Version.V2_0_0, SELECTOR, false, out, inb));
 
         (RateLimiter.TokenBucket memory o, RateLimiter.TokenBucket memory i) =
             TokenPool(pool).getCurrentRateLimiterState(SELECTOR, false);
@@ -134,7 +134,7 @@ contract ConfigureActionsForkTest is BaseForkTest {
         RateLimiter.Config memory out = _cfg(true, 500e18, 5e18);
         RateLimiter.Config memory inb = _cfg(false, 0, 0);
 
-        _exec(owner, CctActions.setRateLimits(pool, PoolVersions.Version.V2_0_0, SELECTOR, true, out, inb));
+        _exec(owner, CctActions._setRateLimits(pool, PoolVersions.Version.V2_0_0, SELECTOR, true, out, inb));
 
         (RateLimiter.TokenBucket memory o, RateLimiter.TokenBucket memory i) =
             TokenPool(pool).getCurrentRateLimiterState(SELECTOR, true);
@@ -144,7 +144,7 @@ contract ConfigureActionsForkTest is BaseForkTest {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Version-dispatched setters — 1.5.0-1.6.1 -> v1 setter, 2.0.0 -> v2 setter
+    // Version-dispatched setters - 1.5.0-1.6.1 -> v1 setter, 2.0.0 -> v2 setter
     // ─────────────────────────────────────────────────────────────────────────
 
     function test_VersionDispatch_V1Calldata() public {
@@ -153,7 +153,7 @@ contract ConfigureActionsForkTest is BaseForkTest {
         RateLimiter.Config memory inb = _cfg(true, 100_000e18, 100e18);
 
         CctActions.Call[] memory calls =
-            CctActions.setRateLimits(address(v1), PoolVersions.Version.V1_6_1, SELECTOR, false, out, inb);
+            CctActions._setRateLimits(address(v1), PoolVersions.Version.V1_6_1, SELECTOR, false, out, inb);
         assertEq(calls.length, 1, "v1 dispatch is one call");
         assertEq(calls[0].target, address(v1), "targets the v1 pool");
         assertEq(
@@ -177,7 +177,7 @@ contract ConfigureActionsForkTest is BaseForkTest {
         });
 
         CctActions.Call[] memory calls =
-            CctActions.setRateLimits(pool, PoolVersions.Version.V2_0_0, SELECTOR, false, out, inb);
+            CctActions._setRateLimits(pool, PoolVersions.Version.V2_0_0, SELECTOR, false, out, inb);
         assertEq(calls[0].target, pool, "targets the v2 pool");
         assertEq(calls[0].data, abi.encodeCall(TokenPool.setRateLimitConfig, (expected)), "v2 setter calldata");
     }
@@ -187,7 +187,7 @@ contract ConfigureActionsForkTest is BaseForkTest {
         // Force the v1 calldata (a v1-range version) but aim it at the real 2.0.0 pool: the selector
         // does not exist there.
         CctActions.Call[] memory calls =
-            CctActions.setRateLimits(pool, PoolVersions.Version.V1_6_1, SELECTOR, false, out, out);
+            CctActions._setRateLimits(pool, PoolVersions.Version.V1_6_1, SELECTOR, false, out, out);
         vm.prank(owner);
         (bool ok,) = calls[0].target.call(calls[0].data);
         assertFalse(ok, "v1 setter must not exist on a 2.0.0 pool");
@@ -199,7 +199,8 @@ contract ConfigureActionsForkTest is BaseForkTest {
         RateLimiter.Config memory inb = _cfg(true, 100_000e18, 100e18);
 
         _exec(
-            address(this), CctActions.setRateLimits(address(v1), PoolVersions.Version.V1_6_1, SELECTOR, false, out, inb)
+            address(this),
+            CctActions._setRateLimits(address(v1), PoolVersions.Version.V1_6_1, SELECTOR, false, out, inb)
         );
 
         RateLimiter.TokenBucket memory o = v1.getCurrentOutboundRateLimiterState(SELECTOR);
@@ -209,31 +210,31 @@ contract ConfigureActionsForkTest is BaseForkTest {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Remote pools — getRemotePools
+    // Remote pools - getRemotePools
     // ─────────────────────────────────────────────────────────────────────────
 
     function test_AddRemotePool_ViaGetter() public {
         address extraPool = address(0x3333333333333333333333333333333333333333);
         uint256 before = TokenPool(pool).getRemotePools(SELECTOR).length;
 
-        _exec(owner, CctActions.addRemotePool(pool, SELECTOR, abi.encode(extraPool)));
+        _exec(owner, CctActions._addRemotePool(pool, SELECTOR, abi.encode(extraPool)));
 
         bytes[] memory pools = TokenPool(pool).getRemotePools(SELECTOR);
         assertEq(pools.length, before + 1, "remote pool count grew");
         assertTrue(TokenPool(pool).isRemotePool(SELECTOR, abi.encode(extraPool)), "new remote pool registered");
 
-        _exec(owner, CctActions.removeRemotePool(pool, SELECTOR, abi.encode(extraPool)));
+        _exec(owner, CctActions._removeRemotePool(pool, SELECTOR, abi.encode(extraPool)));
         assertFalse(TokenPool(pool).isRemotePool(SELECTOR, abi.encode(extraPool)), "remote pool removed");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Dynamic config — getDynamicConfig
+    // Dynamic config - getDynamicConfig
     // ─────────────────────────────────────────────────────────────────────────
 
     function test_SetDynamicConfig_ViaGetter() public {
         address rla = address(0xA11CE);
         address fa = address(0xBEEF);
-        _exec(owner, CctActions.setDynamicConfig(pool, networkConfig.router, rla, fa));
+        _exec(owner, CctActions._setDynamicConfig(pool, networkConfig.router, rla, fa));
 
         (address router, address rateLimitAdmin, address feeAdmin) = TokenPool(pool).getDynamicConfig();
         assertEq(router, networkConfig.router, "router set");
@@ -242,32 +243,32 @@ contract ConfigureActionsForkTest is BaseForkTest {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Finality matrix — getAllowedFinalityConfig (four modes)
+    // Finality matrix - getAllowedFinalityConfig (four modes)
     // ─────────────────────────────────────────────────────────────────────────
 
     function test_Finality_ModeBlockDepth() public {
-        _exec(owner, CctActions.setAllowedFinalityConfig(pool, FinalityCodec._encodeBlockDepth(5)));
+        _exec(owner, CctActions._setAllowedFinalityConfig(pool, FinalityCodec._encodeBlockDepth(5)));
         assertEq(TokenPool(pool).getAllowedFinalityConfig(), bytes4(0x00000005), "block-depth 5");
     }
 
     function test_Finality_ModeWaitForSafe() public {
-        _exec(owner, CctActions.setAllowedFinalityConfig(pool, FinalityCodec.WAIT_FOR_SAFE_FLAG));
+        _exec(owner, CctActions._setAllowedFinalityConfig(pool, FinalityCodec.WAIT_FOR_SAFE_FLAG));
         assertEq(TokenPool(pool).getAllowedFinalityConfig(), bytes4(0x00010000), "wait-for-safe");
     }
 
     function test_Finality_ModeCombined() public {
-        _exec(owner, CctActions.setAllowedFinalityConfig(pool, FinalityCodec._encodeBlockDepthAndSafeFlag(5)));
+        _exec(owner, CctActions._setAllowedFinalityConfig(pool, FinalityCodec._encodeBlockDepthAndSafeFlag(5)));
         assertEq(TokenPool(pool).getAllowedFinalityConfig(), bytes4(0x00010005), "combined depth|safe");
     }
 
     function test_Finality_ModeResetToDefault() public {
-        _exec(owner, CctActions.setAllowedFinalityConfig(pool, FinalityCodec._encodeBlockDepthAndSafeFlag(5)));
-        _exec(owner, CctActions.setAllowedFinalityConfig(pool, FinalityCodec.WAIT_FOR_FINALITY_FLAG));
+        _exec(owner, CctActions._setAllowedFinalityConfig(pool, FinalityCodec._encodeBlockDepthAndSafeFlag(5)));
+        _exec(owner, CctActions._setAllowedFinalityConfig(pool, FinalityCodec.WAIT_FOR_FINALITY_FLAG));
         assertEq(TokenPool(pool).getAllowedFinalityConfig(), bytes4(0x00000000), "reset to default");
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Fee config — getTokenTransferFeeConfig (the getter the script uses)
+    // Fee config - getTokenTransferFeeConfig (the getter the script uses)
     // ─────────────────────────────────────────────────────────────────────────
 
     function test_FeeConfig_EnableThenDisable_ViaGetter() public {
@@ -284,7 +285,7 @@ contract ConfigureActionsForkTest is BaseForkTest {
                 isEnabled: true
             })
         });
-        _exec(owner, CctActions.applyTokenTransferFeeConfigUpdates(pool, args, new uint64[](0)));
+        _exec(owner, CctActions._applyTokenTransferFeeConfigUpdates(pool, args, new uint64[](0)));
 
         IPoolV2.TokenTransferFeeConfig memory cfg =
             TokenPool(pool).getTokenTransferFeeConfig(address(0), SELECTOR, 0, "");
@@ -297,7 +298,7 @@ contract ConfigureActionsForkTest is BaseForkTest {
         disable[0] = SELECTOR;
         _exec(
             owner,
-            CctActions.applyTokenTransferFeeConfigUpdates(pool, new TokenPool.TokenTransferFeeConfigArgs[](0), disable)
+            CctActions._applyTokenTransferFeeConfigUpdates(pool, new TokenPool.TokenTransferFeeConfigArgs[](0), disable)
         );
 
         cfg = TokenPool(pool).getTokenTransferFeeConfig(address(0), SELECTOR, 0, "");
@@ -319,7 +320,7 @@ contract ConfigureActionsForkTest is BaseForkTest {
         // Default (standard) outbound bucket enabled; fast-finality bucket left UNCONFIGURED (disabled).
         _exec(
             address(this),
-            CctActions.setRateLimits(
+            CctActions._setRateLimits(
                 address(probe),
                 PoolVersions.Version.V2_0_0,
                 SELECTOR,

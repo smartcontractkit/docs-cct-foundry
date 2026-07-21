@@ -68,7 +68,7 @@ contract AdoptToken is Script {
         recordAdoption(plan);
 
         console.log("");
-        console.log(string.concat(unicode"✅ Adopted into ", ProjectStore.display(name)));
+        console.log(string.concat(unicode"✅ Adopted into ", ProjectStore._display(name)));
         console.log("Next steps:");
         if (bytes(plan.adminPath).length > 0) {
             console.log(
@@ -95,7 +95,7 @@ contract AdoptToken is Script {
         plan.chainId = chainId;
         plan.token = token;
         plan.pool = pool;
-        plan.tokenSymbol = DeploymentUtils.getSymbol(vm, token);
+        plan.tokenSymbol = DeploymentUtils._getSymbol(vm, token);
 
         console.log("");
         console.log("========================================");
@@ -124,7 +124,7 @@ contract AdoptToken is Script {
             // foreign pool types, and uncataloged versions by name (POOL_VERSION_OVERRIDE is honored
             // with its cross-check; the registry always records the TRUE on-chain string below, and
             // an override used here shows only in the console output).
-            (, string memory full) = PoolVersion.resolve(pool);
+            (, string memory full) = PoolVersion._resolve(pool);
             plan.poolTypeAndVersion = full;
             address poolToken = address(TokenPool(pool).getToken());
             require(
@@ -149,11 +149,11 @@ contract AdoptToken is Script {
     ///         symbol (and the pool's on-chain type and version) plus the `active.<role>` pointers,
     ///         through the same single-writer path the deploy scripts use.
     function recordAdoption(AdoptPlan memory plan) public {
-        RegistryWriter.recordDeterministic(
+        RegistryWriter._recordDeterministic(
             plan.selectorName, "token", string.concat(plan.tokenSymbol, "_Token"), plan.token
         );
         if (plan.pool != address(0)) {
-            RegistryWriter.recordDeterministic(
+            RegistryWriter._recordDeterministic(
                 plan.selectorName,
                 "tokenPool",
                 string.concat(plan.tokenSymbol, "_", _spacesToUnderscores(plan.poolTypeAndVersion)),
@@ -162,7 +162,7 @@ contract AdoptToken is Script {
         }
     }
 
-    /// @notice **Non-EVM (base58) adopt path** — declare a project's Solana-side (or other non-EVM)
+    /// @notice **Non-EVM (base58) adopt path** - declare a project's Solana-side (or other non-EVM)
     /// token and pool as base58 strings into `project/<selectorName>.json`, so an EVM pool's
     /// `applyChainUpdates` can take the remote from the reviewed store instead of an ephemeral
     /// `DEST_TOKEN_POOL` env var. This repo forks EVM only, so there is NO on-chain probe here: the
@@ -195,11 +195,11 @@ contract AdoptToken is Script {
 
         // RegistryWriter family-validates against config .chainFamily (base58 -> 32 bytes) and seeds
         // the project skeleton if absent.
-        RegistryWriter.recordDeterministicString(name, "token", string.concat(name, "_token"), tokenBase58);
+        RegistryWriter._recordDeterministicString(name, "token", string.concat(name, "_token"), tokenBase58);
         if (bytes(poolBase58).length != 0) {
-            RegistryWriter.recordDeterministicString(name, "tokenPool", string.concat(name, "_tokenPool"), poolBase58);
+            RegistryWriter._recordDeterministicString(name, "tokenPool", string.concat(name, "_tokenPool"), poolBase58);
         }
-        console.log(string.concat(unicode"✅ Declared non-EVM artifacts into ", ProjectStore.display(name)));
+        console.log(string.concat(unicode"✅ Declared non-EVM artifacts into ", ProjectStore._display(name)));
         console.log("  These base58 remotes now feed applyChainUpdates from the store (no env var needed).");
     }
 

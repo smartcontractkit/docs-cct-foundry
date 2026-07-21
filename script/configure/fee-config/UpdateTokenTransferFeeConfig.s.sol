@@ -24,7 +24,7 @@ import {ProjectStore} from "../../../src/utils/ProjectStore.sol";
 /// Environment Variables (required):
 ///   DEST_CHAIN    - The remote destination chain to configure fees for (e.g. MANTLE_SEPOLIA)
 ///
-/// Environment Variables (per-field, optional when DISABLE is false or unset — see the ladder below):
+/// Environment Variables (per-field, optional when DISABLE is false or unset - see the ladder below):
 ///   DEST_GAS_OVERHEAD             - uint32, gas overhead charged on destination chain (must be > 0)
 ///   DEST_BYTES_OVERHEAD           - uint32, data availability bytes overhead on destination chain
 ///   FINALITY_FEE_USD_CENTS        - uint32, fixed fee in 0.01 USD units for finality transfers
@@ -35,7 +35,7 @@ import {ProjectStore} from "../../../src/utils/ProjectStore.sol";
 /// Environment Variables (optional):
 ///   DISABLE  - true/false, set to true to disable the fee config for this lane (default: false)
 ///
-/// Fee-config input resolution ladder (PER FIELD — the same env-over-lanes{} ladder
+/// Fee-config input resolution ladder (PER FIELD - the same env-over-lanes{} ladder
 /// ApplyChainUpdates and UpdateRateLimiters use, resolved per field: each unset env var
 /// independently falls back to the current on-chain value):
 ///   1. Env var set → the env value wins. When the local
@@ -44,11 +44,11 @@ import {ProjectStore} from "../../../src/utils/ProjectStore.sol";
 ///      prints a hand-edit remediation hint.
 ///   2. Env var unset → the declared `v2.feeConfig.<field>` supplies the value when declared (with
 ///      no env vars at all, the whole config comes from the declared block). An undeclared field
-///      falls through to rung 3 — the doctor's absent-means-undeclared rule.
+///      falls through to rung 3 - the doctor's absent-means-undeclared rule.
 ///   3. Neither → the current on-chain value, exactly the historical default (zero when no config
 ///      is stored yet).
 /// A partial env set therefore behaves exactly as before for the set fields, and each unset field
-/// takes its declared value before the on-chain fallback. lanes{} is owner intent — an env-driven
+/// takes its declared value before the on-chain fallback. lanes{} is owner intent - an env-driven
 /// apply never writes it back. `make add-lane` has no flag surface for the v2{} blocks (deliberate:
 /// they are declared by a reviewed hand edit), so the closing hint is a hand-edit instruction; the
 /// doctor WARN closes the loop.
@@ -63,7 +63,7 @@ import {ProjectStore} from "../../../src/utils/ProjectStore.sol";
 ///   FAST_FINALITY_TRANSFER_FEE_BPS=50 \
 ///   forge script script/configure/fee-config/UpdateTokenTransferFeeConfig.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account <KEYSTORE_NAME> --broadcast
 ///
-/// Usage example (apply the declared lanes{} fee policy — no fee env vars):
+/// Usage example (apply the declared lanes{} fee policy - no fee env vars):
 ///   DEST_CHAIN=MANTLE_SEPOLIA \
 ///   forge script script/configure/fee-config/UpdateTokenTransferFeeConfig.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account <KEYSTORE_NAME> --broadcast
 ///
@@ -133,8 +133,8 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
         // contract version and refuse by name on any version that does not carry it, BEFORE any
         // v2-surface read (getTokenTransferFeeConfig) or the write. This script broadcasts, so use
         // resolve (which refuses uncataloged/-dev pools rather than degrading).
-        (PoolVersions.Version poolVersion,) = PoolVersion.resolve(tokenPoolAddress);
-        PoolVersions.requireSupports(PoolVersions.Op.SET_TOKEN_TRANSFER_FEE_CONFIG, poolVersion, tokenPoolAddress);
+        (PoolVersions.Version poolVersion,) = PoolVersion._resolve(tokenPoolAddress);
+        PoolVersions._requireSupports(PoolVersions.Op.SET_TOKEN_TRANSFER_FEE_CONFIG, poolVersion, tokenPoolAddress);
 
         // ── Header ─────────────────────────────────────────────────────────
         console.log("");
@@ -176,8 +176,8 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
 
             // applyTokenTransferFeeConfigUpdates() was introduced in TokenPool v2.0.
             // On v1 pools, fee configuration is handled by FeeQuoter and requires
-            // a direct request to the Chainlink team — it cannot be modified here.
-            executeCalls(CctActions.applyTokenTransferFeeConfigUpdates(tokenPoolAddress, emptyArgs, toDisable));
+            // a direct request to the Chainlink team - it cannot be modified here.
+            _executeCalls(CctActions._applyTokenTransferFeeConfigUpdates(tokenPoolAddress, emptyArgs, toDisable));
             console.log(unicode"✅ Fee config disabled for this lane.");
             console.log("   The OnRamp will now use FeeQuoter defaults for this destination.");
         } else {
@@ -215,7 +215,7 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
                 );
                 console.log("");
             } catch {
-                // Pool is v1 or config not yet set — all defaults will be zero.
+                // Pool is v1 or config not yet set - all defaults will be zero.
             }
 
             res = _resolveFeeConfig(currentConfig, destChainName, destChainSelector);
@@ -230,8 +230,8 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
 
             // applyTokenTransferFeeConfigUpdates() was introduced in TokenPool v2.0.
             // On v1 pools, fee configuration is handled by FeeQuoter and requires
-            // a direct request to the Chainlink team — it cannot be modified here.
-            executeCalls(CctActions.applyTokenTransferFeeConfigUpdates(tokenPoolAddress, args, emptyDisable));
+            // a direct request to the Chainlink team - it cannot be modified here.
+            _executeCalls(CctActions._applyTokenTransferFeeConfigUpdates(tokenPoolAddress, args, emptyDisable));
             console.log(unicode"✅ Fee config applied successfully!");
         }
 
@@ -261,7 +261,7 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
         ];
     }
 
-    /// @dev The six declared v2.feeConfig field names, in the same order — exactly the fields the
+    /// @dev The six declared v2.feeConfig field names, in the same order - exactly the fields the
     ///      doctor reconciles (`VerifyChain._reconcileFeeConfig`).
     function _feeFieldNames() internal pure returns (string[NUM_FEE_FIELDS] memory) {
         return [
@@ -276,7 +276,7 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
 
     /// @dev Resolves the six fee-config fields through the per-field input ladder (see the contract
     ///      natspec): env > declared `v2.feeConfig.<field>` > current on-chain value. lanes{} is
-    ///      OWNER INTENT: an env-driven apply never writes it back — the hand-edit hint plus the
+    ///      OWNER INTENT: an env-driven apply never writes it back - the hand-edit hint plus the
     ///      doctor WARN close the loop through a reviewed edit by design.
     function _resolveFeeConfig(
         IPoolV2.TokenTransferFeeConfig memory currentConfig,
@@ -322,7 +322,7 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
                 f.fromLanes = true;
                 f.value = f.declaredValue;
             } else {
-                // Rung 3: the current on-chain value — the historical default.
+                // Rung 3: the current on-chain value - the historical default.
                 f.value = currentValues[i];
             }
             res.anyEnv = res.anyEnv || f.fromEnv;
@@ -357,7 +357,7 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
             "=",
             vm.toString(f.declaredValue),
             " in ",
-            ProjectStore.display(res.configName),
+            ProjectStore._display(res.configName),
             " - make doctor will FAIL until reconciled"
         );
     }
@@ -371,7 +371,7 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
                     "Fee config resolved from lanes.",
                     res.laneKey,
                     ".v2.feeConfig in ",
-                    ProjectStore.display(res.configName),
+                    ProjectStore._display(res.configName),
                     " (undeclared fields keep the current on-chain values)"
                 )
             );
@@ -387,7 +387,7 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
                     "No fee-config env vars and no declared lanes.",
                     res.laneKey,
                     ".v2.feeConfig",
-                    res.configFound ? string.concat(" in ", ProjectStore.display(res.configName)) : "",
+                    res.configFound ? string.concat(" in ", ProjectStore._display(res.configName)) : "",
                     "; applying the current on-chain values (historical default). Set the env vars, or declare the block."
                 )
             );
@@ -395,7 +395,7 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
         }
     }
 
-    /// @dev The closing remediation hint. lanes{} is owner intent — applies never auto-write it,
+    /// @dev The closing remediation hint. lanes{} is owner intent - applies never auto-write it,
     ///      and `make add-lane` has no flag surface for the v2{} blocks (deliberate), so the hint is
     ///      a hand-edit instruction with the applied values; the doctor WARN closes the loop
     ///      through a reviewed edit.
@@ -418,7 +418,7 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
             " lanes.",
             res.laneKey,
             ".v2.feeConfig (",
-            ProjectStore.display(res.configName),
+            ProjectStore._display(res.configName),
             "). Hand-edit the block to the applied values: ",
             values,
             " - make doctor CHAIN=",

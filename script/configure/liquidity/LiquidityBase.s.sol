@@ -28,7 +28,7 @@ abstract contract LiquidityBase is EoaExecutor {
         );
     }
 
-    /// @dev Refuses, by name, when the broadcaster is not the pool's rebalancer — the only account the
+    /// @dev Refuses, by name, when the broadcaster is not the pool's rebalancer - the only account the
     ///      v1.x pool lets call `provideLiquidity` / `withdrawLiquidity`. Fails BEFORE any broadcast so
     ///      the user sees the fix, not a bare `msg.sender != s_rebalancer` revert from the pool.
     function _requireRebalancer(address pool, address broadcasterAddr, string memory op) internal view {
@@ -53,7 +53,7 @@ abstract contract LiquidityBase is EoaExecutor {
         );
     }
 
-    /// @dev Refuses, by name, when the pool holds less than the requested withdrawal — the v1 pool would
+    /// @dev Refuses, by name, when the pool holds less than the requested withdrawal - the v1 pool would
     ///      otherwise revert its own `InsufficientLiquidity`. Surfacing the balance and the amount up
     ///      front turns that opaque revert into an actionable message.
     function _requireSufficientLiquidity(address pool, uint256 balance, uint256 amount) internal pure {

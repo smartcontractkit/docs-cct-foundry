@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-/// @notice Minimal interface of a Safe (v1.3.0+) — only the surface the Safe execution mode needs:
+/// @notice Minimal interface of a Safe (v1.3.0+) - only the surface the Safe execution mode needs:
 ///         nonce/owner reads, the on-chain `safeTxHash` computation, and `execTransaction`. Declared
 ///         locally so the repo does not vendor the full safe-smart-account package for four functions.
 /// @dev `operation` is `uint8` here (0 = CALL, 1 = DELEGATECALL); Safe declares it as `Enum.Operation`,

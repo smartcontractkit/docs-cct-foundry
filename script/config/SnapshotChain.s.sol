@@ -8,15 +8,15 @@ import {RolesSnapshot} from "../../src/roles/RolesSnapshot.sol";
 import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 
 /// @title SnapshotChain
-/// @notice **`make snapshot-chain CHAIN=<name>` — backfill the DECLARED authority state FROM chain.**
+/// @notice **`make snapshot-chain CHAIN=<name>` - backfill the DECLARED authority state FROM chain.**
 /// Reads the live role surface (owner/defaultAdmin/getCCIPAdmin/hasRole/TAR getTokenConfig/
 /// dual-generation pool admins/getAllAuthorizedCallers/getAllowList/...) through `RolesSnapshot` and
 /// writes the `roles{}` subtree of `project/<selectorName>.json` (preserve-and-replace, the same
 /// single-subtree pattern as the `ccip{}` sync). Chain FACTS (`chainFamily`, `rpcEnv`, `chainId`, the
 /// directory `.ccip.tokenAdminRegistry`) are read from `config/chains/<name>.json`; the authority state
-/// is written to the project store. Reconcile forever after with `make roles-check CHAIN=<name>` — this
+/// is written to the project store. Reconcile forever after with `make roles-check CHAIN=<name>` - this
 /// script is the ONLY writer of `roles{}`.
-/// @dev Writer rule (docs/config-schema.md): `roles{}` is written by THIS tool — NEVER by the API
+/// @dev Writer rule (docs/config-schema.md): `roles{}` is written by THIS tool - NEVER by the API
 /// sync (roles are project authority, not directory data). First touch seeds the project skeleton
 /// (all three subtrees), so a chain with no `project/<name>.json` yet never raw-reverts. Optional env:
 ///   - `TOKEN=<addr>` / `TOKEN_POOL=<addr>`  the project addresses when the chain has no declared
@@ -55,14 +55,14 @@ contract SnapshotChain is Script {
 
         // Seed the project skeleton (all three subtrees) if this is the chain's first touch, so the
         // targeted `.roles` write below never hits a cannot-create-key revert.
-        ProjectStore.seedIfAbsent(name);
-        string memory projectPath = ProjectStore.path(name);
+        ProjectStore._seedIfAbsent(name);
+        string memory projectPath = ProjectStore._path(name);
         string memory projectJson = vm.readFile(projectPath);
 
         string memory rolesJson = (new RolesSnapshot()).build(name, configJson, projectJson);
         vm.writeJson(rolesJson, projectPath, ".roles");
-        console.log(string.concat("[snapshot] wrote .roles block for ", name, " -> ", ProjectStore.display(name)));
-        string memory grp = ProjectStore.group();
+        console.log(string.concat("[snapshot] wrote .roles block for ", name, " -> ", ProjectStore._display(name)));
+        string memory grp = ProjectStore._group();
         console.log(
             string.concat(
                 "[snapshot] reconcile any time with: make roles-check CHAIN=",

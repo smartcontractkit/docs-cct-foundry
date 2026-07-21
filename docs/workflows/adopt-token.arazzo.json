@@ -1,0 +1,44 @@
+{
+  "workflowId": "adopt-token",
+  "summary": "Bring an existing deployed token cross-chain: adopt it into the project store, register it, set its pool, and wire a lane.",
+  "inputs": {
+    "chain": "the local chain selectorName",
+    "remoteChain": "the remote chain selectorName to wire a lane to",
+    "token": "the existing token address to adopt",
+    "pool": "the existing pool address to adopt (optional; deploy one if absent)",
+    "mode": "eoa | safe (default eoa)"
+  },
+  "steps": [
+    {
+      "stepId": "adopt",
+      "primitive": "AdoptToken",
+      "parameters": { "CHAIN": "$inputs.chain", "TOKEN": "$inputs.token", "TOKEN_POOL": "$inputs.pool" },
+      "successCriteria": "the token and pool are validated on chain and recorded in the project store",
+      "outputs": {}
+    },
+    {
+      "stepId": "register",
+      "primitive": "ClaimAndAcceptAdmin",
+      "parameters": { "CHAIN": "$inputs.chain", "mode": "$inputs.mode" },
+      "successCriteria": "the token is registered (skip if already registered); the claim path is auto-detected",
+      "outputs": {}
+    },
+    {
+      "stepId": "set-pool",
+      "primitive": "SetPool",
+      "parameters": { "CHAIN": "$inputs.chain", "mode": "$inputs.mode" },
+      "successCriteria": "TokenAdminRegistry getPool(token) equals the adopted pool",
+      "outputs": {}
+    },
+    {
+      "stepId": "wire-lane",
+      "primitive": "ApplyChainUpdates",
+      "parameters": { "CHAIN": "$inputs.chain", "DEST_CHAIN": "$inputs.remoteChain", "mode": "$inputs.mode" },
+      "successCriteria": "the remote chain is supported with a remote pool and rate limits",
+      "outputs": {}
+    }
+  ],
+  "outputs": {},
+  "modeNote": "Under mode=safe the register, set-pool, and wire steps emit one Safe batch to sign.",
+  "note": "The register step auto-detects the claim path (getCCIPAdmin, then owner, then AccessControl DEFAULT_ADMIN_ROLE). See enabling-existing-token.md."
+}

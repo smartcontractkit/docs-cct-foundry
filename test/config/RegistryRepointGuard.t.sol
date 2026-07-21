@@ -19,16 +19,16 @@ contract RepointHarness {
         returns (bool repoints, address previous)
     {
         string memory prev;
-        (repoints, prev) = RegistryWriter.wouldRepointActive(sel, role, VM.toString(addr));
+        (repoints, prev) = RegistryWriter._wouldRepointActive(sel, role, VM.toString(addr));
         previous = bytes(prev).length == 0 ? address(0) : VM.parseAddress(prev);
     }
 
     function setActive(string memory sel, string memory role, address addr) external {
-        RegistryWriter.setActive(sel, role, addr);
+        RegistryWriter._setActive(sel, role, addr);
     }
 
     function read(string memory sel, string memory role) external view returns (address) {
-        return RegistryWriter.read(sel, role);
+        return RegistryWriter._read(sel, role);
     }
 }
 
@@ -36,7 +36,7 @@ contract RepointHarness {
 /// `setActive`/`recordDeterministic` gate their loud console warning on when a single-valued `active`
 /// pointer is about to be moved off an existing fixture onto a different address (observed live:
 /// deploying a second token on a chain silently hijacked `active.token`). The behavior does NOT
-/// change — the repoint still happens — so only the decision helper is unit-testable; these tests
+/// change - the repoint still happens - so only the decision helper is unit-testable; these tests
 /// pin its truth table.
 ///
 /// Cleanup is REVERT-SAFE and done in `setUp()` (before every test), NEVER at end-of-test: a test
@@ -46,7 +46,7 @@ contract RepointHarness {
 contract RegistryRepointGuardTest is Test {
     RepointHarness internal harness;
 
-    // Distinct throwaway selectorNames (zz-scratch-*, gitignored) — one per test.
+    // Distinct throwaway selectorNames (zz-scratch-*, gitignored) - one per test.
     string internal constant SEL_FIRST_SET = "zz-scratch-repoint-firstset";
     string internal constant SEL_SAME_ADDR = "zz-scratch-repoint-sameaddr";
     string internal constant SEL_REPOINT = "zz-scratch-repoint-repoint";
@@ -88,7 +88,7 @@ contract RegistryRepointGuardTest is Test {
     }
 
     // (3) Overwrite a DIFFERENT non-zero address -> repoints=true, previous is the old address. The
-    //     repoint still happens (behavior unchanged) — assert the pointer moved after the warned set.
+    //     repoint still happens (behavior unchanged) - assert the pointer moved after the warned set.
     function test_WouldRepoint_DifferentNonZero_ReturnsTrueOld() public {
         harness.setActive(SEL_REPOINT, "token", ADDR_OLD);
         (bool repoints, address previous) = harness.wouldRepointActive(SEL_REPOINT, "token", ADDR_NEW);

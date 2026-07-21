@@ -67,7 +67,7 @@ contract RemoveRemotePool is EoaExecutor {
 
         // Resolve and fence the pool version BEFORE any version-shaped read: a 1.5.0 pool must get
         // the named refusal here, not a raw selector revert from getRemotePools below.
-        (PoolVersions.Version poolVersion,) = PoolVersion.resolve(tokenPoolAddress);
+        (PoolVersions.Version poolVersion,) = PoolVersion._resolve(tokenPoolAddress);
         // 1.5.0 holds exactly one remote pool per chain, reachable only via setRemotePool (replace),
         // so removing "just the pool" is not a standalone operation: dropping it necessarily drops
         // the lane. Point the operator at the whole-chain teardown instead of the generic refusal.
@@ -75,7 +75,7 @@ contract RemoveRemotePool is EoaExecutor {
             poolVersion != PoolVersions.Version.V1_5_0,
             "removeRemotePool is not available on a 1.5.0 pool: 1.5.0 holds one remote pool per chain, so there is no standalone pool removal. To tear down the whole lane use script/configure/remote-chains/RemoveChain.s.sol; to swap the pool use AddRemotePool/ApplyChainUpdates."
         );
-        PoolVersions.requireSupports(PoolVersions.Op.REMOVE_REMOTE_POOL, poolVersion, tokenPoolAddress);
+        PoolVersions._requireSupports(PoolVersions.Op.REMOVE_REMOTE_POOL, poolVersion, tokenPoolAddress);
 
         TokenPool tokenPool = TokenPool(tokenPoolAddress);
 
@@ -122,7 +122,9 @@ contract RemoveRemotePool is EoaExecutor {
 
         console.log(string.concat("[Step 1] Removing remote pool on ", sourceChainName));
 
-        executeCalls(CctActions.removeRemotePool(tokenPoolAddress, remoteChainSelector, abi.encode(remotePoolAddress)));
+        _executeCalls(
+            CctActions._removeRemotePool(tokenPoolAddress, remoteChainSelector, abi.encode(remotePoolAddress))
+        );
 
         console.log(unicode"✅ Remote pool removed successfully!");
         console.log("");

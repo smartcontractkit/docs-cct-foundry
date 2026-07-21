@@ -18,9 +18,9 @@ import {EoaExecutor} from "../../src/base/EoaExecutor.s.sol";
  *   LOCK_BOX=0x... forge script script/operations/WithdrawFromLockBox.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account $KEYSTORE_NAME --broadcast
  *
  * Environment variables:
- *   LOCK_BOX   — (required) address of the ERC20LockBox contract
- *   AMOUNT     — (optional) amount to withdraw (defaults to entire lockbox balance)
- *   RECIPIENT  — (optional) address to receive withdrawn tokens (defaults to broadcaster)
+ *   LOCK_BOX   - (required) address of the ERC20LockBox contract
+ *   AMOUNT     - (optional) amount to withdraw (defaults to entire lockbox balance)
+ *   RECIPIENT  - (optional) address to receive withdrawn tokens (defaults to broadcaster)
  */
 contract WithdrawFromLockBox is EoaExecutor {
     HelperConfig public helperConfig;
@@ -69,12 +69,12 @@ contract WithdrawFromLockBox is EoaExecutor {
         uint256 lockBoxBalance = token.balanceOf(lockBoxAddress);
         require(lockBoxBalance > 0, "LockBox has no tokens");
 
-        // Get amount to withdraw — defaults to entire lockbox balance
+        // Get amount to withdraw - defaults to entire lockbox balance
         uint256 amount = vm.envOr("AMOUNT", lockBoxBalance);
         require(amount > 0, "Amount must be greater than 0");
         require(amount <= lockBoxBalance, "Amount exceeds lockbox balance");
 
-        address recipient = vm.envOr("RECIPIENT", broadcaster());
+        address recipient = vm.envOr("RECIPIENT", _broadcaster());
 
         console.log("Withdrawal Parameters:");
         console.log(string.concat("  LockBox:                      ", vm.toString(lockBoxAddress)));
@@ -93,7 +93,7 @@ contract WithdrawFromLockBox is EoaExecutor {
         uint256 recipientBalanceBefore = token.balanceOf(recipient);
 
         console.log(string.concat("[Step 1] Withdrawing ", vm.toString(amount), " tokens from LockBox"));
-        executeCalls(CctActions.lockboxWithdraw(lockBoxAddress, tokenAddress, amount, recipient));
+        _executeCalls(CctActions._lockboxWithdraw(lockBoxAddress, tokenAddress, amount, recipient));
         console.log(unicode"✅ Withdrawal successful!");
 
         uint256 lockBoxBalanceAfter = token.balanceOf(lockBoxAddress);

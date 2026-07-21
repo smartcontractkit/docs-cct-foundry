@@ -16,7 +16,7 @@ interface IConfigSource {
     /// @notice Fetches a chain's ACTIVE CCIP infrastructure addresses, normalized to a flat JSON object.
     /// @param chainSelector The CCIP chain selector (uint64) identifying the chain.
     /// @return flatJson A compact JSON object: {apiName, chainId, router, rmnProxy, tokenAdminRegistry,
-    /// registryModuleOwnerCustom, link, feeQuoter, tokenPoolFactory, feeTokens:[...]} — every address
+    /// registryModuleOwnerCustom, link, feeQuoter, tokenPoolFactory, feeTokens:[...]} - every address
     /// already resolved to the `isActive` entry.
     function fetchActiveCcipConfig(uint64 chainSelector) external returns (string memory flatJson);
 }

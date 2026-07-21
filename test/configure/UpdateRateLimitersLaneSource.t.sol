@@ -9,7 +9,7 @@ import {LaneReconcileScratch} from "../config/VerifyChainLaneReconcile.t.sol";
 ///      fake (the `_env*` seams exist for exactly this: env vars are process-global and forge runs
 ///      suites in parallel, so tests must never vm.setEnv shared names). An unset fake var behaves
 ///      like an unset env var; the resolution logic under test is unmodified. `fastFinality` is a
-///      parameter because run() derives it from FAST_FINALITY + the resolved pool version — the
+///      parameter because run() derives it from FAST_FINALITY + the resolved pool version - the
 ///      axis fence itself is plain `s_fastFinality && version >= V2_0_0` and needs no fork to trust.
 contract RateLimitersLaneSourceHarness is UpdateRateLimiters {
     mapping(bytes32 => string) private fakeEnv;
@@ -44,10 +44,10 @@ contract RateLimitersLaneSourceHarness is UpdateRateLimiters {
 /// @notice The per-direction rate-limit input ladder of UpdateRateLimiters (env > lanes{} >
 ///         historical error), proven offline against scratch chain configs, on both bucket axes:
 ///         the STANDARD bucket consumes the core lane fields (`capacity`/`rate`, optional
-///         `inbound{}` — the same fields ApplyChainUpdates consumes), the FAST-FINALITY bucket
+///         `inbound{}` - the same fields ApplyChainUpdates consumes), the FAST-FINALITY bucket
 ///         consumes `v2.fastFinality.{outbound,inbound}`, each direction declared only when its
 ///         block exists. Rung-1 env byte-equality (agreeing, diverging, ENABLED=false-only),
-///         rung-2 lanes{} consumption (untouched direction stays untouched — the script's
+///         rung-2 lanes{} consumption (untouched direction stays untouched - the script's
 ///         historical semantics for an unset direction), the rung-3 both-remedies error, the
 ///         name-then-selector lane matching, and the hand-edit hint states. Each test writes its
 ///         own uniquely-named scratch chain and pins block.chainid to that chain's declared chainId
@@ -109,7 +109,7 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
     }
 
     /// @dev A `,"v2":{"fastFinality":{...}}` suffix for `_laneEntry` with the given direction blocks
-    ///      (empty string omits a direction — absent means undeclared).
+    ///      (empty string omits a direction - absent means undeclared).
     function _ftfBlock(string memory outboundJson, string memory inboundJson) internal pure returns (string memory) {
         string memory inner = outboundJson;
         if (bytes(outboundJson).length != 0 && bytes(inboundJson).length != 0) {
@@ -280,7 +280,7 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
     // ─────────────────────────────────────────────────────────────────────────
 
     // Core-only lane entry: outbound from lanes{} (enabled, declared values); the ABSENT inbound{}
-    // block leaves the inbound direction UNTOUCHED — the script's historical semantics for a
+    // block leaves the inbound direction UNTOUCHED - the script's historical semantics for a
     // direction with no input (the live bucket is kept), unlike ApplyChainUpdates' disabled default.
     function test_Std_NoEnv_LaneCoreOnly_OutboundFromLanes_InboundUntouched() public {
         string memory local = _localChain(5);
@@ -324,7 +324,7 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
         _cleanupScratchOne(local);
     }
 
-    // A declared 0/0 bucket is declared-disabled (enabled iff capacity or rate non-zero — the same
+    // A declared 0/0 bucket is declared-disabled (enabled iff capacity or rate non-zero - the same
     // inference the doctor's lanes rung and ApplyChainUpdates use).
     function test_Std_NoEnv_DeclaredZeroZero_IsDeclaredDisabled() public {
         string memory local = _localChain(7);
@@ -468,7 +468,7 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
     }
 
     // No env and no declared fast-finality bucket (core fields only): the error stands and names
-    // the fast-finality declaration path — the axis scoping of rung 3.
+    // the fast-finality declaration path - the axis scoping of rung 3.
     function test_Ftf_NoEnv_CoreOnly_RevertsNamingFtfRemedy() public {
         string memory local = _localChain(13);
         _declareLane(local, "zz-scratch-rlsrc-remote13", _laneEntry(REMOTE_SELECTOR, LANE_CAPACITY, LANE_RATE, ""));

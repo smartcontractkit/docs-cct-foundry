@@ -8,7 +8,7 @@ import {SafeMode} from "../../src/base/SafeMode.sol";
 
 /// @notice Composes several independently emitted Safe batches into ONE Safe meta-transaction.
 ///
-/// Workflow: run each write script with `MODE=safe` (emit-only) and a distinct `BATCH_NAME` — each
+/// Workflow: run each write script with `MODE=safe` (emit-only) and a distinct `BATCH_NAME` - each
 /// run performs its own preflight and writes `batches/<name>.<chainId>.json`. Then run this script
 /// with the files to compose, in execution order. It loads every file back into the action layer's
 /// `Call[]` (validating each was emitted for THIS chain and THIS Safe), concatenates them, and hands
@@ -22,7 +22,7 @@ import {SafeMode} from "../../src/base/SafeMode.sol";
 ///
 /// Environment Variables:
 ///   SAFE_ADDRESS      (required) the Safe executing the batch; every input file must match it
-///   BATCH_NAME        (required, no default) name of the MERGED batch artifact — explicit so a
+///   BATCH_NAME        (required, no default) name of the MERGED batch artifact - explicit so a
 ///                     composition can never silently clobber another batch file
 ///   BATCH_FILES       (required) comma-separated batch JSON paths, in EXECUTION ORDER
 ///   SAFE_EXEC         (optional) unset = emit the merged batch only; `direct` = execute now
@@ -53,12 +53,12 @@ contract ExecuteBatch is Script {
         for (uint256 i = 0; i < files.length; i++) {
             console.log(string.concat("  [", vm.toString(i + 1), "] ", files[i]));
         }
-        CctActions.Call[] memory merged = SafeBatchLoader.loadMany(files, block.chainid, safe);
+        CctActions.Call[] memory merged = SafeBatchLoader._loadMany(files, block.chainid, safe);
         console.log(string.concat("Total calls:  ", vm.toString(merged.length)));
         console.log("========================================");
 
         // The standard Safe executor takes over: full per-call review logging, ONE merged canonical
         // batch JSON, and (SAFE_EXEC=direct) ONE atomic execTransaction.
-        mergedBatchPath = SafeMode.run(merged);
+        mergedBatchPath = SafeMode._run(merged);
     }
 }

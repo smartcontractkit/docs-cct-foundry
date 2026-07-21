@@ -7,6 +7,7 @@ import {TokenAdminRegistry} from "@chainlink/contracts-ccip/contracts/tokenAdmin
 import {CctActions} from "../../src/actions/CctActions.sol";
 import {EoaExecutor} from "../../src/base/EoaExecutor.s.sol";
 
+/// @notice Points the TokenAdminRegistry at the token's pool, activating the token for cross-chain transfers.
 contract SetPool is EoaExecutor {
     HelperConfig public helperConfig;
 
@@ -65,7 +66,7 @@ contract SetPool is EoaExecutor {
         console.log("");
 
         console.log(string.concat("\n[Step 1] Setting pool for token on ", chainName));
-        executeCalls(CctActions.setPool(config.tokenAdminRegistry, tokenAddress, poolAddress));
+        _executeCalls(CctActions._setPool(config.tokenAdminRegistry, tokenAddress, poolAddress));
         console.log(unicode"✅ Pool set successfully!");
 
         console.log("");

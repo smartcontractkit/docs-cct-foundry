@@ -27,7 +27,7 @@ contract MockCcvV2NoHooksPool {
 }
 
 /// @dev Exposes UpdateCCVConfig's array/threshold input resolution and the call builder with the env
-///      access swapped for an injectable fake (the `_env*` seams exist for exactly this — env vars
+///      access swapped for an injectable fake (the `_env*` seams exist for exactly this - env vars
 ///      are process-global and forge runs suites in parallel, so tests must never vm.setEnv shared
 ///      names). The current on-chain config is a parameter because run() reads it from the hooks
 ///      contract before resolving; the rung-3 read-modify-write fallback needs no fork to trust.

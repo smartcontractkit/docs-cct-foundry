@@ -8,7 +8,7 @@ import {RegistryWriter} from "../../src/utils/RegistryWriter.sol";
 import {ProjectScratch} from "../utils/ProjectScratch.sol";
 
 /// @dev A token exposing `symbol()` so the pool/lock-box/hooks ledger path (which resolves the file's
-/// symbol prefix and the store's key via `DeploymentUtils.getSymbol`'s on-chain `symbol()` call) has a
+/// symbol prefix and the store's key via `DeploymentUtils._getSymbol`'s on-chain `symbol()` call) has a
 /// real contract to read. Parameterized so the multi-deploy test can mint distinct symbols.
 contract SymToken {
     string public symbol;
@@ -18,15 +18,15 @@ contract SymToken {
     }
 }
 
-/// @title ArtifactRecordCompletenessTest — EVERY deployed artifact type lands in BOTH stores
+/// @title ArtifactRecordCompletenessTest - EVERY deployed artifact type lands in BOTH stores
 /// @notice Closes the per-artifact completeness gap: the existing `HistoryLedger` suite pins the token +
 /// burn-mint-pool `history/` bodies, and the `Registry*` suites pin the `project/` store, but NOTHING
 /// asserted the two halves TOGETHER for all five artifact roles, nor the LockRelease / lockBox / poolHooks
 /// history bodies, nor history append-only ACROSS DIFFERENT artifacts. This suite drives the same two
-/// writes `DeploymentRecorder.record*` performs — `DeploymentUtils.save*` (the `history/` half, always
-/// writes) + `RegistryWriter.recordDeterministic(sel, role, DeploymentRecorder.<name>(...), addr)` (the
-/// `project/` store half; the deterministic core is used because `RegistryWriter.record` no-ops under
-/// `forge test` context by design) — using the recorder's OWN key helpers, so a drift between the store key
+/// writes `DeploymentRecorder.record*` performs - `DeploymentUtils.save*` (the `history/` half, always
+/// writes) + `RegistryWriter._recordDeterministic(sel, role, DeploymentRecorder.<name>(...), addr)` (the
+/// `project/` store half; the deterministic core is used because `RegistryWriter._record` no-ops under
+/// `forge test` context by design) - using the recorder's OWN key helpers, so a drift between the store key
 /// and the history filename symbol would fail here.
 ///
 /// For EACH of token / burn-mint pool / lock-release pool (incl. the `LOCK_BOX` body key) / lockBox /
@@ -73,19 +73,19 @@ contract ArtifactRecordCompletenessTest is Test {
     function test_Token_StoreAndHistory() public {
         vm.warp(T1);
         address token = address(new SymToken("BnM-T"));
-        string memory name = DeploymentRecorder.tokenName("BnM-T");
+        string memory name = DeploymentRecorder._tokenName("BnM-T");
 
-        // history half (what DeploymentRecorder.recordToken writes)
-        DeploymentUtils.saveTokenDeployment(vm, SEL_TOKEN, CNI, "BnM-T", token);
+        // history half (what DeploymentRecorder._recordToken writes)
+        DeploymentUtils._saveTokenDeployment(vm, SEL_TOKEN, CNI, "BnM-T", token);
         string memory file = string.concat(_histDir("tokens", SEL_TOKEN), vm.toString(T1), "-BnM-T-Token.json");
         assertTrue(vm.exists(file), "token history file written");
         string memory body = vm.readFile(file);
         assertEq(vm.parseJsonAddress(body, string.concat(".", CNI, "_TOKEN")), token, "token history body key");
 
         // store half (same key the recorder composes)
-        RegistryWriter.recordDeterministic(SEL_TOKEN, "token", name, token);
-        assertEq(RegistryWriter.read(SEL_TOKEN, "token"), token, "active.token");
-        assertEq(RegistryWriter.readDeployment(SEL_TOKEN, name), token, "deployments[token]");
+        RegistryWriter._recordDeterministic(SEL_TOKEN, "token", name, token);
+        assertEq(RegistryWriter._read(SEL_TOKEN, "token"), token, "active.token");
+        assertEq(RegistryWriter._readDeployment(SEL_TOKEN, name), token, "deployments[token]");
         ProjectScratch.clean(SEL_TOKEN);
         ProjectScratch.cleanHistory(SEL_TOKEN);
     }
@@ -96,9 +96,9 @@ contract ArtifactRecordCompletenessTest is Test {
         vm.warp(T1);
         address token = address(new SymToken("BnM-T"));
         address pool = address(0xBEEf000000000000000000000000000000000001);
-        string memory name = DeploymentRecorder.poolName("BnM-T", "BurnMint");
+        string memory name = DeploymentRecorder._poolName("BnM-T", "BurnMint");
 
-        DeploymentUtils.saveTokenPoolDeployment(vm, SEL_BM, CNI, pool, token, "BurnMint");
+        DeploymentUtils._saveTokenPoolDeployment(vm, SEL_BM, CNI, pool, token, "BurnMint");
         string memory file =
             string.concat(_histDir("token-pools", SEL_BM), vm.toString(T1), "-BnM-T-BurnMintTokenPool.json");
         assertTrue(vm.exists(file), "burnmint pool history file written");
@@ -108,9 +108,9 @@ contract ArtifactRecordCompletenessTest is Test {
         // Frozen burn-mint body: NO LOCK_BOX key (that belongs to the lock-release body only).
         assertFalse(vm.keyExistsJson(body, ".LOCK_BOX"), "burnmint body must NOT carry a LOCK_BOX key");
 
-        RegistryWriter.recordDeterministic(SEL_BM, "tokenPool", name, pool);
-        assertEq(RegistryWriter.read(SEL_BM, "tokenPool"), pool, "active.tokenPool");
-        assertEq(RegistryWriter.readDeployment(SEL_BM, name), pool, "deployments[burnmint pool]");
+        RegistryWriter._recordDeterministic(SEL_BM, "tokenPool", name, pool);
+        assertEq(RegistryWriter._read(SEL_BM, "tokenPool"), pool, "active.tokenPool");
+        assertEq(RegistryWriter._readDeployment(SEL_BM, name), pool, "deployments[burnmint pool]");
         assertEq(name, "BnM-T_BurnMintTokenPool_2.0.0", "versioned pool key composed");
         ProjectScratch.clean(SEL_BM);
         ProjectScratch.cleanHistory(SEL_BM);
@@ -123,9 +123,9 @@ contract ArtifactRecordCompletenessTest is Test {
         address token = address(new SymToken("LR-T"));
         address pool = address(0xbeeF000000000000000000000000000000000002);
         address lockBox = address(0xB0C5000000000000000000000000000000000003);
-        string memory name = DeploymentRecorder.poolName("LR-T", "LockRelease");
+        string memory name = DeploymentRecorder._poolName("LR-T", "LockRelease");
 
-        DeploymentUtils.saveLockReleaseTokenPoolDeployment(vm, SEL_LR, CNI, pool, token, lockBox, "LockRelease");
+        DeploymentUtils._saveLockReleaseTokenPoolDeployment(vm, SEL_LR, CNI, pool, token, lockBox, "LockRelease");
         string memory file =
             string.concat(_histDir("token-pools", SEL_LR), vm.toString(T1), "-LR-T-LockReleaseTokenPool.json");
         assertTrue(vm.exists(file), "lock-release pool history file written");
@@ -135,9 +135,9 @@ contract ArtifactRecordCompletenessTest is Test {
         // The lock-release body's distinguishing key: the associated lock box.
         assertEq(vm.parseJsonAddress(body, ".LOCK_BOX"), lockBox, "LOCK_BOX key in lock-release body");
 
-        RegistryWriter.recordDeterministic(SEL_LR, "tokenPool", name, pool);
-        assertEq(RegistryWriter.read(SEL_LR, "tokenPool"), pool, "active.tokenPool");
-        assertEq(RegistryWriter.readDeployment(SEL_LR, name), pool, "deployments[lockrelease pool]");
+        RegistryWriter._recordDeterministic(SEL_LR, "tokenPool", name, pool);
+        assertEq(RegistryWriter._read(SEL_LR, "tokenPool"), pool, "active.tokenPool");
+        assertEq(RegistryWriter._readDeployment(SEL_LR, name), pool, "deployments[lockrelease pool]");
         ProjectScratch.clean(SEL_LR);
         ProjectScratch.cleanHistory(SEL_LR);
     }
@@ -148,18 +148,18 @@ contract ArtifactRecordCompletenessTest is Test {
         vm.warp(T1);
         address token = address(new SymToken("LR-T"));
         address lockBox = address(0xb0C5000000000000000000000000000000000004);
-        string memory name = DeploymentRecorder.lockBoxName("LR-T");
+        string memory name = DeploymentRecorder._lockBoxName("LR-T");
 
-        DeploymentUtils.saveLockBoxDeployment(vm, SEL_LB, CNI, lockBox, token);
+        DeploymentUtils._saveLockBoxDeployment(vm, SEL_LB, CNI, lockBox, token);
         string memory file = string.concat(_histDir("lock-boxes", SEL_LB), vm.toString(T1), "-LR-T-LockBox.json");
         assertTrue(vm.exists(file), "lockbox history file written");
         string memory body = vm.readFile(file);
         assertEq(vm.parseJsonAddress(body, ".LOCK_BOX"), lockBox, "LOCK_BOX key");
         assertEq(vm.parseJsonAddress(body, string.concat(".", CNI, "_TOKEN")), token, "token key");
 
-        RegistryWriter.recordDeterministic(SEL_LB, "lockBox", name, lockBox);
-        assertEq(RegistryWriter.read(SEL_LB, "lockBox"), lockBox, "active.lockBox");
-        assertEq(RegistryWriter.readDeployment(SEL_LB, name), lockBox, "deployments[lockBox]");
+        RegistryWriter._recordDeterministic(SEL_LB, "lockBox", name, lockBox);
+        assertEq(RegistryWriter._read(SEL_LB, "lockBox"), lockBox, "active.lockBox");
+        assertEq(RegistryWriter._readDeployment(SEL_LB, name), lockBox, "deployments[lockBox]");
         assertEq(name, "LR-T_LockBox", "lockBox key composed");
         ProjectScratch.clean(SEL_LB);
         ProjectScratch.cleanHistory(SEL_LB);
@@ -170,9 +170,9 @@ contract ArtifactRecordCompletenessTest is Test {
     function test_PoolHooks_StoreAndHistory() public {
         vm.warp(T1);
         address hooks = address(0x40c5000000000000000000000000000000000005);
-        string memory name = DeploymentRecorder.hooksName("ACE-T", "BurnMint");
+        string memory name = DeploymentRecorder._hooksName("ACE-T", "BurnMint");
 
-        DeploymentUtils.savePoolHooksDeployment(vm, SEL_HOOKS, "ACE-T", "BurnMint", hooks);
+        DeploymentUtils._savePoolHooksDeployment(vm, SEL_HOOKS, "ACE-T", "BurnMint", hooks);
         string memory file = string.concat(
             _histDir("advanced-pool-hooks", SEL_HOOKS), vm.toString(T1), "-ACE-T-BurnMintAdvancedPoolHooks.json"
         );
@@ -180,9 +180,9 @@ contract ArtifactRecordCompletenessTest is Test {
         string memory body = vm.readFile(file);
         assertEq(vm.parseJsonAddress(body, ".POOL_HOOKS"), hooks, "POOL_HOOKS key");
 
-        RegistryWriter.recordDeterministic(SEL_HOOKS, "poolHooks", name, hooks);
-        assertEq(RegistryWriter.read(SEL_HOOKS, "poolHooks"), hooks, "active.poolHooks");
-        assertEq(RegistryWriter.readDeployment(SEL_HOOKS, name), hooks, "deployments[poolHooks]");
+        RegistryWriter._recordDeterministic(SEL_HOOKS, "poolHooks", name, hooks);
+        assertEq(RegistryWriter._read(SEL_HOOKS, "poolHooks"), hooks, "active.poolHooks");
+        assertEq(RegistryWriter._readDeployment(SEL_HOOKS, name), hooks, "deployments[poolHooks]");
         assertEq(name, "ACE-T_BurnMint_PoolHooks", "hooks key composed");
         ProjectScratch.clean(SEL_HOOKS);
         ProjectScratch.cleanHistory(SEL_HOOKS);
@@ -207,23 +207,23 @@ contract ArtifactRecordCompletenessTest is Test {
 
         // 1) burn-mint AAA
         vm.warp(T1);
-        DeploymentUtils.saveTokenPoolDeployment(vm, SEL_MULTI, CNI, poolA, tokA, "BurnMint");
-        RegistryWriter.recordDeterministic(
-            SEL_MULTI, "tokenPool", DeploymentRecorder.poolName("AAA", "BurnMint"), poolA
+        DeploymentUtils._saveTokenPoolDeployment(vm, SEL_MULTI, CNI, poolA, tokA, "BurnMint");
+        RegistryWriter._recordDeterministic(
+            SEL_MULTI, "tokenPool", DeploymentRecorder._poolName("AAA", "BurnMint"), poolA
         );
 
         // 2) lock-release CCC (SANDWICHED before the second burn-mint to exercise handle isolation)
         vm.warp(T2);
-        DeploymentUtils.saveLockReleaseTokenPoolDeployment(vm, SEL_MULTI, CNI, poolC, tokC, lockBoxC, "LockRelease");
-        RegistryWriter.recordDeterministic(
-            SEL_MULTI, "tokenPool", DeploymentRecorder.poolName("CCC", "LockRelease"), poolC
+        DeploymentUtils._saveLockReleaseTokenPoolDeployment(vm, SEL_MULTI, CNI, poolC, tokC, lockBoxC, "LockRelease");
+        RegistryWriter._recordDeterministic(
+            SEL_MULTI, "tokenPool", DeploymentRecorder._poolName("CCC", "LockRelease"), poolC
         );
 
         // 3) burn-mint BBB (LAST write -> becomes active.tokenPool)
         vm.warp(T3);
-        DeploymentUtils.saveTokenPoolDeployment(vm, SEL_MULTI, CNI, poolB, tokB, "BurnMint");
-        RegistryWriter.recordDeterministic(
-            SEL_MULTI, "tokenPool", DeploymentRecorder.poolName("BBB", "BurnMint"), poolB
+        DeploymentUtils._saveTokenPoolDeployment(vm, SEL_MULTI, CNI, poolB, tokB, "BurnMint");
+        RegistryWriter._recordDeterministic(
+            SEL_MULTI, "tokenPool", DeploymentRecorder._poolName("BBB", "BurnMint"), poolB
         );
 
         // history: all THREE files present (append-only across different artifacts).
@@ -243,10 +243,10 @@ contract ArtifactRecordCompletenessTest is Test {
         assertEq(vm.parseJsonAddress(lrC, ".LOCK_BOX"), lockBoxC, "CCC lock-release body keeps LOCK_BOX");
 
         // store: all three deployments keyed distinctly, active.tokenPool == newest (BBB burn-mint).
-        assertEq(RegistryWriter.readDeployment(SEL_MULTI, "AAA_BurnMintTokenPool_2.0.0"), poolA, "AAA deployment");
-        assertEq(RegistryWriter.readDeployment(SEL_MULTI, "CCC_LockReleaseTokenPool_2.0.0"), poolC, "CCC deployment");
-        assertEq(RegistryWriter.readDeployment(SEL_MULTI, "BBB_BurnMintTokenPool_2.0.0"), poolB, "BBB deployment");
-        assertEq(RegistryWriter.read(SEL_MULTI, "tokenPool"), poolB, "active.tokenPool is the newest write (BBB)");
+        assertEq(RegistryWriter._readDeployment(SEL_MULTI, "AAA_BurnMintTokenPool_2.0.0"), poolA, "AAA deployment");
+        assertEq(RegistryWriter._readDeployment(SEL_MULTI, "CCC_LockReleaseTokenPool_2.0.0"), poolC, "CCC deployment");
+        assertEq(RegistryWriter._readDeployment(SEL_MULTI, "BBB_BurnMintTokenPool_2.0.0"), poolB, "BBB deployment");
+        assertEq(RegistryWriter._read(SEL_MULTI, "tokenPool"), poolB, "active.tokenPool is the newest write (BBB)");
         ProjectScratch.clean(SEL_MULTI);
         ProjectScratch.cleanHistory(SEL_MULTI);
     }

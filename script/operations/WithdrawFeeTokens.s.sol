@@ -24,7 +24,7 @@ import {EoaExecutor} from "../../src/base/EoaExecutor.s.sol";
 /// Environment Variables (required):
 ///   FEE_TOKENS - Comma-separated or JSON array of ERC20 token addresses to withdraw.
 ///                Only ERC20 tokens are supported. Native tokens (ETH, AVAX, etc.) are
-///                NOT supported — do not pass address(0).
+///                NOT supported - do not pass address(0).
 ///                CSV example:  "0xAAA...,0xBBB..."
 ///                JSON example: '["0xAAA...","0xBBB..."]'
 ///
@@ -67,8 +67,8 @@ contract WithdrawFeeTokens is EoaExecutor {
         // The caller must supply the exact token address(es) to withdraw.
         // Accepts CSV ("0xA,0xB") or JSON array ("[\"0xA\",\"0xB\"]").
         // NOTE: Only ERC20 tokens are supported. Native tokens (ETH, AVAX, etc.)
-        // are NOT supported by withdrawFeeTokens() — do not pass address(0).
-        address[] memory feeTokens = HelperUtils.parseAddressArray(vm, vm.envOr("FEE_TOKENS", string("")), "");
+        // are NOT supported by withdrawFeeTokens() - do not pass address(0).
+        address[] memory feeTokens = HelperUtils._parseAddressArray(vm, vm.envOr("FEE_TOKENS", string("")), "");
         require(
             feeTokens.length > 0, "FEE_TOKENS is required: provide a CSV or JSON array of token addresses to withdraw."
         );
@@ -93,7 +93,7 @@ contract WithdrawFeeTokens is EoaExecutor {
         console.log("");
         console.log("Tokens to Withdraw:");
         (uint256 nonZeroCount, address[] memory tokensToWithdraw) =
-            FeeTokenLogger.logFeeTokenBalances(vm, tokenPoolAddress, feeTokens);
+            FeeTokenLogger._logFeeTokenBalances(vm, tokenPoolAddress, feeTokens);
         if (nonZeroCount == 0) {
             console.log("");
             console.log(unicode"⚠️  No fee tokens have a non-zero balance in the pool. Nothing to withdraw.");
@@ -107,13 +107,13 @@ contract WithdrawFeeTokens is EoaExecutor {
         console.log(string.concat("[Step 1] Withdrawing fee tokens on ", chainName));
 
         // RECIPIENT defaults to the broadcaster (the account signing the transaction).
-        address recipient = vm.envOr("RECIPIENT", broadcaster());
+        address recipient = vm.envOr("RECIPIENT", _broadcaster());
         console.log(string.concat("Recipient:    ", vm.toString(recipient)));
 
         // withdrawFeeTokens() was introduced in TokenPool v2.0.
         // On v1 pools, fee configuration is handled by FeeQuoter and there is no
-        // pool-level fee withdrawal mechanism — fees are not accrued by the pool contract.
-        executeCalls(CctActions.withdrawFeeTokens(tokenPoolAddress, tokensToWithdraw, recipient));
+        // pool-level fee withdrawal mechanism - fees are not accrued by the pool contract.
+        _executeCalls(CctActions._withdrawFeeTokens(tokenPoolAddress, tokensToWithdraw, recipient));
         console.log(unicode"✅ Fee tokens withdrawn successfully!");
 
         // ── Footer ─────────────────────────────────────────────────────────

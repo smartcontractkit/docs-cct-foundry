@@ -25,10 +25,10 @@ import {AdvancedPoolHooks} from "@chainlink/contracts-ccip/contracts/pools/Advan
  *   forge script script/configure/allowlist/DeployAdvancedPoolHooks.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account $KEYSTORE_NAME --broadcast
  *
  * Environment variable overrides (all optional, fall back to script/input/advanced-pool-hooks.json):
- *   ALLOWLIST           — CSV or JSON array of allowed addresses  (e.g. "0xA,0xB" or '["0xA","0xB"]')
- *   AUTHORIZED_CALLERS  — CSV or JSON array of authorized pool addresses
- *   THRESHOLD_AMOUNT    — uint256 threshold amount
- *   POLICY_ENGINE       — address of the policy engine contract
+ *   ALLOWLIST           - CSV or JSON array of allowed addresses  (e.g. "0xA,0xB" or '["0xA","0xB"]')
+ *   AUTHORIZED_CALLERS  - CSV or JSON array of authorized pool addresses
+ *   THRESHOLD_AMOUNT    - uint256 threshold amount
+ *   POLICY_ENGINE       - address of the policy engine contract
  *
  * Edit script/input/advanced-pool-hooks.json to configure defaults:
  *   - allowlist: Array of addresses allowed to transfer tokens
@@ -59,19 +59,19 @@ contract DeployAdvancedPoolHooks is Script {
         // Define the path to the configuration file
         string memory configPath = string.concat(vm.projectRoot(), "/script/input/advanced-pool-hooks.json");
 
-        // Parse parameters — env vars take priority, JSON config is the fallback
+        // Parse parameters - env vars take priority, JSON config is the fallback
         address[] memory allowlist = bytes(vm.envOr("ALLOWLIST", string(""))).length > 0
-            ? HelperUtils.parseAddressArray(vm, vm.envOr("ALLOWLIST", string("")), "")
-            : HelperUtils.parseAddressArray(vm, configPath, ".allowlist");
+            ? HelperUtils._parseAddressArray(vm, vm.envOr("ALLOWLIST", string("")), "")
+            : HelperUtils._parseAddressArray(vm, configPath, ".allowlist");
 
         uint256 thresholdAmount =
-            vm.envOr("THRESHOLD_AMOUNT", HelperUtils.getUintFromJson(vm, configPath, ".thresholdAmount"));
+            vm.envOr("THRESHOLD_AMOUNT", HelperUtils._getUintFromJson(vm, configPath, ".thresholdAmount"));
         address policyEngine =
-            vm.envOr("POLICY_ENGINE", HelperUtils.getAddressFromJson(vm, configPath, ".policyEngine"));
+            vm.envOr("POLICY_ENGINE", HelperUtils._getAddressFromJson(vm, configPath, ".policyEngine"));
 
         address[] memory authorizedCallers = bytes(vm.envOr("AUTHORIZED_CALLERS", string(""))).length > 0
-            ? HelperUtils.parseAddressArray(vm, vm.envOr("AUTHORIZED_CALLERS", string("")), "")
-            : HelperUtils.parseAddressArray(vm, configPath, ".authorizedCallers");
+            ? HelperUtils._parseAddressArray(vm, vm.envOr("AUTHORIZED_CALLERS", string("")), "")
+            : HelperUtils._parseAddressArray(vm, configPath, ".authorizedCallers");
 
         console.log("Advanced Pool Hooks Parameters:");
         console.log(string.concat("  Allowlist Enabled:            ", allowlist.length > 0 ? "Yes" : "No"));
@@ -104,7 +104,7 @@ contract DeployAdvancedPoolHooks is Script {
         // Hooks belong to a token's pool, so the registry key carries the token symbol and pool type
         // (see _hooksDeploymentName). Refuse to redeploy over a live registry entry (FORCE_REDEPLOY
         // overrides). The name is composed in a helper to keep this stack-heavy function under the limit.
-        RegistryWriter.guard(selectorName, _hooksDeploymentName(chainId));
+        RegistryWriter._guard(selectorName, _hooksDeploymentName(chainId));
 
         vm.startBroadcast();
 
@@ -140,7 +140,7 @@ contract DeployAdvancedPoolHooks is Script {
         console.log("");
         // Single writer: one call emits the detailed ledger file AND records the address in the
         // store (deployments[{symbol}_{poolType}_PoolHooks] + active.poolHooks).
-        DeploymentRecorder.recordPoolHooks(
+        DeploymentRecorder._recordPoolHooks(
             vm,
             helperConfig.getSelectorName(chainId),
             hooksAddress,
@@ -181,8 +181,8 @@ contract DeployAdvancedPoolHooks is Script {
     /// / "unknown"); the pool type from env `POOL_TYPE` (default "BurnMint"). Split into its own
     /// function so its locals do not add to the stack-heavy `run()`.
     function _hooksDeploymentName(uint256 chainId) private view returns (string memory) {
-        return DeploymentRecorder.hooksName(
-            DeploymentUtils.getSymbol(vm, helperConfig.getDeployedToken(chainId)), _hooksPoolType()
+        return DeploymentRecorder._hooksName(
+            DeploymentUtils._getSymbol(vm, helperConfig.getDeployedToken(chainId)), _hooksPoolType()
         );
     }
 

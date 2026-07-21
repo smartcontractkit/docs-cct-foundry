@@ -12,15 +12,15 @@ contract ChainHandlersHarness {
         pure
         returns (bytes memory)
     {
-        return ChainHandlers.prepareChainAddressData(addr, family);
+        return ChainHandlers._prepareChainAddressData(addr, family);
     }
 
     function validateChainAddress(string calldata addr, ChainHandlers.ChainFamily family) external pure returns (bool) {
-        return ChainHandlers.validateChainAddress(addr, family);
+        return ChainHandlers._validateChainAddress(addr, family);
     }
 
     function encodeBase58(bytes calldata data) external pure returns (string memory) {
-        return ChainHandlers.encodeBase58(data);
+        return ChainHandlers._encodeBase58(data);
     }
 }
 

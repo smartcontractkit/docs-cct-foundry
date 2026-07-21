@@ -18,8 +18,8 @@ import {EoaExecutor} from "../../src/base/EoaExecutor.s.sol";
  *   LOCK_BOX=0x... forge script script/operations/DepositToLockBox.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account $KEYSTORE_NAME --broadcast
  *
  * Environment variables:
- *   LOCK_BOX   — (required) address of the ERC20LockBox contract
- *   AMOUNT     — (optional) amount to deposit (defaults to tokenAmountToTransfer from script/input/token.json)
+ *   LOCK_BOX   - (required) address of the ERC20LockBox contract
+ *   AMOUNT     - (optional) amount to deposit (defaults to tokenAmountToTransfer from script/input/token.json)
  */
 contract DepositToLockBox is EoaExecutor {
     HelperConfig public helperConfig;
@@ -27,7 +27,7 @@ contract DepositToLockBox is EoaExecutor {
     /// @dev LockBox resolution seam: `LOCK_BOX` alias > `{CHAIN}_LOCK_BOX` > registry `active.lockBox`
     /// (no manual export needed). `virtual` so a test can inject an unresolved (`address(0)`) result and
     /// assert the named revert DETERMINISTICALLY, independent of the process-wide env other parallel
-    /// suites set — the ladder itself is proven in `test/config/RegistryResolution.t.sol`.
+    /// suites set - the ladder itself is proven in `test/config/RegistryResolution.t.sol`.
     function _resolveLockBox(uint256 chainId) internal virtual returns (address) {
         return vm.envOr("LOCK_BOX", helperConfig.getDeployedLockBox(chainId));
     }
@@ -69,7 +69,7 @@ contract DepositToLockBox is EoaExecutor {
         // Verify lockbox supports this token
         require(lockBox.isTokenSupported(tokenAddress), "Token not supported by this lockbox");
 
-        // Get amount to deposit — falls back to tokenAmountToTransfer in script/input/token.json if not set
+        // Get amount to deposit - falls back to tokenAmountToTransfer in script/input/token.json if not set
         string memory tokenJson = vm.readFile("script/input/token.json");
         uint256 defaultAmount = vm.parseJsonUint(tokenJson, ".tokenAmountToTransfer");
         uint256 amount = vm.envOr("AMOUNT", defaultAmount);
@@ -80,7 +80,7 @@ contract DepositToLockBox is EoaExecutor {
 
         IERC20 token = IERC20(tokenAddress);
 
-        address depositor = broadcaster();
+        address depositor = _broadcaster();
 
         console.log("Deposit Parameters:");
         console.log(string.concat("  LockBox:                      ", vm.toString(lockBoxAddress)));
@@ -95,7 +95,7 @@ contract DepositToLockBox is EoaExecutor {
         // approve(lockbox, amount) then deposit(token, 0, amount) as one batch through the action layer.
         console.log(string.concat("[Step 1] Approving ", vm.toString(amount), " tokens to LockBox"));
         console.log(string.concat("[Step 2] Depositing ", vm.toString(amount), " tokens into LockBox"));
-        executeCalls(CctActions.lockboxDeposit(lockBoxAddress, tokenAddress, amount));
+        _executeCalls(CctActions._lockboxDeposit(lockBoxAddress, tokenAddress, amount));
         console.log(unicode"✅ Deposit successful!");
 
         uint256 balanceAfter = token.balanceOf(depositor);

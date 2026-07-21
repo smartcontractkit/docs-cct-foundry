@@ -19,11 +19,32 @@ SYNC_SCRIPT := script/config/SyncCcipConfig.s.sol
 # (project/<group>/<selectorName>.json); unset is the flat default (project/<selectorName>.json). It
 # threads to the scripts as PROJECT_GROUP; GROUP_DIR locates the same file for the jq repair steps here.
 # Honored by the project targets (add-lane, remove-lane, adopt-token, snapshot-chain, doctor,
-# roles-check); the chain-facts targets (add-chain, sync*) ignore it (config/chains is group-independent).
+# roles-check) and the deploy targets (deploy-token/pool/lockbox/lockrelease-pool, deploy-new-chain); the
+# chain-facts targets (add-chain, sync*) ignore it (config/chains is group-independent).
 GROUP_DIR := $(if $(GROUP),$(GROUP)/,)
 
 .DEFAULT_GOAL := help
-.PHONY: adopt-token help tools discover add-chain add-lane remove-lane sync sync-preview sync-all sync-check doctor fmt-config clean-scratch snapshot-chain roles-check roles-check-all
+.PHONY: adopt-token help tools discover add-chain add-lane remove-lane sync sync-preview sync-all sync-check doctor fmt-config clean-scratch snapshot-chain roles-check roles-check-all deploy-token deploy-pool deploy-lockbox deploy-lockrelease-pool deploy-new-chain preflight verify verify-args
+
+# Deploy-time parameters are read by the forge scripts from the environment (vm.env*). Forward a value
+# passed on the make command line (make deploy-token TOKEN_NAME=...) to the forge subprocess; a value
+# already exported in the shell is inherited either way. The deploy targets resolve only --rpc-url and
+# --account for you; these carry the token/pool parameters through unchanged.
+#
+# Export ONLY vars that actually have a value. A blanket `export FOO` for an unset FOO exports it as an
+# EMPTY STRING on GNU Make, which the scripts would then read as "present" and use instead of their
+# vm.envOr(KEY, default) fallback - reverting on an empty address/uint or deploying an empty name. The
+# conditional export keeps unset vars unset so the script defaults (JSON config / registry / address(0))
+# still apply.
+DEPLOY_VARS := TOKEN_NAME TOKEN_SYMBOL TOKEN_DECIMALS TOKEN_MAX_SUPPLY TOKEN_PRE_MINT \
+	TOKEN_PRE_MINT_RECIPIENT CCIP_ADMIN_ADDRESS ROLES_RECIPIENT TOKEN TOKEN_POOL LOCK_BOX DECIMALS \
+	POOL_HOOKS AUTHORIZED_CALLERS FORCE_REDEPLOY
+$(foreach v,$(DEPLOY_VARS),$(if $(strip $($(v))),$(eval export $(v))))
+
+# Preflight per-call inputs, forwarded to the forge script the same conditional way as DEPLOY_VARS
+# (SOURCE_CHAIN / DEST_CHAIN and the two resolved RPC URLs are passed inline by the preflight recipe).
+PREFLIGHT_VARS := AMOUNT RECEIVER ORIGINAL_SENDER SOURCE_POOL DEST_POOL REQUESTED_FINALITY TOKEN_ARGS
+$(foreach v,$(PREFLIGHT_VARS),$(if $(strip $($(v))),$(eval export $(v))))
 
 # Recipe-time guard: the CHAIN's config file must exist (helpful list + add-chain hint on a miss).
 define require-chain-config
@@ -188,6 +209,72 @@ doctor: tools ## Layered verification of one chain's config (CHAIN= required; GR
 	$(if $(CHAIN),,$(error CHAIN is required: make doctor CHAIN=<name>))
 	$(require-chain-config)
 	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$(CHAIN)"
+
+preflight: tools ## Preflight a token transfer before sending: simulate source lockOrBurn + dest releaseOrMint against live state, GO/NO-GO (SOURCE_CHAIN= DEST_CHAIN= AMOUNT= RECEIVER= required; opt SOURCE_POOL= DEST_POOL= ORIGINAL_SENDER= REQUESTED_FINALITY=; read-only, no keystore)
+	$(if $(SOURCE_CHAIN),,$(error SOURCE_CHAIN is required: make preflight SOURCE_CHAIN=<name> DEST_CHAIN=<name> AMOUNT=<wei> RECEIVER=<addr>))
+	$(if $(DEST_CHAIN),,$(error DEST_CHAIN is required: make preflight SOURCE_CHAIN=<name> DEST_CHAIN=<name> AMOUNT=<wei> RECEIVER=<addr>))
+	$(if $(AMOUNT),,$(error AMOUNT is required in wei: make preflight SOURCE_CHAIN=<name> DEST_CHAIN=<name> AMOUNT=<wei> RECEIVER=<addr>))
+	$(if $(RECEIVER),,$(error RECEIVER is required: make preflight SOURCE_CHAIN=<name> DEST_CHAIN=<name> AMOUNT=<wei> RECEIVER=<addr>))
+	@test -f "$(CONFIG_DIR)/$(SOURCE_CHAIN).json" || { echo "unknown SOURCE_CHAIN '$(SOURCE_CHAIN)' - known chains: $(KNOWN_CHAINS)"; exit 1; }; \
+	test -f "$(CONFIG_DIR)/$(DEST_CHAIN).json" || { echo "unknown DEST_CHAIN '$(DEST_CHAIN)' - known chains: $(KNOWN_CHAINS)"; exit 1; }; \
+	src_rpc_env="$$(jq -r '.rpcEnv // empty' "$(CONFIG_DIR)/$(SOURCE_CHAIN).json")"; \
+	dst_rpc_env="$$(jq -r '.rpcEnv // empty' "$(CONFIG_DIR)/$(DEST_CHAIN).json")"; \
+	src_rpc="$$(printenv "$$src_rpc_env" || true)"; dst_rpc="$$(printenv "$$dst_rpc_env" || true)"; \
+	test -n "$$src_rpc" || { echo "source RPC not set - export $$src_rpc_env=<url> (the rpcEnv field in $(CONFIG_DIR)/$(SOURCE_CHAIN).json)"; exit 1; }; \
+	test -n "$$dst_rpc" || { echo "dest RPC not set - export $$dst_rpc_env=<url> (the rpcEnv field in $(CONFIG_DIR)/$(DEST_CHAIN).json)"; exit 1; }; \
+	SOURCE_CHAIN="$(SOURCE_CHAIN)" DEST_CHAIN="$(DEST_CHAIN)" SOURCE_RPC_URL="$$src_rpc" DEST_RPC_URL="$$dst_rpc" \
+	  forge script script/diagnostics/PreflightTransfer.s.sol --tc PreflightTransfer
+
+# ------------------------------------------------------------------------- deploy lifecycle golden path
+# The deploy targets close the DX gap the config golden path (add-chain/doctor) left: they resolve
+# --rpc-url from the chain file's `rpcEnv` field and --account from KEYSTORE_NAME, so no per-chain RPC
+# is hand-exported before each `forge script`. The raw `forge script` command each wraps stays
+# documented in README.md ("What this runs") as the escape hatch. Address persistence and the redeploy
+# guard are the scripts' own RegistryWriter behavior, reused unchanged.
+#
+# $(call run-deploy,<script-path>): resolve the chain's RPC + keystore, then broadcast. VERIFY=1 appends
+# --verify plus the config-driven verifier flags (script/config/verify-args.sh) so deploy and explorer
+# verification are one step; ETHERSCAN_API_KEY is read from the environment and never echoed.
+define run-deploy
+	@case "$(CHAIN)" in ""|*[!a-z0-9-]*) echo "invalid CHAIN '$(CHAIN)' - use lowercase letters, digits, and hyphens only"; exit 1;; esac; \
+	rpc_env="$$(jq -r '.rpcEnv // empty' "$(CONFIG_DIR)/$(CHAIN).json")"; \
+	test -n "$$rpc_env" || { echo "chain '$(CHAIN)' declares no rpcEnv - run: make sync CHAIN=$(CHAIN)"; exit 1; }; \
+	rpc_url="$$(printenv "$$rpc_env" || true)"; \
+	test -n "$$rpc_url" || { echo "RPC URL not set - export $$rpc_env=<url> (the rpcEnv field named in $(CONFIG_DIR)/$(CHAIN).json)"; exit 1; }; \
+	test -n "$(KEYSTORE_NAME)" || { echo "KEYSTORE_NAME is required - export KEYSTORE_NAME=<forge keystore account> (create one with: cast wallet import)"; exit 1; }; \
+	verify=""; \
+	if [ -n "$(VERIFY)" ]; then verify="--verify $$(bash script/config/verify-args.sh "$(CHAIN)")" || { echo "could not compose verifier flags for $(CHAIN)"; exit 1; }; fi; \
+	echo ">> deploy $(1) on $(CHAIN) (rpc: $$rpc_env, account: $(KEYSTORE_NAME))"; \
+	PROJECT_GROUP="$(GROUP)" forge script $(1) --rpc-url "$$rpc_url" --account "$(KEYSTORE_NAME)" --broadcast $$verify
+endef
+
+deploy-token: tools ## Deploy a cross-chain token on <CHAIN> (CHAIN= + KEYSTORE_NAME= required; token params via env TOKEN_NAME= TOKEN_SYMBOL= ...; VERIFY=1 source-verifies; FORCE_REDEPLOY=1 overrides the redeploy guard; GROUP= scopes to a token group)
+	$(if $(CHAIN),,$(error CHAIN is required: make deploy-token CHAIN=<name> (token params via env: TOKEN_NAME= TOKEN_SYMBOL= TOKEN_DECIMALS= ...)))
+	$(require-chain-config)
+	$(call run-deploy,script/deploy/DeployToken.s.sol)
+
+deploy-pool: tools ## Deploy a BurnMint token pool on <CHAIN> (CHAIN= + KEYSTORE_NAME= required; token resolved from the registry, else TOKEN=; opt POOL_HOOKS=; VERIFY=1; FORCE_REDEPLOY=1; GROUP= scopes to a token group)
+	$(if $(CHAIN),,$(error CHAIN is required: make deploy-pool CHAIN=<name>))
+	$(require-chain-config)
+	$(call run-deploy,script/deploy/DeployBurnMintTokenPool.s.sol)
+
+deploy-lockbox: tools ## Deploy an ERC20 LockBox on <CHAIN> for the LockRelease liquidity model (CHAIN= + KEYSTORE_NAME= required; token from the registry, else TOKEN=; opt AUTHORIZED_CALLERS=; VERIFY=1; GROUP= scopes to a token group)
+	$(if $(CHAIN),,$(error CHAIN is required: make deploy-lockbox CHAIN=<name>))
+	$(require-chain-config)
+	$(call run-deploy,script/deploy/DeployERC20LockBox.s.sol)
+
+deploy-lockrelease-pool: tools ## Deploy a LockRelease token pool on <CHAIN> (CHAIN= + KEYSTORE_NAME= required; token + lock box from the registry, else TOKEN= LOCK_BOX=; opt POOL_HOOKS=; VERIFY=1; FORCE_REDEPLOY=1; GROUP= scopes to a token group)
+	$(if $(CHAIN),,$(error CHAIN is required: make deploy-lockrelease-pool CHAIN=<name>))
+	$(require-chain-config)
+	$(call run-deploy,script/deploy/DeployLockReleaseTokenPool.s.sol)
+
+deploy-new-chain: tools ## Guided deploy: add-chain -> deploy-token -> deploy-pool -> doctor (CHAIN= SELECTOR= + KEYSTORE_NAME= required; token params + VERIFY= via env). Register, set-pool, and wire-lane come next - see docs/workflows/greenfield-deploy.md; a green run means deployed, not yet cross-chain-live
+	$(if $(CHAIN),,$(error CHAIN is required: make deploy-new-chain CHAIN=<selectorName> SELECTOR=<selector> (token params via env)))
+	$(if $(SELECTOR),,$(error SELECTOR is required - find it with: make discover FILTER=<term>))
+	@$(MAKE) --no-print-directory add-chain CHAIN=$(CHAIN) SELECTOR=$(SELECTOR)
+	@$(MAKE) --no-print-directory deploy-token CHAIN=$(CHAIN) $(if $(GROUP),GROUP=$(GROUP),)
+	@$(MAKE) --no-print-directory deploy-pool CHAIN=$(CHAIN) $(if $(GROUP),GROUP=$(GROUP),)
+	@$(MAKE) --no-print-directory doctor CHAIN=$(CHAIN) $(if $(GROUP),GROUP=$(GROUP),)
 
 # ---------------------------------------------------------------- authority durable store (roles{})
 # The `roles{}` subtree is the DECLARED authority surface, versioned in git. `snapshot-chain` is the

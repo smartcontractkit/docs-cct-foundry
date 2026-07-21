@@ -7,13 +7,13 @@ import {HelperConfig} from "../../script/HelperConfig.s.sol";
 /// @title DynamicChainDiscoveryTest
 /// @notice The end-to-end "zero Solidity changes" proof: dropping a NEW `config/chains/<name>.json`
 /// file in (exactly what `make add-chain` produces) makes the chain resolvable through every
-/// HelperConfig lookup — by chain ID, by chain name identifier, by selector, as a destination
-/// chain, and in the configured-chain enumeration — WITHOUT touching any Solidity dispatch.
+/// HelperConfig lookup - by chain ID, by chain name identifier, by selector, as a destination
+/// chain, and in the configured-chain enumeration - WITHOUT touching any Solidity dispatch.
 /// The scratch config uses a fake-but-valid chain ID / selector / identifier that no hardcoded
 /// fast path knows, so it can only resolve via the directory scan. All scratch assertions live in
 /// ONE test so the shared `config/chains/` directory sees exactly one write + one delete per run
 /// (tests run in parallel; every HelperConfig constructor scans this directory ONCE into a storage
-/// cache via `ChainConfig.tryLoad`, which tolerates a concurrently-deleted entry).
+/// cache via `ChainConfig._tryLoad`, which tolerates a concurrently-deleted entry).
 contract DynamicChainDiscoveryTest is Test {
     uint256 internal constant SCRATCH_CHAIN_ID = 777000777;
     uint64 internal constant SCRATCH_SELECTOR = 7770007770007770077;
@@ -77,7 +77,7 @@ contract DynamicChainDiscoveryTest is Test {
         _writeScratchChain();
         HelperConfig helperConfig = new HelperConfig();
 
-        // getNetworkConfig(chainId) — the directory-scan fallback resolves every field
+        // getNetworkConfig(chainId) - the directory-scan fallback resolves every field
         HelperConfig.NetworkConfig memory c = helperConfig.getNetworkConfig(SCRATCH_CHAIN_ID);
         assertEq(c.chainSelector, SCRATCH_SELECTOR, "chainSelector");
         assertEq(c.router, address(2), "router");

@@ -8,7 +8,12 @@
     "clean": "forge clean",
     "build": "forge build",
     "test": "forge test",
-    "format": "forge fmt"
+    "format": "forge fmt",
+    "lint:sol": "solhint --max-warnings 0 \"script/**/*.sol\" \"src/**/*.sol\"",
+    "docs:catalog": "node script/docs/gen-primitives.mjs",
+    "docs:catalog:check": "node script/docs/gen-primitives.mjs --check",
+    "docs:check": "node script/docs/check-docs.mjs",
+    "docs:gate": "npm run docs:catalog:check && npm run docs:check"
   },
   "dependencies": {
     "@chainlink/ace": "1.0.0",
@@ -16,5 +21,9 @@
     "@chainlink/contracts-ccip": "2.0.0",
     "@openzeppelin/contracts-4.8.3": "npm:@openzeppelin/contracts@4.8.3",
     "@openzeppelin/contracts-5.3.0": "npm:@openzeppelin/contracts@5.3.0"
+  },
+  "devDependencies": {
+    "solhint": "^6.2.2",
+    "solhint-plugin-chainlink-solidity": "github:smartcontractkit/chainlink-solhint-rules#v1.2.1"
   }
 }

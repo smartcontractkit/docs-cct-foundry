@@ -20,7 +20,7 @@ import {RegistryWriter} from "../../src/utils/RegistryWriter.sol";
  *   forge script script/deploy/DeployERC20LockBox.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account $KEYSTORE_NAME --broadcast
  *
  * Environment variables:
- *   AUTHORIZED_CALLERS   — (optional) CSV or JSON array of addresses to authorize immediately
+ *   AUTHORIZED_CALLERS   - (optional) CSV or JSON array of addresses to authorize immediately
  *                          (e.g. deployer/token issuer for initial liquidity management)
  */
 contract DeployERC20LockBox is Script {
@@ -50,7 +50,7 @@ contract DeployERC20LockBox is Script {
 
         // Parse optional authorized callers to add immediately after deployment
         string memory callersEnv = vm.envOr("AUTHORIZED_CALLERS", string(""));
-        address[] memory authorizedCallers = HelperUtils.parseAddressArray(vm, callersEnv, "");
+        address[] memory authorizedCallers = HelperUtils._parseAddressArray(vm, callersEnv, "");
 
         console.log("ERC20LockBox Parameters:");
         console.log(string.concat("  Token:                        ", vm.toString(tokenAddress)));
@@ -66,7 +66,9 @@ contract DeployERC20LockBox is Script {
 
         // Refuse to redeploy over a live registry entry (FORCE_REDEPLOY=true overrides). Keyed on the
         // unique per-symbol deployment name so distinct tokens on one chain never collide.
-        RegistryWriter.guard(selectorName, DeploymentRecorder.lockBoxName(DeploymentUtils.getSymbol(vm, tokenAddress)));
+        RegistryWriter._guard(
+            selectorName, DeploymentRecorder._lockBoxName(DeploymentUtils._getSymbol(vm, tokenAddress))
+        );
 
         vm.startBroadcast();
 
@@ -98,7 +100,7 @@ contract DeployERC20LockBox is Script {
         console.log("");
         // Single writer: one call emits the detailed ledger file AND records the address in the
         // registry (deployments[{symbol}_LockBox] + active.lockBox).
-        DeploymentRecorder.recordLockBox(vm, selectorName, chainNameId, lockBoxAddress, tokenAddress);
+        DeploymentRecorder._recordLockBox(vm, selectorName, chainNameId, lockBoxAddress, tokenAddress);
         console.log("");
         console.log("The address is registered in the address registry; later scripts resolve it automatically.");
         console.log("Copy this address to use in the next commands:");

@@ -11,9 +11,9 @@ import {FinalityConfigUtils} from "../../utils/FinalityConfigUtils.s.sol";
 /// @dev This function is only available on TokenPool v2.0 and later.
 /// The allowed finality config controls which fast finality modes are accepted for cross-chain transfers.
 /// Encoded as a bytes4 value per the FinalityCodec library:
-///   0x00000000  — WAIT_FOR_FINALITY (default): full finality required; fast finality transfers disabled.
-///   0x00010000  — WAIT_FOR_SAFE: fast finality transfers wait for the `safe` head.
-///   0x0000NNNN  — BLOCK_DEPTH(N): fast finality transfers wait for N block confirmations (1–65535).
+///   0x00000000  - WAIT_FOR_FINALITY (default): full finality required; fast finality transfers disabled.
+///   0x00010000  - WAIT_FOR_SAFE: fast finality transfers wait for the `safe` head.
+///   0x0000NNNN  - BLOCK_DEPTH(N): fast finality transfers wait for N block confirmations (1–65535).
 ///
 /// Usage example:
 ///   forge script script/configure/finality-config/GetFinalityConfig.s.sol \
@@ -52,7 +52,7 @@ contract GetFinalityConfig is Script {
         TokenPool tokenPool = TokenPool(tokenPoolAddress);
 
         try tokenPool.getAllowedFinalityConfig() returns (bytes4 allowedFinality) {
-            FinalityConfigUtils.logFinalityConfig(allowedFinality);
+            FinalityConfigUtils._logFinalityConfig(allowedFinality);
         } catch (bytes memory err) {
             console.log(
                 unicode"❌ Error: getAllowedFinalityConfig() reverted. Pool may be v1 (requires TokenPool v2.0+)."

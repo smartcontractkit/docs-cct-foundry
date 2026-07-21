@@ -10,7 +10,7 @@ import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 import {RolesProbes} from "../../src/roles/RolesProbes.sol";
 
 /// @title VerifyRoles
-/// @notice **The privileged-role audit reader (read-only)** — prints the CURRENT holder of every
+/// @notice **The privileged-role audit reader (read-only)** - prints the CURRENT holder of every
 /// authority slot for a token / pool / lockbox / hooks set. The token/pool resolve from the project
 /// store `project/<selectorName>.json` (+ `TOKEN`/`TOKEN_POOL` env overrides); the directory TAR from
 /// `config/chains/<name>.json`. Nothing broadcasts and no file is written; this is the
@@ -19,7 +19,7 @@ import {RolesProbes} from "../../src/roles/RolesProbes.sol";
 /// standalone audit of who holds what right now.
 ///
 /// Every read goes through `RolesProbes`'s tolerant staticcalls, so a slot a given template/version
-/// does not expose prints as "(absent)" rather than reverting the whole report — one reader covers
+/// does not expose prints as "(absent)" rather than reverting the whole report - one reader covers
 /// `CrossChainToken` / `BurnMintERC20` / `FactoryBurnMintERC20` / BYO tokens and v1.x / v2.0 pools.
 ///
 ///   forge script script/governance/VerifyRoles.s.sol --sig "run(string)" ethereum-testnet-sepolia --rpc-url <url>
@@ -40,23 +40,23 @@ contract VerifyRoles is Script {
 
     function _resolve(string memory chainName) private view returns (address token, address pool) {
         // chainName IS the selectorName (the config/chains basename == the project-store basename).
-        token = vm.envOr("TOKEN", RegistryWriter.read(chainName, "token"));
-        pool = vm.envOr("TOKEN_POOL", RegistryWriter.read(chainName, "tokenPool"));
+        token = vm.envOr("TOKEN", RegistryWriter._read(chainName, "token"));
+        pool = vm.envOr("TOKEN_POOL", RegistryWriter._read(chainName, "tokenPool"));
         require(
             token != address(0),
-            string.concat("no token: set TOKEN=<addr> or deploy first (", ProjectStore.display(chainName), ")")
+            string.concat("no token: set TOKEN=<addr> or deploy first (", ProjectStore._display(chainName), ")")
         );
         require(
             pool != address(0),
-            string.concat("no pool: set TOKEN_POOL=<addr> or deploy first (", ProjectStore.display(chainName), ")")
+            string.concat("no pool: set TOKEN_POOL=<addr> or deploy first (", ProjectStore._display(chainName), ")")
         );
     }
 
     // ---------------------------------------------------------------- token (template-dispatched)
 
     function _reportToken(address token) private view {
-        RolesProbes.TokenTemplate t = RolesProbes.detectTemplate(token);
-        console.log("--- token authority (template:", RolesProbes.templateName(t), ") ---");
+        RolesProbes.TokenTemplate t = RolesProbes._detectTemplate(token);
+        console.log("--- token authority (template:", RolesProbes._templateName(t), ") ---");
         _logAddr("ccipAdmin           ", token, "getCCIPAdmin()");
 
         if (t == RolesProbes.TokenTemplate.CrossChainToken) {
@@ -72,7 +72,7 @@ contract VerifyRoles is Script {
         } else {
             // BYO: whichever universal admin point answers
             _logAddr("owner               ", token, "owner()");
-            (bool hasAcl,) = RolesProbes.tryBytes32(token, "DEFAULT_ADMIN_ROLE()");
+            (bool hasAcl,) = RolesProbes._tryBytes32(token, "DEFAULT_ADMIN_ROLE()");
             console.log(
                 "  DEFAULT_ADMIN_ROLE  :", hasAcl ? "present (point-check declared holders with hasRole)" : "(absent)"
             );
@@ -81,10 +81,10 @@ contract VerifyRoles is Script {
     }
 
     function _reportMintBurn(address token, RolesProbes.TokenTemplate t) private view {
-        bytes32 minter = RolesProbes.roleIdOrDefault(token, "MINTER_ROLE()", RolesProbes.MINTER_ROLE);
-        bytes32 burner = RolesProbes.roleIdOrDefault(token, "BURNER_ROLE()", RolesProbes.BURNER_ROLE);
-        (bool mEnum, address[] memory minters) = RolesProbes.tryEnumerateHolders(token, "getMinters()", minter);
-        (bool bEnum, address[] memory burners) = RolesProbes.tryEnumerateHolders(token, "getBurners()", burner);
+        bytes32 minter = RolesProbes._roleIdOrDefault(token, "MINTER_ROLE()", RolesProbes.MINTER_ROLE);
+        bytes32 burner = RolesProbes._roleIdOrDefault(token, "BURNER_ROLE()", RolesProbes.BURNER_ROLE);
+        (bool mEnum, address[] memory minters) = RolesProbes._tryEnumerateHolders(token, "getMinters()", minter);
+        (bool bEnum, address[] memory burners) = RolesProbes._tryEnumerateHolders(token, "getBurners()", burner);
         if (mEnum) {
             _logSet("MINTER_ROLE (complete)", minters);
         } else {
@@ -106,7 +106,7 @@ contract VerifyRoles is Script {
     // ---------------------------------------------------------------- TAR
 
     function _reportTar(string memory chainName, address token) private view {
-        address tar = vm.envOr("TAR", ChainConfig.load(chainName).tokenAdminRegistry);
+        address tar = vm.envOr("TAR", ChainConfig._load(chainName).tokenAdminRegistry);
         console.log("--- TokenAdminRegistry (registry:", tar, ") ---");
         (bool s, bytes memory ret) = tar.staticcall(abi.encodeWithSignature("getTokenConfig(address)", token));
         if (!s || ret.length < 96) {
@@ -122,7 +122,7 @@ contract VerifyRoles is Script {
     // ---------------------------------------------------------------- pool
 
     function _reportPool(address pool) private view {
-        (bool isV2, address router, address rateLimitAdmin, address feeAdmin) = RolesProbes.readPoolAdmins(pool);
+        (bool isV2, address router, address rateLimitAdmin, address feeAdmin) = RolesProbes._readPoolAdmins(pool);
         console.log("--- pool authority (generation:", isV2 ? "v2.0" : "v1.x", ") ---");
         _logAddr("owner               ", pool, "owner()");
         console.log("  router              :", router);
@@ -137,38 +137,38 @@ contract VerifyRoles is Script {
     // ---------------------------------------------------------------- lockbox / hooks
 
     function _reportLockbox(address pool) private view {
-        (bool has, address lockbox) = RolesProbes.tryAddress(pool, "getLockBox()");
+        (bool has, address lockbox) = RolesProbes._tryAddress(pool, "getLockBox()");
         if (!has || lockbox == address(0)) return;
         console.log("--- lockbox authority (", lockbox, ") ---");
         _logAddr("owner               ", lockbox, "owner()");
         (, address[] memory callers) =
-            RolesProbes.tryAddressArray(lockbox, abi.encodeWithSignature("getAllAuthorizedCallers()"));
+            RolesProbes._tryAddressArray(lockbox, abi.encodeWithSignature("getAllAuthorizedCallers()"));
         _logSet("authorizedCallers   ", callers);
     }
 
     function _reportHooks(address pool) private view {
-        (bool has, address hooks) = RolesProbes.tryAddress(pool, "getAdvancedPoolHooks()");
+        (bool has, address hooks) = RolesProbes._tryAddress(pool, "getAdvancedPoolHooks()");
         if (!has || hooks == address(0)) return;
         console.log("--- hooks authority (", hooks, ") ---");
         _logAddr("owner               ", hooks, "owner()");
         _logAddr("policyEngine        ", hooks, "getPolicyEngine()");
-        (, bool allowlistEnabled) = RolesProbes.tryBool(hooks, "getAllowListEnabled()");
+        (, bool allowlistEnabled) = RolesProbes._tryBool(hooks, "getAllowListEnabled()");
         console.log("  allowlistEnabled    :", allowlistEnabled);
         (, address[] memory callers) =
-            RolesProbes.tryAddressArray(hooks, abi.encodeWithSignature("getAllAuthorizedCallers()"));
+            RolesProbes._tryAddressArray(hooks, abi.encodeWithSignature("getAllAuthorizedCallers()"));
         _logSet("authorizedCallers   ", callers);
     }
 
     // ---------------------------------------------------------------- helpers
 
     function _logAddr(string memory label, address target, string memory sig) private view {
-        (bool ok, address val) = RolesProbes.tryAddress(target, sig);
+        (bool ok, address val) = RolesProbes._tryAddress(target, sig);
         if (ok) console.log(string.concat("  ", label, ":"), val);
         else console.log(string.concat("  ", label, ": (absent)"));
     }
 
     function _logRole(string memory label, address token, bytes32 role) private view {
-        (bool enumerable, address[] memory holders) = RolesProbes.tryEnumerateHolders(token, "", role);
+        (bool enumerable, address[] memory holders) = RolesProbes._tryEnumerateHolders(token, "", role);
         if (enumerable) {
             _logSet(label, holders);
         } else {

@@ -5,15 +5,15 @@ import {Test} from "forge-std/Test.sol";
 import {VerifyChain} from "../../script/config/VerifyChain.s.sol";
 import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 
-/// @title VerifyChainDoctorRungsTest — `make doctor` per-rung completeness (offline)
+/// @title VerifyChainDoctorRungsTest - `make doctor` per-rung completeness (offline)
 /// @notice The offline half of the doctor's per-rung matrix. The SCHEMA rung is exercised end-to-end
 /// here (clean-chain PASS, induced FAIL naming the missing field, and the guarantees that `ccipBnM` is
 /// not a required key and that a stray `lanes{}`/`roles{}` in a config file is still diagnosed), plus a
 /// whole-doctor VERDICT-EQUIVALENCE fixture: the same logical chain expressed two byte-different
-/// (canonical vs compact) ways yields IDENTICAL offline-rung tallies — the config file format is a
+/// (canonical vs compact) ways yields IDENTICAL offline-rung tallies - the config file format is a
 /// representation detail the verdict is invariant under.
 ///
-/// The other rungs are covered by their own suites (the ffi/network rungs — tools, api — run in the live
+/// The other rungs are covered by their own suites (the ffi/network rungs - tools, api - run in the live
 /// tooling suite): mesh SKIP/FAIL/PASS in `LaneConfig.t.sol` + `VerifyChainSchemaRung.t.sol`;
 /// registry+extras PASS/WARN/WARN in `VerifyChainTarReconcile.t.sol`; lanes PASS/WARN/SKIP in
 /// `VerifyChainLaneReconcile` + `VerifyChainCCVReconcile`; roles PASS/FAIL/WARN in `RolesAuthority.t.sol`;
@@ -52,11 +52,11 @@ contract VerifyChainDoctorRungsTest is Test {
     function _clean(string memory name) internal {
         string memory c = _configPath(name);
         if (vm.exists(c)) vm.removeFile(c);
-        string memory p = ProjectStore.path(name);
+        string memory p = ProjectStore._path(name);
         if (vm.exists(p)) vm.removeFile(p);
     }
 
-    /// @dev A complete, discovery-safe EVM chain config (every key `ChainConfig.load` + the schema rung
+    /// @dev A complete, discovery-safe EVM chain config (every key `ChainConfig._load` + the schema rung
     /// consume) with NO `ccipBnM` key and optional key omissions. `omit` names a single
     /// top-level key to leave OUT (for the induced-FAIL kind); "" omits nothing.
     function _writeConfig(string memory name, uint256 chainId, uint64 selector, string memory omit) internal {
@@ -106,7 +106,7 @@ contract VerifyChainDoctorRungsTest is Test {
     // ------------------------------------------------------------ schema rung: clean PASS
 
     /// @dev CLEAN-CHAIN PASS: the schema rung on a real, fully-populated EVM config FAILs zero checks
-    /// (every key `ChainConfig.load` consumes is present, the quoted-decimal rule holds, and the real
+    /// (every key `ChainConfig._load` consumes is present, the quoted-decimal rule holds, and the real
     /// parse path succeeds). `isEvm` is true.
     function test_SchemaRung_CleanRealConfig_Pass() public {
         (bool isEvm, uint256 fails, uint256 warns) = new VerifyChain().checkSchemaForTest(REAL_EVM);
@@ -128,8 +128,8 @@ contract VerifyChainDoctorRungsTest is Test {
     // ------------------------------------------------------------ schema rung: induced FAIL
 
     /// @dev INDUCED FAIL naming the field: a config missing a required key FAILs the schema rung. The
-    /// message names the exact missing key (`schema: missing key .rpcEnv`) — the rung composes the key
-    /// into the FAIL line. `.rpcEnv` is a key the schema rung requires but which `ChainConfig.load`
+    /// message names the exact missing key (`schema: missing key .rpcEnv`) - the rung composes the key
+    /// into the FAIL line. `.rpcEnv` is a key the schema rung requires but which `ChainConfig._load`
     /// (and HelperConfig's discovery scan) does NOT read, so the scratch config stays parseable by the
     /// global chain scan while still failing the schema rung.
     function test_SchemaRung_MissingRequiredKey_InducedFail() public {
@@ -154,8 +154,8 @@ contract VerifyChainDoctorRungsTest is Test {
 
     // ------------------------------------------------------------ whole-doctor verdict equivalence
 
-    /// @dev VERDICT-EQUIVALENCE fixture: the SAME logical chain expressed two byte-different ways — the
-    /// canonical config vs a compact (whitespace-free, differently-ordered) config — yields
+    /// @dev VERDICT-EQUIVALENCE fixture: the SAME logical chain expressed two byte-different ways - the
+    /// canonical config vs a compact (whitespace-free, differently-ordered) config - yields
     /// IDENTICAL offline-rung tallies (schema + stray-state + mesh). The config file format is a
     /// representation change ONLY; the doctor's verdict must be invariant under it. Both trees declare
     /// NO lanes (mesh SKIPs identically) and no stray project state (0/0), and both are complete configs
@@ -188,7 +188,7 @@ contract VerifyChainDoctorRungsTest is Test {
     }
 
     /// @dev The compact representation: identical content to `_writeConfig(name, …, "")`, no whitespace,
-    /// keys in a deliberately DIFFERENT order — same logical chain, different bytes.
+    /// keys in a deliberately DIFFERENT order - same logical chain, different bytes.
     function _writeConfigCompact(string memory name, uint256 chainId, uint64 selector) internal {
         string memory json = string.concat(
             "{",

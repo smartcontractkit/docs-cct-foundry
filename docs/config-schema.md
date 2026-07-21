@@ -1,3 +1,7 @@
+---
+type: reference
+---
+
 # Chain config and project-store schema
 
 Per-chain state lives in **two files, both keyed by the canonical CCIP selectorName**:
@@ -16,7 +20,7 @@ in Solidity: `HelperConfig` discovers the chain list by scanning the `config/cha
 Solidity changes.
 
 The operational how-to (discover → add-chain → sync → doctor, and the "which command when" table) lives
-in the [README](../README.md#configuration); the `make`-command reference and the layered architecture
+in the [operations: chains](operations/chains.md); the `make`-command reference and the layered architecture
 (with diagrams) are in **[`config-architecture.md`](config-architecture.md)**. This document is the
 **field-by-field reference** for both files.
 
@@ -24,7 +28,7 @@ in the [README](../README.md#configuration); the `make`-command reference and th
 
 Each file is named by, and carries a `name` field equal to, the **canonical CCIP selectorName** from the
 [`chain-selectors`](https://github.com/smartcontractkit/chain-selectors) registry - the one identifier
-the CCIP REST API (`GET /v2/chains/{selector}` → `.name`), CLD, Atlas, the directory URL leaf, and
+the CCIP REST API (`GET /v2/chains/{selector}` → `.name`) and
 `ccip-cli` all key on. So the files are `ethereum-testnet-sepolia.json`,
 `ethereum-testnet-sepolia-mantle-1.json`, `0g-testnet-galileo-1.json`, `plume-testnet-sepolia.json`,
 `ink-testnet-sepolia.json`, and `solana-devnet.json` - **not** bespoke short slugs like `ethereum-sepolia`.
@@ -131,8 +135,8 @@ API serves nothing for it, so a reviewed PR owns it and the sync preserves it ve
 | `ccip.tokenPoolFactory`          | address                               | **API sync**         | `chainConfig.tokenPoolFactory` (active)           | reference (drift-checked)                     |
 | `ccip.link`                      | address                               | **API sync**         | `chainConfig.feeTokens[symbol==LINK]`             | `ChainConfig.load` → `link`                   |
 | `ccip.feeTokens`                 | address[]                             | **API sync**         | `chainConfig.feeTokens[].tokenAddress`            | reference (drift-checked)                     |
-| `chainNameIdentifier`            | UPPER_SNAKE string                    | hand                 | — (not in the API)                                | `ChainConfig.load`; the `<ID>_*` env prefix   |
-| `rpcEnv`                         | env-var name string                   | hand                 | — (not in the API)                                | fork setup; the doctor's RPC rung             |
+| `chainNameIdentifier`            | UPPER_SNAKE string                    | hand                 | - (not in the API)                                | `ChainConfig.load`; the `<ID>_*` env prefix   |
+| `rpcEnv`                         | env-var name string                   | hand                 | - (not in the API)                                | fork setup; the doctor's RPC rung             |
 | `verifier.type`                  | `"etherscan"` \| `"blockscout"` \| `"sourcify"` (optional block) | hand | (not in the API)                           | `script/config/verify-args.sh` (forge verifier flags) |
 | `verifier.url`                   | URL string (required for `blockscout` only) | hand           | (not in the API)                                  | `script/config/verify-args.sh` (`--verifier-url`) |
 
@@ -142,7 +146,7 @@ id, with a warned fallback to Sourcify for a chain Etherscan v2 does not serve. 
 `url` (the instance API endpoint, usually `<explorerUrl>/api`); `"sourcify"` is keyless and needs no URL.
 `make doctor CHAIN=<name>` validates it: an unknown `type` FAILs, `blockscout` without a `url` FAILs, and
 so does a stray `confirmations` key (not part of the schema). See
-[README → Verifying Deployed Contracts](../README.md#verifying-deployed-contracts).
+[operations: verification](operations/verification.md).
 
 The `lanes.<remote>` field rows (`remoteSelector`, `capacity`, `rate`, `inbound`, the `v2` blocks) live
 with the subtree in the project store - see
@@ -155,7 +159,7 @@ a config file is a schema-rung FAIL naming the move (see
 > `chainNameIdentifier` as UPPER_SNAKE of the selectorName (e.g. `avalanche-testnet-fuji` →
 > `AVALANCHE_TESTNET_FUJI`) and `rpcEnv` as `<chainNameIdentifier>_RPC_URL`, so a fresh chain's names
 > may differ in style from the six bundled chains' hand-curated SHORT forms (`ETHEREUM_SEPOLIA`, not
-> `ETHEREUM_TESTNET_SEPOLIA`). You cannot always guess them — so `add-chain` **prints the exact
+> `ETHEREUM_TESTNET_SEPOLIA`). You cannot always guess them - so `add-chain` **prints the exact
 > `chainNameIdentifier` and `rpcEnv` it generated** in its next-steps output. Override at generation
 > time with the `CHAIN_NAME_IDENTIFIER` / `RPC_ENV` env vars; these keys are hand-authored thereafter
 > (the sync never rewrites them).
@@ -344,7 +348,7 @@ EVM hex on EVM chains, base58 on non-EVM chains, family-validated on write again
 - **`active.<role>`** is the single slot `HelperConfig` resolves for each of the four roles
   (`token`/`tokenPool`/`lockBox`/`poolHooks`) - the zero-export default. `read(selectorName, role)` resolves
   `.addresses.active.<role>`. Environment variables still override the registry (see the
-  [README](../README.md#project-store--projectselectornamejson-the-default) precedence ladder), as
+  [deployed addresses](deployed-addresses.md) precedence ladder), as
   **read-only** inputs: an env-driven run resolves the override but never writes the store.
   > **`active` is what this repo last deployed - NOT proof of what is wired.** The on-chain
   > **TokenAdminRegistry** (`getPool(token)`) is the authority for the pool CCIP actually routes through.
@@ -362,7 +366,7 @@ EVM hex on EVM chains, base58 on non-EVM chains, family-validated on write again
 
 Per-artifact keys and the redeploy guard are the reference of
 [`deployed-addresses.md`](deployed-addresses.md); the resolution precedence is in the
-[README](../README.md#project-store--projectselectornamejson-the-default).
+[deployed addresses](deployed-addresses.md).
 
 ### The `lanes{}` subtree - owner policy, not API fact
 
@@ -525,8 +529,8 @@ engine never assumes one:
     "address": "0xa1f7882a...",             // the token this block describes (the snapshot/audit anchor;
                                              // make doctor WARNs when it diverges from addresses.active.token
                                              // - re-anchor after a repoint with make snapshot-chain)
-    "type": "crosschain",                    // crosschain | burnmint | factory | byo — selects the admin model
-    "ccipAdmin": "0xGov...",                 // getCCIPAdmin() — the TAR registration authority (one-step, owner-gated)
+    "type": "crosschain",                    // crosschain | burnmint | factory | byo - selects the admin model
+    "ccipAdmin": "0xGov...",                 // getCCIPAdmin() - the TAR registration authority (one-step, owner-gated)
     "defaultAdmin": "0xGov...",              // crosschain only: defaultAdmin() (single-holder, two-step)
     "pendingDefaultAdmin": "0x0",            // crosschain only: a non-zero value means a transfer is IN FLIGHT
     // "owner": "0xGov...",                  // factory/byo instead of defaultAdmin
@@ -541,7 +545,7 @@ engine never assumes one:
   // ── TokenAdminRegistry (the cutover authority; the TAR CONTRACT owner is out of scope) ──
   "tokenAdminRegistry": {
     "registry": "0x95F29FEE...",             // the TAR the token is REGISTERED in (may differ from the directory TAR)
-    "administrator": "0xGov...",             // getTokenConfig(token).administrator — the onlyTokenAdmin authority
+    "administrator": "0xGov...",             // getTokenConfig(token).administrator - the onlyTokenAdmin authority
     "pendingAdministrator": "0x0"            // a non-zero value means a two-step admin transfer is IN FLIGHT
   },
 
@@ -566,7 +570,7 @@ engine never assumes one:
   },
   // "rebalancer": "0xGov...",               // v1 LockRelease only (v2 uses the lockbox above)
 
-  // ── OPTIONAL governance{} — three shapes: safe-only, timelock-only, or both. ──
+  // ── OPTIONAL governance{} - three shapes: safe-only, timelock-only, or both. ──
   //    Absent = EOA-only chain (a valid SKIP, never a FAIL). ──────────────────
   "governance": {
     "safe": { "address": "0xSafe...", "threshold": 2, "owners": ["0x..","0x..","0x.."] },
@@ -629,10 +633,10 @@ source). `config/chains/solana-devnet.json` keeps the same shape but:
   through the selectorName-keyed getters when it lists Solana as a remote in `applyChainUpdates`, replacing
   the old env-only path. Two non-EVM chains that both report `chainId "0"` never collide, because the store
   is keyed by selectorName.
-- **The base58 validation is syntactic only — sanity-check the accounts before wiring the lane.** `POOL_B58`
+- **The base58 validation is syntactic only - sanity-check the accounts before wiring the lane.** `POOL_B58`
   must be the Solana pool's **config account** (the state PDA the OnRamp stamps as `sourcePoolAddress`), not
   the pool program id or the token mint; `TOKEN_B58` is the mint. Once the Solana side is deployed, stock
-  CLIs confirm both (advisory — the accounts do not exist pre-deploy, so `AccountNotFound` is expected then):
+  CLIs confirm both (advisory - the accounts do not exist pre-deploy, so `AccountNotFound` is expected then):
   `solana account <POOL_B58> --url <cluster> --output json` must show the account exists, `executable:false`,
   and `owner` = the CCIP pool program id (a signer PDA returns `AccountNotFound`; a program id shows
   `executable:true`; a mint shows a token-program owner); `spl-token display <TOKEN_B58> --url <cluster>`
