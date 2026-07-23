@@ -1,8 +1,6 @@
 {
-  "_comment": "Configuration for ApplyChainUpdates.s.sol. Run with: VIA_JSON_FILE=true forge script script/setup/ApplyChainUpdates.s.sol ...",
-
-  "sourcePool": "0xc93e08c592eF8b4368A29b8De6cF7126E9D1d09f",
-
+  "_comment": "Configuration for ApplyChainUpdates.s.sol. Run with: VIA_JSON_FILE=true forge script script/setup/ApplyChainUpdates.s.sol ... The destPools/destToken values below are PLACEHOLDERS that document the schema; replace every one with a deployed address. Replacing only sourcePool is rejected - the run fails naming the entry that still holds a placeholder.",
+  "sourcePool": "0xA8452Ec99ce0C64f20701dB7dD3abDb607c00496",
   "remoteChains": [
     {
       "destChain": "MANTLE_SEPOLIA",

@@ -1,4 +1,11 @@
 {
+  "ApplyChainUpdates": {
+    "destructive": true,
+    "when_to_use": "Configure a remote chain on a token pool: the remote pool addresses, the remote token address, and both rate limiter configs.",
+    "preconditions": "The executing account owns the pool. Every remote address is already chain-family encoded (EVM: abi.encode(address); SVM: raw 32 bytes).",
+    "postconditions": "The chain's entry on the pool matches the payload exactly.",
+    "failure_modes": "REPLACE, NOT MERGE: re-applying an already-configured chain removes its whole entry first, including every registered remote pool and both rate limiter configs, so anything the payload omits is lost. Mid-migration that drops the old remote pool a lane still needs (in-flight messages then fail InvalidSourcePoolAddress) or un-throttles a lane throttled on purpose. Repeating a selector inside one payload reverts NonExistentChain, because the first removal already took it out."
+  },
   "ClaimAndAcceptAdmin": {
     "when_to_use": "Register a token you control in the TokenAdminRegistry in one atomic step. Prefer this over separate ClaimAdmin then AcceptAdminRole when you want a single Safe batch: AcceptAdminRole on its own preflight-requires the pending administrator to already be set, so the two standalone steps cannot be deferred into one batch, whereas this pair executes together.",
     "preconditions": "The executing account must be resolvable as the token's admin through one of the three claim paths, auto-detected in precedence: getCCIPAdmin(), then owner(), then AccessControl DEFAULT_ADMIN_ROLE.",

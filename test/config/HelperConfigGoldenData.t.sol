@@ -16,6 +16,11 @@ import {HelperConfig} from "../../script/HelperConfig.s.sol";
 /// the source of truth for these fields.
 /// No fork needed: `HelperConfig` reads local JSON only.
 contract HelperConfigGoldenDataTest is Test {
+    /// @dev Negative fixtures for "not onboarded", unreachable by construction. See the rationale on the
+    ///      matching constants in `DynamicChainDiscovery.t.sol`.
+    uint256 internal constant NEVER_ONBOARDED_CHAIN_ID = type(uint256).max;
+    string internal constant NEVER_ONBOARDED_CHAIN_NAME = "ZZ_NOT_A_REAL_CHAIN";
+
     HelperConfig internal helperConfig;
 
     function setUp() public {
@@ -47,6 +52,23 @@ contract HelperConfigGoldenDataTest is Test {
         assertEq(c.explorerUrl, explorerUrl, "explorerUrl");
         assertEq(c.nativeCurrencySymbol, nativeCurrencySymbol, "nativeCurrencySymbol");
         assertEq(c.chainFamily, chainFamily, "chainFamily");
+    }
+
+    function test_AvalancheFuji_MatchesConfigLiterals() public view {
+        _assertConfig(
+            helperConfig.getNetworkConfig(43113),
+            14767482510784806043,
+            0xF694E193200268f9a4868e4Aa017A0118C9a8177,
+            0xAc8CFc3762a979628334a0E4C1026244498E821b,
+            0xA92053a4a3922084d992fD2835bdBa4caC6877e6,
+            0xefa93f3312840683893DbdeB3d53359b2d948F50,
+            0x0b9d5D9136855f6FEc3c0993feE6E9CE8a297846,
+            "Avalanche Fuji",
+            "AVALANCHE_TESTNET_FUJI",
+            "https://testnet.snowscan.xyz",
+            "AVAX",
+            "evm"
+        );
     }
 
     function test_EthereumSepolia_MatchesPreMigrationValues() public view {
@@ -168,8 +190,8 @@ contract HelperConfigGoldenDataTest is Test {
         // getDestChainConfig: dest-name dispatch incl. the zero config for unknown names
         assertEq(helperConfig.getDestChainConfig("SOLANA_DEVNET").chainSelector, 16423721717087811551);
         assertEq(helperConfig.getDestChainConfig("ZERO_G_TESTNET").chainSelector, 6892437333620424805);
-        assertEq(helperConfig.getDestChainConfig("AVALANCHE_FUJI").chainSelector, 0);
-        assertEq(helperConfig.getDestChainConfig("AVALANCHE_FUJI").chainFamily, "");
+        assertEq(helperConfig.getDestChainConfig(NEVER_ONBOARDED_CHAIN_NAME).chainSelector, 0);
+        assertEq(helperConfig.getDestChainConfig(NEVER_ONBOARDED_CHAIN_NAME).chainFamily, "");
 
         // getExplorerUrl composition
         assertEq(
@@ -179,6 +201,6 @@ contract HelperConfigGoldenDataTest is Test {
 
         // Unsupported chain IDs must keep reverting with the same reason
         vm.expectRevert(bytes("Unsupported chain ID"));
-        helperConfig.getNetworkConfig(43113);
+        helperConfig.getNetworkConfig(NEVER_ONBOARDED_CHAIN_ID);
     }
 }

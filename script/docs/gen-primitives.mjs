@@ -347,6 +347,11 @@ function main() {
   const scripts = deriveScripts();
   const meta = loadMeta();
 
+  // Apply the authored `destructive` override at the source, so every renderer (catalog, index, page)
+  // sees it. Building the index/catalog from raw `scripts` is how an authored `destructive: true`
+  // reached only the .md page and left the catalog and index on the name-heuristic default.
+  for (const s of scripts) s.destructive = meta[s.name]?.destructive ?? s.destructive;
+
   // Coverage: no authored meta entry may name a script that no longer exists.
   const names = new Set(scripts.map((s) => s.name));
   const orphans = Object.keys(meta).filter((k) => !names.has(k));

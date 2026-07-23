@@ -123,7 +123,7 @@ API serves nothing for it, so a reviewed PR owns it and the sync preserves it ve
 | `chainId`                        | quoted decimal string (`"0"` non-EVM) | **API sync (guard)** | `chain.chainId` (EVM; `"0"` placeholder non-EVM)  | `ChainConfig.chainId`; sync identity guard    |
 | `chainSelector`                  | quoted `uint64` string                | **API sync (guard)** | `chain.chainSelector`                             | `ChainConfig.load`; the primary join key      |
 | `displayName`                    | string                                | **API sync**         | `chain.displayName`                               | `ChainConfig.load` → `chainName`; log output  |
-| `chainFamily`                    | `"evm"` \| `"svm"`                    | **API sync**         | `chain.chainFamily` (lowercased)                  | `ChainConfig.load`; EVM/non-EVM dispatch      |
+| `chainFamily`                    | `"evm"` \| `"svm"` \| `"aptos"`       | **API sync**         | `chain.chainFamily` (lowercased)                  | `ChainConfig.load`; EVM/non-EVM dispatch      |
 | `environment`                    | `"testnet"` \| `"mainnet"`            | **API sync**         | `chain.environment`                               | provenance                                    |
 | `explorerUrl`                    | URL string                            | **API sync**         | `chainMetadata.explorer.url`                      | `ChainConfig.load`; output/verification links |
 | `nativeCurrencySymbol`           | string                                | **API sync**         | `chainMetadata.nativeCurrency.symbol`             | `ChainConfig.load`                            |
@@ -675,6 +675,37 @@ source). `config/chains/solana-devnet.json` keeps the same shape but:
 
 The Solana deployed addresses live in `project/solana-devnet.json` `addresses{}` as base58 strings, not in
 this file.
+
+**The remote-pool field is chain-family-shaped.** The remote-pool value an EVM source registers for a lane
+(through `ApplyChainUpdates`, read from the remote chain's `addresses{}`) is what the destination pool
+checks a message's `sourcePoolAddress` against at release time. Getting the shape wrong fails the same way
+a wrong EVM remote does:
+
+- For an **EVM remote**, it is the remote pool's EVM address, abi-encoded to 32 bytes. The message a send
+  emits carries that address as `sourcePoolAddress`, and the destination pool validates it against
+  `getRemotePools(sourceSelector)`.
+- For a **Solana remote**, it is a Solana account in base58, not an EVM-style address. The CCIP Solana
+  router stamps the pool's per-mint config account as the message's `sourcePoolAddress` (the state PDA
+  identified under [Non-EVM (Solana) chain file](#non-evm-solana-chain-file) above, derived from the pool
+  program and the token mint). That account, base58-encoded, is what belongs in the remote-pool field, so
+  the EVM destination pool's `getRemotePools` set matches what an inbound Solana message actually carries.
+- For an **Aptos remote**, it is the Aptos account address: a 32-byte value written as `0x` hex (short
+  forms with a leading run of zero bytes elided, e.g. `0x1`, are valid and left-pad to the canonical 32
+  bytes). Set `destChainFamily:"aptos"` in the `ApplyChainUpdates` JSON entry (or `DEST_CHAIN_FAMILY=aptos`
+  in CLI mode); the address is hex-parsed to 32 raw bytes, the same native-width form as a Solana remote
+  but hex-decoded rather than base58-decoded. The remote pool is the Aptos token pool's address the CCIP
+  Aptos router stamps as `sourcePoolAddress`; the remote token is the fungible-asset metadata object
+  address. As with Solana, the validation is syntactic (well-formed 32-byte hex), never that it is the
+  right account - confirm it against the deployed Aptos pool before wiring the lane.
+
+Registering the wrong Solana account here (the pool program id or the token mint instead of the config
+account), or an EVM-style `0x` encoding, makes the EVM destination release revert `InvalidSourcePoolAddress`,
+exactly as a wrong or decommissioned EVM remote pool does: the stamped `sourcePoolAddress` is not in the
+destination's registered set. The `addresses{}` write is family-validated (base58 that decodes to exactly
+32 bytes on an `svm` chain, per [The `addresses{}` sub-store](#the-addresses-sub-store-the-registry)), but
+that check is syntactic. It proves the value is a well-formed Solana account, never that it is the right
+one. Confirm the account with the `solana account` / `spl-token` checks in the non-EVM section above before
+wiring the lane.
 
 ## Related
 

@@ -3,7 +3,7 @@
   "note": "Generated from the script/ tree and the Makefile. Do not edit by hand; run `npm run docs:catalog`.",
   "counts": {
     "primitives": 60,
-    "makeTargets": 25
+    "makeTargets": 26
   },
   "primitives": [
     {
@@ -761,7 +761,7 @@
       ],
       "read_only": false,
       "writes_onchain": true,
-      "destructive": false,
+      "destructive": true,
       "inputs": [
         "DEST_CHAIN",
         "DEST_CHAIN_FAMILY",
@@ -1043,6 +1043,10 @@
     {
       "target": "preflight",
       "help": "Preflight a token transfer before sending: simulate source lockOrBurn + dest releaseOrMint against live state, GO/NO-GO (SOURCE_CHAIN= DEST_CHAIN= AMOUNT= RECEIVER= required; opt SOURCE_POOL= DEST_POOL= ORIGINAL_SENDER= REQUESTED_FINALITY=; read-only, no keystore)"
+    },
+    {
+      "target": "verify-execution",
+      "help": "Check whether a sent message executed on its destination (MESSAGE_ID= DEST_CHAIN= required; read-only, no keystore; needs ccip-cli; pass/fail only - CI uses the script for 0/1/2/3)"
     },
     {
       "target": "deploy-token",

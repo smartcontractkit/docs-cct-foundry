@@ -1,0 +1,25 @@
+{
+  "ccip": {
+    "feeQuoter": "0x20a66995d09c7ff7383f2270344073D15CB65E99",
+    "feeTokens": [
+      "0x0b9d5D9136855f6FEc3c0993feE6E9CE8a297846",
+      "0xd00ae08403B9bbb9124bB305C09058E32C39A48c"
+    ],
+    "link": "0x0b9d5D9136855f6FEc3c0993feE6E9CE8a297846",
+    "registryModuleOwnerCustom": "0xefa93f3312840683893DbdeB3d53359b2d948F50",
+    "rmnProxy": "0xAc8CFc3762a979628334a0E4C1026244498E821b",
+    "router": "0xF694E193200268f9a4868e4Aa017A0118C9a8177",
+    "tokenAdminRegistry": "0xA92053a4a3922084d992fD2835bdBa4caC6877e6",
+    "tokenPoolFactory": "0x8E9066E66bF1B8A4eAF2344589De9ff82CE47C2d"
+  },
+  "chainFamily": "evm",
+  "chainId": "43113",
+  "chainNameIdentifier": "AVALANCHE_TESTNET_FUJI",
+  "chainSelector": "14767482510784806043",
+  "displayName": "Avalanche Fuji",
+  "environment": "testnet",
+  "explorerUrl": "https://testnet.snowscan.xyz",
+  "name": "avalanche-testnet-fuji",
+  "nativeCurrencySymbol": "AVAX",
+  "rpcEnv": "AVALANCHE_TESTNET_FUJI_RPC_URL"
+}

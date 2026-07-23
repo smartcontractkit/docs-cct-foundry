@@ -36,7 +36,7 @@ import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 ///     "remoteChains": [
 ///       {
 ///         "destChain": "MANTLE_SEPOLIA",         // required - chain name identifier
-///         "destChainFamily": "evm",              // optional - auto-detected; set "svm" for Solana
+///         "destChainFamily": "evm",              // optional - auto-detected; set "svm" for Solana, "aptos" for Aptos
 ///         "destChainSelector": 0,                // optional - auto-detected from destChain
 ///         "destPools": ["0x...", "0x..."],        // required - one or more remote pool addresses
 ///         "destToken": "0x...",                  // required - remote token address
@@ -71,12 +71,12 @@ import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 ///   <DEST_CHAIN>_TOKEN            - EVM address of the token on the destination chain
 ///
 /// Environment Variables (non-EVM destinations):
-///   DEST_CHAIN_FAMILY             - "svm"/"solana" (default: "evm")
-///                                   (auto-detected for SOLANA_DEVNET)
+///   DEST_CHAIN_FAMILY             - "svm"/"solana" or "aptos" (default: "evm")
+///                                   (auto-detected from the destination's config chainFamily)
 ///   DEST_CHAIN_SELECTOR           - uint64 chain selector for the destination chain
-///                                   (auto-detected for SOLANA_DEVNET)
+///                                   (auto-detected from the destination's config)
 ///   DEST_TOKEN_POOL               - Destination pool address in its native format
-///                                   (base58 for SVM)
+///                                   (base58 for SVM; "0x" hex for Aptos)
 ///   DEST_TOKEN                    - Destination token address in its native format
 ///
 /// Environment Variables (optional - rate limiting disabled by default):
@@ -123,6 +123,10 @@ contract ApplyChainUpdates is EoaExecutor {
     // ─────────────────────────────────────────────────────────────────────────
 
     string internal constant JSON_INPUT_FILE = "script/input/apply-chain-updates.json";
+
+    /// @dev Upper bound of the address range treated as unfilled template placeholder - see
+    ///      `_requireNotTemplatePlaceholder`.
+    uint160 internal constant TEMPLATE_PLACEHOLDER_CEILING = 0xffff;
 
     function run() external {
         helperConfig = new HelperConfig();
@@ -277,6 +281,7 @@ contract ApplyChainUpdates is EoaExecutor {
         RateLimiter.Config memory inbound = _parseRateLimitFromJson(json, string.concat(prefix, ".inboundRateLimit"));
 
         _logJsonChainEntry(index, meta, addrs, outbound, inbound);
+        _noticeJsonRateLimitDivergence(json, prefix, meta.chainSelector);
 
         update = TokenPool.ChainUpdate({
             remoteChainSelector: meta.chainSelector,
@@ -334,6 +339,7 @@ contract ApplyChainUpdates is EoaExecutor {
             string.concat("Invalid ", destChainFamilyStr, " token address: ", addrs.rawTokenAddress)
         );
         addrs.tokenEncoded = ChainHandlers._prepareChainAddressData(addrs.rawTokenAddress, destChainFamily);
+        _requireNotTemplatePlaceholder(addrs.rawTokenAddress, addrs.tokenEncoded, destChainFamily, "destToken", index);
 
         addrs.rawPoolAddresses = vm.parseJsonStringArray(json, string.concat(prefix, ".destPools"));
         require(
@@ -348,7 +354,42 @@ contract ApplyChainUpdates is EoaExecutor {
                 string.concat("Invalid ", destChainFamilyStr, " pool address: ", addrs.rawPoolAddresses[p])
             );
             addrs.encodedPools[p] = ChainHandlers._prepareChainAddressData(addrs.rawPoolAddresses[p], destChainFamily);
+            _requireNotTemplatePlaceholder(
+                addrs.rawPoolAddresses[p], addrs.encodedPools[p], destChainFamily, "destPools", index
+            );
         }
+    }
+
+    /// @dev Rejects an EVM address still carrying the shipped template's sentinel value. The
+    ///      committed `script/input/apply-chain-updates.json` is a filled-in EXAMPLE whose
+    ///      `destPools`/`destToken` are counters (`0x…0001` upward). Its `sourcePool` is a foreign
+    ///      address, so an untouched file fails at execution - but replacing ONLY `sourcePool` (the
+    ///      first field in the file) leaves the placeholders below it, and the resulting batch is
+    ///      valid: it registers real lanes on the real pool pointing at addresses that hold no pool.
+    ///      That executes cleanly and leaves a dead lane, discovered later on a failing transfer.
+    ///      No genuine deployment occupies the first 2^16 addresses, so that range is template
+    ///      residue, never a real remote. SVM is exempt: base58 keys have no comparable low range.
+    function _requireNotTemplatePlaceholder(
+        string memory raw,
+        bytes memory encoded,
+        ChainHandlers.ChainFamily destChainFamily,
+        string memory field,
+        uint256 index
+    ) internal pure {
+        if (destChainFamily != ChainHandlers.ChainFamily.EVM) return;
+        address remote = abi.decode(encoded, (address));
+        if (uint160(remote) > TEMPLATE_PLACEHOLDER_CEILING) return;
+        revert(
+            string.concat(
+                "remoteChains[",
+                vm.toString(index),
+                "].",
+                field,
+                " is still the template placeholder ",
+                raw,
+                " - replace every destPools/destToken entry in the input file with the deployed addresses."
+            )
+        );
     }
 
     /// @dev Logs a summary of one remoteChains[index] entry.
@@ -369,6 +410,129 @@ contract ApplyChainUpdates is EoaExecutor {
         }
         console.log(string.concat("      Outbound RL:    enabled=", vm.toString(outbound.isEnabled)));
         console.log(string.concat("      Inbound RL:     enabled=", vm.toString(inbound.isEnabled)));
+    }
+
+    /// @dev JSON mode is file-authoritative: it never falls back to the declared `lanes{}` policy, so
+    ///      this entry's rate-limit values are applied verbatim. That keeps the emitted batch a complete,
+    ///      self-contained record of what will be applied - a reviewer (or Safe co-signer) can diff it
+    ///      against this input file without also consulting `lanes{}`. This surfaces, at build time
+    ///      (before signing), any direction where the value about to be applied DIFFERS from what
+    ///      `lanes{}` declares - whether the block is OMITTED (applied DISABLED) or
+    ///      PRESENT with a contradicting value (a different capacity/rate, or an explicit
+    ///      `enabled:false` clearing a declared limit). It is the JSON-mode analog of CLI mode's
+    ///      env-vs-declared divergence notice - close but not identical: CLI compares whenever the lane
+    ///      key exists, this fires when `lanes{}` declares a NON-ZERO limit the entry diverges from (a
+    ///      declared-disabled lane has no limit to protect). It warns, never reverts, and never changes
+    ///      what is applied. Reconcile by editing the file to match the declaration, or by updating
+    ///      `lanes{}` when the change is intended; `make doctor` is the post-apply backstop either way.
+    function _noticeJsonRateLimitDivergence(string memory json, string memory prefix, uint64 destChainSelector)
+        internal
+        view
+    {
+        (bool configFound, string memory configName,) = _findLocalChainConfig();
+        if (!configFound) return;
+        DeclaredLane memory lane = _findDeclaredLane(
+            _localProjectJson(configName),
+            vm.parseJsonString(json, string.concat(prefix, ".destChain")),
+            destChainSelector
+        );
+        if (!lane.found) return;
+
+        // Compare a direction only when `lanes{}` declares a non-zero limit for it - that is the owner
+        // intent this entry could silently contradict. A declaration of nothing (or an explicit
+        // zero/disabled) has no baseline limit to protect, so it is left uncompared. This is stricter
+        // than CLI mode, which compares whenever the lane key exists.
+        if (lane.capacity != 0 || lane.rate != 0) {
+            _noticeDirectionDivergence(
+                json, string.concat(prefix, ".outboundRateLimit"), "outbound", lane.key, lane.capacity, lane.rate
+            );
+        }
+        if (lane.inboundDeclared && (lane.inboundCapacity != 0 || lane.inboundRate != 0)) {
+            _noticeDirectionDivergence(
+                json,
+                string.concat(prefix, ".inboundRateLimit"),
+                "inbound",
+                lane.key,
+                lane.inboundCapacity,
+                lane.inboundRate
+            );
+        }
+    }
+
+    /// @dev One direction: warn when the bucket this entry will apply differs from the declared
+    ///      `(declCap, declRate)`. The caller only invokes this for a non-zero declaration, so the
+    ///      declared bucket is enabled; any applied-DISABLED (block omitted, or an explicit
+    ///      `enabled:false`) or a different capacity/rate is a divergence. The applied bucket is computed
+    ///      exactly as `_parseRateLimitFromJson` would - the disabled branch never reads capacity/rate.
+    function _noticeDirectionDivergence(
+        string memory json,
+        string memory key,
+        string memory direction,
+        string memory laneKey,
+        uint256 declCap,
+        uint256 declRate
+    ) internal view {
+        bool given = vm.keyExistsJson(json, key);
+        bool appliedEnabled;
+        uint256 appliedCap;
+        uint256 appliedRate;
+        if (given) {
+            appliedEnabled = vm.parseJsonBool(json, string.concat(key, ".enabled"));
+            // Truncate to uint128 exactly as the apply path does (_parseRateLimitFromJson), so a value
+            // above 2^128 compares equal to what actually gets written and cannot raise a false notice.
+            appliedCap = appliedEnabled ? uint256(uint128(vm.parseJsonUint(json, string.concat(key, ".capacity")))) : 0;
+            appliedRate = appliedEnabled ? uint256(uint128(vm.parseJsonUint(json, string.concat(key, ".rate")))) : 0;
+        }
+        if (appliedEnabled && appliedCap == declCap && appliedRate == declRate) return;
+
+        if (!given) {
+            console.log(
+                string.concat(
+                    "      NOTICE: lanes.",
+                    laneKey,
+                    " declares an ",
+                    direction,
+                    " limit (capacity=",
+                    vm.toString(declCap),
+                    " rate=",
+                    vm.toString(declRate),
+                    ") but this entry omits ",
+                    direction,
+                    "RateLimit - it is applied DISABLED, and `make doctor` will FAIL on the drift."
+                )
+            );
+        } else {
+            console.log(
+                string.concat(
+                    "      NOTICE: this entry's ",
+                    direction,
+                    "RateLimit (enabled=",
+                    appliedEnabled ? "true" : "false",
+                    " capacity=",
+                    vm.toString(appliedCap),
+                    " rate=",
+                    vm.toString(appliedRate),
+                    ") differs from lanes.",
+                    laneKey,
+                    " (capacity=",
+                    vm.toString(declCap),
+                    " rate=",
+                    vm.toString(declRate),
+                    ") - `make doctor` will FAIL on the drift."
+                )
+            );
+        }
+        console.log(
+            string.concat(
+                "        Reconcile: set \"",
+                direction,
+                "RateLimit\": { \"enabled\": true, \"capacity\": ",
+                vm.toString(declCap),
+                ", \"rate\": ",
+                vm.toString(declRate),
+                " } to match the declaration, or update lanes{} if the change is intended."
+            )
+        );
     }
 
     /// @dev Parses an optional rate limit object from JSON. Returns a disabled config if the key is absent.

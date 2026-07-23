@@ -93,17 +93,7 @@ contract ConfigureActionsForkTest is BaseForkTest {
     // ── Lane bootstrap ────────────────────────────────────────────────────────
 
     function _addLane(address asOwner, address p, uint64 selector, address remotePool, address remoteToken) internal {
-        bytes[] memory remotePools = new bytes[](1);
-        remotePools[0] = abi.encode(remotePool);
-        TokenPool.ChainUpdate[] memory updates = new TokenPool.ChainUpdate[](1);
-        updates[0] = TokenPool.ChainUpdate({
-            remoteChainSelector: selector,
-            remotePoolAddresses: remotePools,
-            remoteTokenAddress: abi.encode(remoteToken),
-            outboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0}),
-            inboundRateLimiterConfig: RateLimiter.Config({isEnabled: false, capacity: 0, rate: 0})
-        });
-        _exec(asOwner, CctActions._applyChainUpdates(p, new uint64[](0), updates));
+        _exec(asOwner, CctActions._applyChainUpdates(p, new uint64[](0), _update(selector, remotePool, remoteToken)));
     }
 
     function _cfg(bool enabled, uint128 capacity, uint128 rate) internal pure returns (RateLimiter.Config memory) {
@@ -344,5 +334,169 @@ contract ConfigureActionsForkTest is BaseForkTest {
         assertEq(defBefore.tokens - defAfter.tokens, amount, "default bucket consumed by the fast transfer");
         assertFalse(fastAfter.isEnabled, "fast bucket stayed unconfigured (no bypass)");
         assertEq(fastAfter.tokens, 0, "unconfigured fast bucket never held tokens");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Remove-plus-add: the shipped idempotent lane re-apply, and its replace-not-merge hazard
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @dev Why the removes array is needed: a plain re-add of an already-supported selector reverts.
+    function test_applyChainUpdates_plainReAdd_revertsChainAlreadyExists() public {
+        TokenPool.ChainUpdate[] memory updates = _update(SELECTOR, REMOTE_POOL, REMOTE_TOKEN);
+        vm.expectRevert(abi.encodeWithSignature("ChainAlreadyExists(uint64)", SELECTOR));
+        _exec(owner, CctActions._applyChainUpdates(pool, new uint64[](0), updates));
+    }
+
+    /// @dev And it must be the INTERSECTION: mirroring every selector into removes reverts for a NEW one.
+    function test_applyChainUpdates_removeUnsupported_revertsNonExistentChain() public {
+        uint64 fresh = SELECTOR + 1;
+        uint64[] memory removes = new uint64[](1);
+        removes[0] = fresh;
+        vm.expectRevert(abi.encodeWithSignature("NonExistentChain(uint64)", fresh));
+        _exec(owner, CctActions._applyChainUpdates(pool, removes, _update(fresh, REMOTE_POOL, REMOTE_TOKEN)));
+    }
+
+    /// @dev The shipped idempotent path (`ApplyChainUpdates.s.sol` gates each selector on
+    ///      `isSupportedChain` and packs the survivors into `removes`) round-trips a supported selector,
+    ///      and genuinely RESTORES its config rather than merely not reverting.
+    function test_applyChainUpdates_removeThenReAdd_restoresConfig() public {
+        _exec(
+            owner, CctActions._applyChainUpdates(pool, _removes(SELECTOR), _update(SELECTOR, REMOTE_POOL, REMOTE_TOKEN))
+        );
+        assertTrue(TokenPool(pool).isSupportedChain(SELECTOR), "selector still supported after re-apply");
+        assertEq(TokenPool(pool).getRemotePools(SELECTOR).length, 1, "remote pool restored");
+        assertTrue(TokenPool(pool).isRemotePool(SELECTOR, abi.encode(REMOTE_POOL)), "same remote pool restored");
+        assertEq(TokenPool(pool).getRemoteToken(SELECTOR), abi.encode(REMOTE_TOKEN), "remote token restored");
+    }
+
+    /// @dev REPLACE, NOT MERGE: the migration footgun. A lane holding BOTH the old and the new remote
+    ///      pool loses the old one unless the update carries both, and an in-flight release from the
+    ///      dropped pool would then fail `InvalidSourcePoolAddress`.
+    function test_applyChainUpdates_removeThenReAdd_dropsRemotePoolOmittedFromUpdate() public {
+        address newRemotePool = address(0x3333333333333333333333333333333333333333);
+        _exec(owner, CctActions._addRemotePool(pool, SELECTOR, abi.encode(newRemotePool)));
+        assertEq(TokenPool(pool).getRemotePools(SELECTOR).length, 2, "both remotes registered");
+
+        // Re-apply carrying ONLY the new pool.
+        _exec(
+            owner,
+            CctActions._applyChainUpdates(pool, _removes(SELECTOR), _update(SELECTOR, newRemotePool, REMOTE_TOKEN))
+        );
+
+        assertEq(TokenPool(pool).getRemotePools(SELECTOR).length, 1, "the omitted remote pool is gone");
+        assertFalse(TokenPool(pool).isRemotePool(SELECTOR, abi.encode(REMOTE_POOL)), "old remote dropped");
+    }
+
+    /// @dev Carrying BOTH remotes through the re-apply preserves the dual registration, which is what
+    ///      a migration window needs.
+    function test_applyChainUpdates_removeThenReAdd_carryingBothRemotesPreservesThem() public {
+        address newRemotePool = address(0x3333333333333333333333333333333333333333);
+        _exec(owner, CctActions._addRemotePool(pool, SELECTOR, abi.encode(newRemotePool)));
+
+        bytes[] memory both = new bytes[](2);
+        both[0] = abi.encode(REMOTE_POOL);
+        both[1] = abi.encode(newRemotePool);
+        TokenPool.ChainUpdate[] memory updates = new TokenPool.ChainUpdate[](1);
+        updates[0] = TokenPool.ChainUpdate({
+            remoteChainSelector: SELECTOR,
+            remotePoolAddresses: both,
+            remoteTokenAddress: abi.encode(REMOTE_TOKEN),
+            outboundRateLimiterConfig: _cfg(false, 0, 0),
+            inboundRateLimiterConfig: _cfg(false, 0, 0)
+        });
+        _exec(owner, CctActions._applyChainUpdates(pool, _removes(SELECTOR), updates));
+
+        assertEq(TokenPool(pool).getRemotePools(SELECTOR).length, 2, "both remotes survive");
+        assertTrue(TokenPool(pool).isRemotePool(SELECTOR, abi.encode(REMOTE_POOL)), "old remote kept");
+        assertTrue(TokenPool(pool).isRemotePool(SELECTOR, abi.encode(newRemotePool)), "new remote kept");
+    }
+
+    /// @dev The other half of REPLACE, NOT MERGE, and the quieter one: removal wipes BOTH rate limiter
+    ///      configs too, so a re-apply carrying default (disabled) limits silently un-throttles a lane
+    ///      that was deliberately throttled. A zeroed limiter is invisible until it matters.
+    function test_applyChainUpdates_removeThenReAdd_wipesRateLimitsOmittedFromUpdate() public {
+        _exec(
+            owner,
+            CctActions._setRateLimits(
+                pool,
+                PoolVersions.Version.V2_0_0,
+                SELECTOR,
+                false,
+                _cfg(true, 1_000e18, 10e18),
+                _cfg(true, 2_000e18, 20e18)
+            )
+        );
+        (RateLimiter.TokenBucket memory o0,) = TokenPool(pool).getCurrentRateLimiterState(SELECTOR, false);
+        assertTrue(o0.isEnabled, "precondition: limiter enabled");
+
+        // Re-apply carrying the default (disabled) limits that `_update` builds.
+        _exec(
+            owner, CctActions._applyChainUpdates(pool, _removes(SELECTOR), _update(SELECTOR, REMOTE_POOL, REMOTE_TOKEN))
+        );
+
+        (RateLimiter.TokenBucket memory o1, RateLimiter.TokenBucket memory i1) =
+            TokenPool(pool).getCurrentRateLimiterState(SELECTOR, false);
+        assertFalse(o1.isEnabled, "outbound limiter wiped by the re-apply");
+        assertFalse(i1.isEnabled, "inbound limiter wiped by the re-apply");
+        assertEq(o1.capacity, 0, "outbound capacity wiped");
+        assertEq(i1.capacity, 0, "inbound capacity wiped");
+    }
+
+    /// @dev Carrying the limits through the re-apply preserves them.
+    function test_applyChainUpdates_removeThenReAdd_carryingRateLimitsPreservesThem() public {
+        TokenPool.ChainUpdate[] memory updates = _update(SELECTOR, REMOTE_POOL, REMOTE_TOKEN);
+        updates[0].outboundRateLimiterConfig = _cfg(true, 1_000e18, 10e18);
+        updates[0].inboundRateLimiterConfig = _cfg(true, 2_000e18, 20e18);
+
+        _exec(owner, CctActions._applyChainUpdates(pool, _removes(SELECTOR), updates));
+
+        (RateLimiter.TokenBucket memory o, RateLimiter.TokenBucket memory i) =
+            TokenPool(pool).getCurrentRateLimiterState(SELECTOR, false);
+        assertTrue(o.isEnabled, "outbound limiter preserved");
+        assertEq(o.capacity, 1_000e18, "outbound capacity preserved");
+        assertTrue(i.isEnabled, "inbound limiter preserved");
+        assertEq(i.capacity, 2_000e18, "inbound capacity preserved");
+    }
+
+    /// @dev A selector repeated inside ONE batch reverts on the second removal, because the first
+    ///      already took it out of the set. The error is `NonExistentChain`, which is actively
+    ///      misleading: it names a chain that very much exists and points at the removes array when the
+    ///      real fault is a duplicate in the updates. Callers building batches from JSON (as
+    ///      `ApplyChainUpdates.s.sol` does) should dedupe by selector before packing.
+    function test_applyChainUpdates_duplicateSelectorInBatch_revertsMisleadingly() public {
+        uint64[] memory removes = new uint64[](2);
+        removes[0] = SELECTOR;
+        removes[1] = SELECTOR;
+
+        TokenPool.ChainUpdate[] memory updates = new TokenPool.ChainUpdate[](2);
+        updates[0] = _update(SELECTOR, REMOTE_POOL, REMOTE_TOKEN)[0];
+        updates[1] = _update(SELECTOR, REMOTE_POOL, REMOTE_TOKEN)[0];
+
+        vm.expectRevert(abi.encodeWithSignature("NonExistentChain(uint64)", SELECTOR));
+        _exec(owner, CctActions._applyChainUpdates(pool, removes, updates));
+    }
+
+    /// @dev The removes array for an already-supported selector, mirroring what
+    ///      `ApplyChainUpdates.s.sol` packs from its `isSupportedChain` gate.
+    function _removes(uint64 selector) internal pure returns (uint64[] memory removes) {
+        removes = new uint64[](1);
+        removes[0] = selector;
+    }
+
+    function _update(uint64 selector, address remotePool, address remoteToken)
+        internal
+        pure
+        returns (TokenPool.ChainUpdate[] memory updates)
+    {
+        bytes[] memory remotePools = new bytes[](1);
+        remotePools[0] = abi.encode(remotePool);
+        updates = new TokenPool.ChainUpdate[](1);
+        updates[0] = TokenPool.ChainUpdate({
+            remoteChainSelector: selector,
+            remotePoolAddresses: remotePools,
+            remoteTokenAddress: abi.encode(remoteToken),
+            outboundRateLimiterConfig: _cfg(false, 0, 0),
+            inboundRateLimiterConfig: _cfg(false, 0, 0)
+        });
     }
 }

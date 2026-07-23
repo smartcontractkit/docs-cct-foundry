@@ -29,3 +29,28 @@ Then [send and track a transfer](../guides/send-track-diagnose.md). See the copy
 `mode=eoa` (default) broadcasts each step. `mode=safe` emits one Safe batch for the register, set-pool, and
 wire steps to sign once; the deploy steps sign with the keystore in both modes. See
 [governance modes](../governance-modes.md).
+
+## Keystore password (non-interactive runs)
+
+The deploy steps sign with a Foundry keystore selected by `--account`, so `make deploy-token` and
+`make deploy-pool` prompt for the keystore passphrase on the terminal. For CI or any non-interactive run,
+set Foundry's native `ETH_PASSWORD` (the env form of `--password-file`) to a **file path** whose contents
+are the passphrase: an **empty file** for a passwordless keystore, or a file holding the passphrase for a
+protected one.
+
+```bash
+set -a && . ./.env && set +a          # the deploy recipe reads the chain's RPC env var, so export .env
+PW=$(mktemp)                          # empty file = empty passphrase (a passwordless keystore)
+# for a password-protected keystore instead: printf '%s' '<passphrase>' > "$PW"
+ETH_PASSWORD="$PW" make deploy-token CHAIN=<chain> KEYSTORE_NAME=<account> VERIFY=1 </dev/null
+```
+
+`ETH_PASSWORD` is a file **path**, not the passphrase itself (`ETH_PASSWORD=""` is rejected as a missing
+file). Without it, a non-interactive run cannot reach the terminal prompt and Foundry falls back to its
+default sender, so pass it (or run the target interactively).
+
+Treat the password file as a secret: keep it out of the repo, restrict it (`chmod 600`), and prefer an
+ephemeral file (`mktemp`, removed after the run). The keystore itself stays encrypted; the file only holds
+its passphrase. This non-interactive path is for CI and testnet automation. For a **production or
+high-value signer**, prefer a hardware wallet (`--ledger` / `--trezor`) over any automatable password, per
+[keystore signing](../decisions/0001-keystore-signing.md).

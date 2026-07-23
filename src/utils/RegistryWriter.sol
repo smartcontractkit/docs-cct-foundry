@@ -406,7 +406,11 @@ library RegistryWriter {
                 "[project] '",
                 value,
                 "' is not a valid ",
-                fam == ChainHandlers.ChainFamily.EVM ? "EVM (0x + 40 hex)" : "SVM (base58, 32 bytes)",
+                fam == ChainHandlers.ChainFamily.EVM
+                    ? "EVM (0x + 40 hex)"
+                    : fam == ChainHandlers.ChainFamily.SVM
+                        ? "SVM (base58, 32 bytes)"
+                        : "Aptos (0x + up to 64 hex, 32 bytes)",
                 " address for ",
                 selectorName
             )
