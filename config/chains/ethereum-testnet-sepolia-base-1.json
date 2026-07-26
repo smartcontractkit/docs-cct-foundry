@@ -1,0 +1,25 @@
+{
+  "ccip": {
+    "feeQuoter": "0x892AF4440ce5637f8eee142b45f52b4946fc841F",
+    "feeTokens": [
+      "0x4200000000000000000000000000000000000006",
+      "0xE4aB69C077896252FAFBD49EFD26B5D171A32410"
+    ],
+    "link": "0xE4aB69C077896252FAFBD49EFD26B5D171A32410",
+    "registryModuleOwnerCustom": "0x176ae8C6C11DD2c031B924CE1A0A43188035f3f6",
+    "rmnProxy": "0x99360767a4705f68CcCb9533195B761648d6d807",
+    "router": "0xD3b06cEbF099CE7DA4AcCf578aaebFDBd6e88a93",
+    "tokenAdminRegistry": "0x736D0bBb318c1B27Ff686cd19804094E66250e17",
+    "tokenPoolFactory": "0x29014dCC16CD6543F5c09623FD9c325902076caD"
+  },
+  "chainFamily": "evm",
+  "chainId": "84532",
+  "chainNameIdentifier": "ETHEREUM_TESTNET_SEPOLIA_BASE_1",
+  "chainSelector": "10344971235874465080",
+  "displayName": "Base Sepolia",
+  "environment": "testnet",
+  "explorerUrl": "https://sepolia.basescan.org",
+  "name": "ethereum-testnet-sepolia-base-1",
+  "nativeCurrencySymbol": "ETH",
+  "rpcEnv": "ETHEREUM_TESTNET_SEPOLIA_BASE_1_RPC_URL"
+}

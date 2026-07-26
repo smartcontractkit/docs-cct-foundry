@@ -43,6 +43,64 @@ curl -s https://api.ccip.chain.link/v2/messages/<messageId> | jq
 
 A `status` of `SUCCESS` with a `receiptTransactionHash` means the transfer executed on the destination.
 
+`verify-execution` turns the same query into an exit code, for CI or a scripted cutover. It needs
+`ccip-cli` on PATH; the destination RPC is optional, since the index answers without one.
+
+```bash
+bash script/config/verify-execution.sh 0x... ethereum-testnet-sepolia
+```
+
+It exits `0` executed, `1` failed (printing the decoded reason), `2` pending, `3` unresolved, and rejects a
+destination chain the message was not sent to rather than returning a green. The second argument is a
+`config/chains/` file name.
+
+Call the script directly when you need those codes. `make verify-execution MESSAGE_ID=... DEST_CHAIN=...`
+runs the same check but is pass/fail only, because make remaps any failing recipe to its own exit `2`.
+
+### Enumerate inbound messages for a token
+
+Tracking one message needs its ID. To answer "is anything still inbound for this token", search the index
+instead. The destination, source and source-token filters combine, and `--source-token` takes the token's
+address on the **source** chain, so run one search per remote.
+
+`-d` and `-s` take a chain's CCIP name (its selectorName, e.g. `avalanche-testnet-fuji`), which is not
+always the `config/chains/` file name. A wrong name is a `CHAIN_NOT_FOUND` error, not an empty result, so
+the query below captures the output and stops on any non-zero exit rather than treating a failed command
+as a drained lane.
+
+```bash
+unset CCIP_API_URL
+
+out=$(ccip-cli search messages -d <localChain> -s <remoteChain> --source-token <tokenOnRemote> \
+  --limit 0 --no-interactive -f json) || {
+  echo "query failed (see the error above): this is NOT a drained lane"; exit 1
+}
+printf '%s' "$out" | jq -s 'add // [] | {returned: length, blocking: (map(select(.status != "SUCCESS")) | length)}'
+```
+
+`--limit 0` returns every match rather than a page, which is what makes `blocking: 0` mean "nothing is
+inbound" instead of "nothing is inbound on the first page". Scoped to one source and one token the result
+set is small, so this stays fast.
+
+Two things make this fail closed rather than fall to a confident false zero. The `|| { ... exit 1; }`
+guard catches a CLI error (a wrong chain name, an unreachable API), which otherwise, with the error on
+stderr and nothing on stdout, would read as `{"returned":0}` and green-light a removal. And `jq -s 'add //
+[]'` handles the genuine no-match case, where the CLI exits 0 but prints nothing on stdout, by emitting
+`{"returned":0,"blocking":0}` explicitly.
+
+Even so, `{"returned":0}` is not proof of a drain on a single call: the index occasionally returns an
+empty page transiently, which reads identically to a genuinely empty result. Before you treat a zero as
+drained, run the query two or three times a few seconds apart, or confirm against the message IDs you
+tracked at send time, so a transient blip cannot green-light a removal.
+
+`blocking` is counted client side, because the index has no status filter. `SUCCESS` is the only status
+that means drained: a `FAILED` message can still be manually executed, so it blocks. The filter tests
+against `SUCCESS` rather than a list of statuses for that reason.
+
+A search result carries the source chain and source token but no `sourcePoolAddress`, so it cannot tell
+you which pool a message would release from. For any message it flags, `ccip-cli show <messageId>`
+resolves that at `request.message.tokenAmounts[0].sourcePoolAddress`.
+
 ## The validation loop: send, check, fix, re-execute
 
 The practical way to validate a lane is a tiny **token-only transfer to your own EOA**, then

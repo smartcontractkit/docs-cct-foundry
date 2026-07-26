@@ -60,8 +60,23 @@ For non-EVM chains like Solana Devnet, supply the destination pool and token add
 `SOLANA_DEVNET_TOKEN`). These are base58-encoded, not `0x`-prefixed EVM addresses. Rate limiting is not
 applicable for non-EVM destinations and is ignored.
 
-This script is idempotent: if the destination chain is already configured on the pool, the existing
-config is removed and replaced automatically.
+This script is idempotent: if the destination chain is already configured on the pool, the existing config
+is removed and replaced automatically.
+
+> [!warning] Replace, not merge. That removal wipes the chain's whole entry, including EVERY registered
+> remote pool and BOTH rate limiter configs, before the new one is written. Whatever the payload omits is
+> gone. Two ways that bites during a migration:
+>
+> - A lane mid-cutover holds the old and the new remote pool so in-flight messages can still be released.
+>   Re-applying with only the new pool silently drops the old one, and messages from it then fail
+>   `InvalidSourcePoolAddress`. Carry every address the lane should keep.
+> - A lane deliberately throttled for a migration is silently un-throttled by a re-apply carrying the
+>   declared limits. `make doctor` FAILs when a manual throttle diverges from the declared `lanes{}`
+>   policy, so the obvious way to make the doctor green is exactly the command that undoes the throttle.
+>   Update the declaration instead.
+>
+> Repeating a selector inside one payload also reverts `NonExistentChain`, which names a chain that does
+> exist: the first removal took it out before the second ran. Deduplicate by selector.
 
 ### Rate limits: env override versus declared policy
 
@@ -221,8 +236,42 @@ Drops a single remote pool from a chain that stays supported. This is a 1.5.1+ o
 pool it refuses and points at "Remove a remote chain" below, since 1.5.0 holds one remote pool per chain
 (there is no standalone pool removal).
 
-All inflight transactions from the removed pool are rejected after removal. Ensure there are no inflight
-transactions before proceeding.
+All inflight transactions from the removed pool are rejected after removal, so prove the lane is drained
+first. The pool checks a message's `sourcePoolAddress` against `getRemotePools` at release time, and an
+address that is gone means `InvalidSourcePoolAddress`. Re-adding the same address with `AddRemotePool`
+restores validation and the message can then be executed, so this is recoverable, but the check is
+cheaper than the recovery. Removal is also optional: a pool that is out of the `TokenAdminRegistry` is
+inert, and leaving its address registered costs nothing.
+
+Query the CCIP index for messages inbound to this chain carrying this token, once per remote the pool
+serves. See [Enumerate inbound
+messages](../guides/send-track-diagnose.md#enumerate-inbound-messages-for-a-token) for the command. Get
+the remote list from `GetSupportedChains.s.sol` rather than memory. The token address it wants is the one
+on the **remote** chain, so a local address returns zero while the lane may still be draining.
+
+A `FAILED` message still blocks removal: its pending manual execution re-validates `sourcePoolAddress`
+exactly as the first attempt did.
+
+When the count is not zero, resolve each flagged message rather than waiting on all of them. Only a
+message from the **old** pool blocks this removal:
+
+```bash
+ccip-cli show <messageId> --no-interactive -f json | jq '.request.message.tokenAmounts[0].sourcePoolAddress'
+```
+
+| What you find | What to do |
+| --- | --- |
+| Not the old pool | Does not block this removal. Note it and move on. |
+| Old pool, still moving | Wait. Source finality and executor pickup clear it. |
+| Old pool, `FAILED` | Waiting never clears this. Diagnose the cause, fix it, `ccip-cli manualExec`, confirm the message reaches state `2`, then re-run the query. |
+| Old pool, undiagnosable, or not your token | Defer the cleanup and close it out, a legitimate ending rather than an open ticket. |
+
+If the cause is a rate limit, a near-zero bucket on one direction only is a deliberate freeze, not a
+default. Find out who set it and why before changing it; if you cannot, escalate rather than raise it.
+
+The index lags the source chain by the lane's finality window, so a message sent shortly before the query
+can be invisible to it. Allow a margin past the lane's maximum source finality before removing; waiting
+longer costs nothing.
 
 ```bash
 DEST_CHAIN=MANTLE_SEPOLIA \

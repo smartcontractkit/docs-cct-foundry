@@ -67,6 +67,21 @@ Safe holds every privileged role, so every owner- or admin-gated command from th
 `MODE=safe SAFE_ADDRESS=<safe>` - an EOA-mode run fails its authority preflight, by design. Read-only
 commands (`roles-check`, `doctor`, getters) are unaffected.
 
+### Previewing calldata without a Safe
+
+`SAFE_ADDRESS` does not have to be a Safe. With `SAFE_EXEC` unset the run only builds the `Call[]`
+and writes the batch file; nothing reads the address as a contract, and nothing is broadcast. So an
+EOA owner can point `SAFE_ADDRESS` at their own account to see exactly what EOA mode would send:
+
+```bash
+MODE=safe SAFE_ADDRESS=<owning-eoa> BATCH_NAME=preview \
+  forge script script/setup/ApplyChainUpdates.s.sol --rpc-url "$RPC_URL"
+```
+
+The emitted `batches/preview.<chainId>.json` carries the same calldata the default (EOA) mode would
+broadcast, and the console logs every target and selector. Useful for reviewing a lane change before
+running it for real. `SAFE_EXEC=direct` is the one path that needs a real Safe.
+
 ## Safe mode environment variables
 
 Read only when `MODE=safe`:

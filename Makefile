@@ -24,7 +24,7 @@ SYNC_SCRIPT := script/config/SyncCcipConfig.s.sol
 GROUP_DIR := $(if $(GROUP),$(GROUP)/,)
 
 .DEFAULT_GOAL := help
-.PHONY: adopt-token help tools discover add-chain add-lane remove-lane sync sync-preview sync-all sync-check doctor fmt-config clean-scratch snapshot-chain roles-check roles-check-all deploy-token deploy-pool deploy-lockbox deploy-lockrelease-pool deploy-new-chain preflight verify verify-args
+.PHONY: adopt-token help tools discover add-chain add-lane remove-lane sync sync-preview sync-all sync-check doctor fmt-config clean-scratch snapshot-chain roles-check roles-check-all deploy-token deploy-pool deploy-lockbox deploy-lockrelease-pool deploy-new-chain preflight verify verify-args verify-execution
 
 # Deploy-time parameters are read by the forge scripts from the environment (vm.env*). Forward a value
 # passed on the make command line (make deploy-token TOKEN_NAME=...) to the forge subprocess; a value
@@ -224,6 +224,13 @@ preflight: tools ## Preflight a token transfer before sending: simulate source l
 	test -n "$$dst_rpc" || { echo "dest RPC not set - export $$dst_rpc_env=<url> (the rpcEnv field in $(CONFIG_DIR)/$(DEST_CHAIN).json)"; exit 1; }; \
 	SOURCE_CHAIN="$(SOURCE_CHAIN)" DEST_CHAIN="$(DEST_CHAIN)" SOURCE_RPC_URL="$$src_rpc" DEST_RPC_URL="$$dst_rpc" \
 	  forge script script/diagnostics/PreflightTransfer.s.sol --tc PreflightTransfer
+
+# No `tools:` prereq (unlike the sibling targets): this needs ccip-cli + jq, not the forge/curl that
+# `tools` checks, and the script self-checks its own dependencies.
+verify-execution: ## Check whether a sent message executed on its destination (MESSAGE_ID= DEST_CHAIN= required; read-only, no keystore; needs ccip-cli; pass/fail only - CI uses the script for 0/1/2/3)
+	$(if $(MESSAGE_ID),,$(error MESSAGE_ID is required: make verify-execution MESSAGE_ID=0x... DEST_CHAIN=<name>))
+	$(if $(DEST_CHAIN),,$(error DEST_CHAIN is required: make verify-execution MESSAGE_ID=0x... DEST_CHAIN=<name>))
+	@bash script/config/verify-execution.sh "$(MESSAGE_ID)" "$(DEST_CHAIN)"
 
 # ------------------------------------------------------------------------- deploy lifecycle golden path
 # The deploy targets close the DX gap the config golden path (add-chain/doctor) left: they resolve

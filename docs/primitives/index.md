@@ -110,7 +110,7 @@ at [`catalog.json`](catalog.json). These pages are generated from the scripts an
 ## token-admin-registry
 
 - [AcceptAdminRole](token-admin-registry/AcceptAdminRole.md) - Accepts the pending administrator role for a token in the TokenAdminRegistry (step 2 of the two-step claim; the signer must be the pending administrator set by ClaimAdmin). _(write)_
-- [ApplyChainUpdates](token-admin-registry/ApplyChainUpdates.md) - Configures cross-chain lanes on the source TokenPool by calling applyChainUpdates. _(write)_
+- [ApplyChainUpdates](token-admin-registry/ApplyChainUpdates.md) - Configures cross-chain lanes on the source TokenPool by calling applyChainUpdates. _(write, destructive)_
 - [ClaimAdmin](token-admin-registry/ClaimAdmin.md) - Registers the token administrator in the TokenAdminRegistry, auto-detecting the claim path (getCCIPAdmin, then owner, then AccessControl DEFAULT_ADMIN_ROLE) in that precedence. _(write)_
 - [ClaimAndAcceptAdmin](token-admin-registry/ClaimAndAcceptAdmin.md) - Claims AND accepts the CCIP token admin as ONE atomic registration pair - the claim sets the executing account as the registry's pending administrator, so the accept in the same batch succeeds. _(write)_
 - [GetSupportedChains](token-admin-registry/GetSupportedChains.md) - Reads and displays all remote chains supported by a TokenPool. _(read-only)_

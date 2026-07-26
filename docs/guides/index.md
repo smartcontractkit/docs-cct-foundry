@@ -33,7 +33,8 @@ concept page, or a dedicated guide. Grouping is for navigation only.
 
 ## Operate and maintain
 
-- [Expand the mesh: add or remove lanes both ways](../operations/lanes-and-remotes.md), then `make doctor`.
+- [Expand the mesh: add a chain to an existing mesh](expand-the-mesh.md), then `make doctor` plus the remote-pool cross-check.
+- [Add or remove a single lane both ways](../operations/lanes-and-remotes.md), then `make doctor`.
 - [Verify deployed contracts on the explorer](../operations/verification.md).
 - [Health-check a deployment before mainnet](health-check.md).
 - [Preflight a transfer before sending](preflight-a-transfer.md).

@@ -15,6 +15,12 @@ import {HelperConfig} from "../../script/HelperConfig.s.sol";
 /// (tests run in parallel; every HelperConfig constructor scans this directory ONCE into a storage
 /// cache via `ChainConfig._tryLoad`, which tolerates a concurrently-deleted entry).
 contract DynamicChainDiscoveryTest is Test {
+    /// @dev Negative fixtures for "not onboarded". NEVER use a real chain id or identifier here: the
+    ///      assertion silently flips the day that chain is onboarded, failing for a reason unrelated to
+    ///      what the test covers. Both values below are unreachable by construction.
+    uint256 internal constant NEVER_ONBOARDED_CHAIN_ID = type(uint256).max;
+    string internal constant NEVER_ONBOARDED_CHAIN_NAME = "ZZ_NOT_A_REAL_CHAIN";
+
     uint256 internal constant SCRATCH_CHAIN_ID = 777000777;
     uint64 internal constant SCRATCH_SELECTOR = 7770007770007770077;
     string internal constant SCRATCH_NAME = "zz-scratch-dynamic";
@@ -117,16 +123,38 @@ contract DynamicChainDiscoveryTest is Test {
         HelperConfig helperConfig = new HelperConfig();
 
         vm.expectRevert(bytes("Unsupported chain ID"));
-        helperConfig.getNetworkConfig(43113);
+        helperConfig.getNetworkConfig(NEVER_ONBOARDED_CHAIN_ID);
 
         vm.expectRevert(bytes("Invalid chain name"));
-        helperConfig.parseChainName("AVALANCHE_FUJI");
+        helperConfig.parseChainName(NEVER_ONBOARDED_CHAIN_NAME);
 
         // Non-EVM identifiers resolve via the scan but still have no EVM chain ID.
         vm.expectRevert(bytes("Invalid chain name"));
         helperConfig.parseChainName("SOLANA_DEVNET");
 
         assertEq(helperConfig.getChainNameBySelector(1), "Unknown", "unknown selector");
-        assertEq(helperConfig.getDestChainConfig("AVALANCHE_FUJI").chainFamily, "", "unknown dest zero config");
+        assertEq(
+            helperConfig.getDestChainConfig(NEVER_ONBOARDED_CHAIN_NAME).chainFamily, "", "unknown dest zero config"
+        );
+    }
+
+    /// @notice A chain's identifier is derived from its selectorName, so Fuji is `AVALANCHE_TESTNET_FUJI`
+    /// and the plausible short form does NOT resolve. Documented at docs/operations/chains.md and warned
+    /// about in SyncCcipConfig; pinned here so the gotcha cannot regress silently.
+    /// @dev Deliberately separate from the not-onboarded fixtures above. If Fuji's identifier is ever
+    /// curated to the short form, THIS test failing is the correct and self-explanatory signal, rather
+    /// than an unrelated "unknown chain" assertion flipping green.
+    function test_ChainIdentifier_ShortFormDoesNotResolve() public {
+        HelperConfig helperConfig = new HelperConfig();
+
+        assertEq(
+            helperConfig.getNetworkConfig(43113).chainNameIdentifier,
+            "AVALANCHE_TESTNET_FUJI",
+            "Fuji resolves under its derived identifier"
+        );
+
+        vm.expectRevert(bytes("Invalid chain name"));
+        helperConfig.parseChainName("AVALANCHE_FUJI");
+        assertEq(helperConfig.getDestChainConfig("AVALANCHE_FUJI").chainFamily, "", "short form is not a chain");
     }
 }

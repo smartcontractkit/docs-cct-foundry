@@ -24,7 +24,8 @@ library ChainHandlers {
     /// @notice Supported destination chain families.
     enum ChainFamily {
         EVM,
-        SVM
+        SVM,
+        APTOS
     }
 
     // ─── Errors ──────────────────────────────────────────────────────────────
@@ -37,9 +38,11 @@ library ChainHandlers {
     /// @notice Returns true if `addr` is a syntactically valid address for `family`.
     /// @dev EVM   - "0x" prefix + exactly 40 hex characters.
     ///      SVM   - base58 characters only, 32-44 chars long, decodes to exactly 32 bytes.
+    ///      APTOS - "0x" prefix + 1 to 64 hex characters (a 32-byte address; short forms are left-padded).
     function _validateChainAddress(string memory addr, ChainFamily family) internal pure returns (bool) {
         if (family == ChainFamily.EVM) return _isValidEvmAddress(addr);
         if (family == ChainFamily.SVM) return _isValidSvmAddress(addr);
+        if (family == ChainFamily.APTOS) return _isValidAptosAddress(addr);
         return false;
     }
 
@@ -47,22 +50,25 @@ library ChainHandlers {
     ///         (remotePoolAddresses[] entries and remoteTokenAddress).
     ///   EVM   → abi.encode(address)   - 32-byte ABI word
     ///   SVM   → 32 raw bytes           - base58-decoded Solana public key
+    ///   APTOS → 32 raw bytes           - hex address, left-padded to 32 bytes (Aptos accounts are 32 bytes)
     /// @dev Reverts with InvalidChainAddress if the address is malformed for the given family.
     function _prepareChainAddressData(string memory addr, ChainFamily family) internal pure returns (bytes memory) {
         if (family == ChainFamily.EVM) return _prepareEvmAddress(addr);
         if (family == ChainFamily.SVM) return _prepareSvmAddress(addr);
+        if (family == ChainFamily.APTOS) return _prepareAptosAddress(addr);
         revert("ChainHandlers: unsupported chain family");
     }
 
     /// @notice Parses a chain family string into the ChainFamily enum.
     ///         Accepts lowercase and uppercase: "evm"/"EVM", "svm"/"SVM",
-    ///         "solana"/"SOLANA" (alias for SVM).
+    ///         "solana"/"SOLANA" (alias for SVM), "aptos"/"APTOS".
     function _parseChainFamily(string memory familyStr) internal pure returns (ChainFamily) {
         bytes32 h = keccak256(bytes(familyStr));
         if (h == keccak256("evm") || h == keccak256("EVM")) return ChainFamily.EVM;
         if (h == keccak256("svm") || h == keccak256("SVM") || h == keccak256("solana") || h == keccak256("SOLANA")) {
             return ChainFamily.SVM;
         }
+        if (h == keccak256("aptos") || h == keccak256("APTOS")) return ChainFamily.APTOS;
         revert("ChainHandlers: unsupported chain family string");
     }
 
@@ -110,6 +116,35 @@ library ChainHandlers {
         bytes memory decoded = _decodeBase58(b);
         if (decoded.length != 32) revert InvalidChainAddress(addr, "svm");
         return decoded;
+    }
+
+    // ─── APTOS ───────────────────────────────────────────────────────────────
+
+    /// @dev An Aptos account address is 32 bytes, written as "0x" + hex. Short forms are permitted (a
+    ///      leading run of zero bytes may be elided, e.g. `0x1`), so any "0x" + 1..64 hex characters is
+    ///      syntactically valid; encoding hex-parses and left-pads to the canonical 32 bytes.
+    function _isValidAptosAddress(string memory addr) private pure returns (bool) {
+        bytes memory b = bytes(addr);
+        // "0x" + 1..64 hex chars.
+        if (b.length < 3 || b.length > 66) return false;
+        if (b[0] != "0" || b[1] != "x") return false;
+        for (uint256 i = 2; i < b.length; i++) {
+            if (!_isHexChar(b[i])) return false;
+        }
+        return true;
+    }
+
+    /// @dev Parses a "0x"-prefixed Aptos hex address and returns the 32 raw bytes, left-padded (the same
+    ///      native-width form the remote pool/token bytes take for a non-EVM family, cf. `_prepareSvmAddress`).
+    function _prepareAptosAddress(string memory addr) private pure returns (bytes memory) {
+        if (!_isValidAptosAddress(addr)) revert InvalidChainAddress(addr, "aptos");
+        bytes memory b = bytes(addr);
+        uint256 parsed = 0;
+        for (uint256 i = 2; i < b.length; i++) {
+            parsed = parsed * 16 + uint256(_hexCharToByte(b[i]));
+        }
+        // bytes32(parsed) is the big-endian, left-padded 32-byte form; abi.encodePacked yields the raw 32 bytes.
+        return abi.encodePacked(bytes32(parsed));
     }
 
     // ─── Base58 decoder ──────────────────────────────────────────────────────

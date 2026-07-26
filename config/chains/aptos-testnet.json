@@ -1,0 +1,22 @@
+{
+  "ccip": {
+    "feeQuoter": "0x0000000000000000000000000000000000000000",
+    "feeTokens": [],
+    "link": "0x0000000000000000000000000000000000000000",
+    "registryModuleOwnerCustom": "0x0000000000000000000000000000000000000000",
+    "rmnProxy": "0x0000000000000000000000000000000000000000",
+    "router": "0x0000000000000000000000000000000000000000",
+    "tokenAdminRegistry": "0x0000000000000000000000000000000000000000",
+    "tokenPoolFactory": "0x0000000000000000000000000000000000000000"
+  },
+  "chainFamily": "aptos",
+  "chainId": "0",
+  "chainNameIdentifier": "APTOS_TESTNET",
+  "chainSelector": "743186221051783445",
+  "displayName": "Aptos Testnet",
+  "environment": "testnet",
+  "explorerUrl": "https://explorer.aptoslabs.com/?network=testnet",
+  "name": "aptos-testnet",
+  "nativeCurrencySymbol": "APT",
+  "rpcEnv": "APTOS_TESTNET_RPC_URL"
+}

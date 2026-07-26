@@ -19,6 +19,7 @@ set -uo pipefail
 cd "$(dirname "$0")/../.."
 
 PARTITION="${TOOLING_PARTITION:-all}"
+skip=0
 
 TMP_CHAIN="tooling-tmp"
 TMP_FILE="config/chains/${TMP_CHAIN}.json"
@@ -84,12 +85,63 @@ restore_env() {
     fi
 }
 
+# --------------------------------------------------------------- committed-config protection
+# Every fixture below writes throwaway files into config/chains/. A fixture whose chain later becomes
+# a REAL onboarded chain would otherwise delete a committed config on the next run: that happened with
+# avalanche-testnet-fuji. Snapshot what exists BEFORE any fixture runs, and refuse to delete any of it.
+# This protects any chain an operator has onboarded, not just the ones we happen to know about.
+PREEXISTING_CONFIGS=""
+for _f in config/chains/*.json; do
+    [ -e "$_f" ] && PREEXISTING_CONFIGS="$PREEXISTING_CONFIGS|$_f|"
+done
+
+# rm_fixture_config <file...> — deletes ONLY files absent when this run started.
+rm_fixture_config() {
+    local f
+    for f in "$@"; do
+        case "$PREEXISTING_CONFIGS" in
+            *"|$f|"*)
+                echo "[GUARD] refusing to delete $f: it existed before this run (a committed chain config)" >&2
+                ;;
+            *) rm -f "$f" ;;
+        esac
+    done
+}
+
+# Returns the pre-existing configs that are now missing (empty when intact).
+_missing_configs() {
+    local f missing=""
+    for f in $(printf '%s' "$PREEXISTING_CONFIGS" | tr '|' '\n' | grep -v '^$'); do
+        [ -e "$f" ] || missing="$missing $f"
+    done
+    printf '%s' "$missing"
+}
+
+# Fails the suite if any config present at start is missing. Called in the MAIN BODY before the
+# summary, so its fail++ is counted and the summary's `exit 1` catches it; a call inside the EXIT
+# trap runs AFTER the summary and exit decision, where fail++ is cosmetic.
+assert_configs_intact() {
+    local missing
+    missing="$(_missing_configs)"
+    if [ -n "$missing" ]; then
+        fail=$((fail + 1))
+        failures+=("committed configs destroyed")
+        echo "[FAIL] the suite deleted committed chain configs:$missing"
+    else
+        pass=$((pass + 1))
+        echo "[PASS] committed chain configs intact (no fixture deleted a pre-existing config)"
+    fi
+}
+
 cleanup() {
     restore_env
-    rm -f "$TMP_FILE" "$TMP_FILE_B" "$FUJI_FILE" "$US_FILE" "$PROJECT_FILE" "$PROJECT_FILE_B" "$SVM_FILE"
+    rm_fixture_config "$TMP_FILE" "$TMP_FILE_B" "$US_FILE" "$SVM_FILE"
+    rm -f "$PROJECT_FILE" "$PROJECT_FILE_B"
     rm -f "$CLEANX_PROJECT" "$CLEANX_CONFIG"
-    rm -f "$MANUAL_FILE" "$MANUAL_PROJECT" "$XPLANE_API_FILE" "project/$XPLANE_API_CHAIN.json"
-    rm -f "$TYPO_FILE" "project/$TYPO_CHAIN.json"
+    rm_fixture_config "$MANUAL_FILE" "$XPLANE_API_FILE"
+    rm -f "$MANUAL_PROJECT" "project/$XPLANE_API_CHAIN.json"
+    rm_fixture_config "$TYPO_FILE"
+    rm -f "project/$TYPO_CHAIN.json"
     rm -rf "$CLEANX_GRPDIR" "$CLEANX_HISTDIR"
     # Glob both scratch group-dir classes so a mid-test revert never strands one (invisible to git status).
     rm -rf project/zz-scratch-*/ project/zz-tt-*/ "project/$GRP_X" "project/$GRP_Y" "project/$SVM_CHAIN.json"
@@ -226,7 +278,7 @@ d = json.load(open('$TMP_FILE')); d['chainSelector'] = '123'; json.dump(d, open(
 "
 run_case_live "unknown selector -> named NOT_FOUND error" nonzero "NOT_FOUND: no chain for selector 123" -- \
     FOUNDRY_PROFILE=sync forge script script/config/SyncCcipConfig.s.sol --sig "run(string)" "$TMP_CHAIN"
-rm -f "$TMP_FILE"
+rm_fixture_config "$TMP_FILE"
 
 # 7b. add-chain enforces the selectorName too: a non-canonical CHAIN name for a real selector fails
 #     up front (this is the guard path that also validates non-EVM chains, whose chainId is "0").
@@ -238,8 +290,12 @@ run_case_live "add-chain rejects a non-canonical name -> SELECTOR NAME MISMATCH"
 #     the JSON) which var to export. Uses a real, non-bundled chain (Fuji) whose UPPER_SNAKE-derived
 #     AVALANCHE_TESTNET_FUJI differs from a curated short form; the generated config is a throwaway
 #     removed here and in cleanup(). Asserts BOTH the chainNameIdentifier and the rpcEnv line.
-if live_enabled; then
-    rm -f "$FUJI_FILE"
+if live_enabled && [ -e "$FUJI_FILE" ]; then
+    # The fixture below GENERATES and DELETES this config, which is safe only while the chain is not
+    # onboarded. Once it is, running the fixture destroys a real committed config, so skip instead.
+    # Retarget FUJI_CHAIN at any real chain that is still absent from config/chains/ to restore coverage.
+    echo "[SKIP] add-chain prints env-var names ($FUJI_CHAIN is now a configured chain; pick an unbundled one)"
+elif live_enabled; then
     out="$(sync_script --sig "init(string,uint256)" "$FUJI_CHAIN" "$FUJI_SELECTOR" 2>&1)"
     if grep -q "chainNameIdentifier: AVALANCHE_TESTNET_FUJI" <<< "$out" &&
         grep -q "rpcEnv: *AVALANCHE_TESTNET_FUJI_RPC_URL" <<< "$out"; then
@@ -251,7 +307,7 @@ if live_enabled; then
         echo "[FAIL] add-chain prints env-var names (missing chainNameIdentifier/rpcEnv line)"
         echo "$out" | tail -8 | sed 's/^/       | /'
     fi
-    rm -f "$FUJI_FILE"
+    rm_fixture_config "$FUJI_FILE"
 fi
 
 # 7d. add-chain accepts an underscore selectorName end-to-end. The CCIP API serves names like
@@ -259,7 +315,7 @@ fi
 #     them and store `.name` byte-identical to the API selectorName (the sync join key). Throwaway,
 #     removed here and in cleanup().
 if live_enabled; then
-    rm -f "$US_FILE"
+    rm_fixture_config "$US_FILE"
     out="$(sync_script --sig "init(string,uint256)" "$US_CHAIN" "$US_SELECTOR" 2>&1)"
     status=$?
     name="$(jq -r '.name' "$US_FILE" 2> /dev/null)"
@@ -272,7 +328,8 @@ if live_enabled; then
         echo "[FAIL] underscore-name add-chain (exit=$status, name=$name)"
         echo "$out" | tail -6 | sed 's/^/       | /'
     fi
-    rm -f "$US_FILE" "project/$US_CHAIN.json"
+    rm_fixture_config "$US_FILE"
+    rm -f "project/$US_CHAIN.json"
 fi
 
 # 8. API down (CCIP_API_BASE override) -> distinct API_UNREACHABLE error
@@ -317,7 +374,7 @@ json.dump(d, open('$TMP_FILE','w'), indent=4)
         echo "[FAIL] sync-check api-down (exit=$status)"
         echo "$out" | tail -6 | sed 's/^/       | /'
     fi
-    rm -f "$TMP_FILE"
+    rm_fixture_config "$TMP_FILE"
 fi
 
 # ---------------------------------------------------------------- fixture transform (offline)
@@ -467,7 +524,7 @@ else
     echo "[FAIL] metadata drift check (exit=$status, expected 1 + /DRIFT tooling-tmp .explorerUrl/)"
     echo "$out" | tail -6 | sed 's/^/       | /'
 fi
-rm -f "$TMP_FILE"
+rm_fixture_config "$TMP_FILE"
 
 # 12d. non-EVM chain -> Solidity-side SKIP of the EVM ccip{} transform (covers every entrypoint),
 #      exit 0. The run/check paths ALSO fetch identity metadata, so the fixture server serves the
@@ -525,7 +582,7 @@ svm['chain']['name'] = '$SVMO_CHAIN'; svm['chain']['chainSelector'] = '$SVM_SEL'
 json.dump(svm, open('$server_dir/chains/$SVM_SEL','w'))
 "
     # A freshly add-chain'd non-EVM chain gets the 8-key zeroed ccip skeleton and passes doctor.
-    rm -f "$SVMO_FILE"
+    rm_fixture_config "$SVMO_FILE"
     run_case "add-chain non-EVM generates the config" zero "generated config/chains/$SVMO_CHAIN.json" -- \
         env CCIP_API_BASE="http://127.0.0.1:$port" bash -c \
         "FOUNDRY_PROFILE=sync forge script script/config/SyncCcipConfig.s.sol --sig 'init(string,uint256)' $SVMO_CHAIN $SVM_SEL"
@@ -549,10 +606,11 @@ print('SKELETON_OK')
     run_case "doctor passes the freshly add-chain'd non-EVM config (0 FAIL)" zero "check-chain $SVMO_CHAIN: 0 FAIL" -- \
         env CCIP_API_BASE="http://127.0.0.1:$port" bash -c \
         "FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig 'run(string)' $SVMO_CHAIN"
-    rm -f "$SVMO_FILE" "project/$SVMO_CHAIN.json"
+    rm_fixture_config "$SVMO_FILE"
+    rm -f "project/$SVMO_CHAIN.json"
 
     # Optional contract absent: a missing tokenPoolFactory syncs to 0x0 AND emits the [sync] WARN.
-    rm -f "$OPT_FILE"
+    rm_fixture_config "$OPT_FILE"
     out="$(env CCIP_API_BASE="http://127.0.0.1:$port" FOUNDRY_PROFILE=sync \
         forge script script/config/SyncCcipConfig.s.sol --sig "init(string,uint256)" "$OPT_CHAIN" "$OPT_SEL" 2>&1)"
     tpf="$(jq -r '.ccip.tokenPoolFactory' "$OPT_FILE" 2> /dev/null)"
@@ -566,10 +624,11 @@ print('SKELETON_OK')
         echo "[FAIL] optional-contract zero+warn (tokenPoolFactory=$tpf)"
         echo "$out" | tail -6 | sed 's/^/       | /'
     fi
-    rm -f "$OPT_FILE" "project/$OPT_CHAIN.json"
+    rm_fixture_config "$OPT_FILE"
+    rm -f "project/$OPT_CHAIN.json"
 
     # Core contract absent: a missing router is a BAD_BODY error AND leaves no partial file.
-    rm -f "$CORE_FILE"
+    rm_fixture_config "$CORE_FILE"
     run_case "core contract: a missing router is a BAD_BODY naming a CORE entry" nonzero "missing a CORE active entry" -- \
         env CCIP_API_BASE="http://127.0.0.1:$port" bash -c \
         "FOUNDRY_PROFILE=sync forge script script/config/SyncCcipConfig.s.sol --sig 'init(string,uint256)' $CORE_CHAIN $CORE_SEL"
@@ -580,7 +639,7 @@ print('SKELETON_OK')
         fail=$((fail + 1))
         failures+=("orphan on core-missing")
         echo "[FAIL] orphan check: a core-missing add-chain left an orphan $CORE_FILE"
-        rm -f "$CORE_FILE"
+        rm_fixture_config "$CORE_FILE"
     fi
 
     # No-orphan on NOT_FOUND: an unknown selector (no fixture served) reverts before any write.
@@ -605,7 +664,7 @@ fi
 cp config/chains/ethereum-testnet-sepolia.json "$TMP_FILE"
 run_case "fixture sync-check: clean against the fixture server" zero "CLEAN" -- \
     env CCIP_API_BASE="http://127.0.0.1:$port" bash script/config/sync-check.sh "$TMP_CHAIN"
-rm -f "$TMP_FILE"
+rm_fixture_config "$TMP_FILE"
 
 # 13b. group isolation of sync: `make sync` refreshes only config/chains/<chain>.json (chain facts) and
 #      NEVER touches any group's project file. Plant a project/<group>/<chain>.json, run the fixture
@@ -626,7 +685,7 @@ else
     failures+=("sync group-file isolation")
     echo "[FAIL] sync mutated the group project file project/$GRP_X/$TMP_CHAIN.json"
 fi
-rm -f "$TMP_FILE"
+rm_fixture_config "$TMP_FILE"
 rm -rf "project/$GRP_X"
 
 # 13c. caller env beats .env: sync-check sources ./.env to fill GAPS only - a var the caller already
@@ -643,7 +702,7 @@ if offline_enabled; then
     cp config/chains/ethereum-testnet-sepolia.json "$TMP_FILE"
     run_case "sync-check: caller CCIP_API_BASE beats the .env value" zero "CLEAN" -- \
         env CCIP_API_BASE="http://127.0.0.1:$port" bash script/config/sync-check.sh "$TMP_CHAIN"
-    rm -f "$TMP_FILE"
+    rm_fixture_config "$TMP_FILE"
     restore_env
 fi
 
@@ -704,7 +763,7 @@ json.dump(d, open('$TMP_FILE','w'), indent=4)
         echo "[FAIL] make sync-check remap (exit=$status, expected 2 + /CONFIG_DRIFT/)"
         echo "$out" | tail -6 | sed 's/^/       | /'
     fi
-    rm -f "$TMP_FILE"
+    rm_fixture_config "$TMP_FILE"
 fi
 
 # ---------------------------------------------------------------- add-lane + mesh doctor
@@ -737,7 +796,7 @@ json.dump(d, open('$TMP_FILE','w'), indent=2, sort_keys=True)
 "
 run_case "add-lane same-selector remote is refused (self-lane)" nonzero "share chainSelector" -- \
     make add-lane LOCAL=ethereum-testnet-sepolia REMOTE="$TMP_CHAIN" CAPACITY=1 RATE=1
-rm -f "$TMP_FILE"
+rm_fixture_config "$TMP_FILE"
 
 # 25. add-lane on a scratch pair (no addresses/<chainId>.json for either): the lane is written with
 #     the remote's selector, and the remote's still-undeployed pool is a WARN naming the missing
@@ -824,7 +883,7 @@ run_case "doctor lanes rung SKIPs cleanly without an RPC" zero \
     env FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN"
 
 # 29. BOTH=1 writes the reciprocal entry on the remote's file in the same invocation
-rm -f "$TMP_FILE" "$TMP_FILE_B"
+rm_fixture_config "$TMP_FILE" "$TMP_FILE_B"
 python3 -c "
 import json
 d = json.load(open('config/chains/ethereum-testnet-sepolia.json'))
@@ -850,7 +909,7 @@ else
     echo "[FAIL] add-lane BOTH=1 (exit=$status)"
     echo "$out" | tail -8 | sed 's/^/       | /'
 fi
-rm -f "$TMP_FILE" "$TMP_FILE_B"
+rm_fixture_config "$TMP_FILE" "$TMP_FILE_B"
 
 # 29b. add-lane INBOUND_* pairing guard: one arg without the other errors up front (a declared
 #      inbound block carries both fields).
@@ -888,7 +947,7 @@ else
     echo "[FAIL] add-lane inbound block (exit=$status)"
     echo "$out" | tail -8 | sed 's/^/       | /'
 fi
-rm -f "$TMP_FILE" "$TMP_FILE_B"
+rm_fixture_config "$TMP_FILE" "$TMP_FILE_B"
 
 # ---------------------------------------------------------------- manual config plane
 
@@ -968,7 +1027,8 @@ run_case "add-lane refuses a cross-plane lane naming both chains and planes" non
     "cross-plane lane refused: $XPLANE_API_CHAIN (configSource=api) and $MANUAL_CHAIN (configSource=manual)" -- \
     make add-lane LOCAL="$XPLANE_API_CHAIN" REMOTE="$MANUAL_CHAIN" CAPACITY=1 RATE=1
 
-rm -f "$MANUAL_FILE" "$MANUAL_PROJECT" "$XPLANE_API_FILE" "project/$XPLANE_API_CHAIN.json" "$TYPO_FILE" "project/$TYPO_CHAIN.json"
+rm_fixture_config "$MANUAL_FILE" "$XPLANE_API_FILE" "$TYPO_FILE"
+rm -f "$MANUAL_PROJECT" "project/$XPLANE_API_CHAIN.json" "project/$TYPO_CHAIN.json"
 
 # ---------------------------------------------------------------- remove-lane
 
@@ -1045,7 +1105,7 @@ else
     echo "[FAIL] remove-lane BOTH=1 (exit=$status)"
     echo "$out" | tail -8 | sed 's/^/       | /'
 fi
-rm -f "$TMP_FILE" "$TMP_FILE_B"
+rm_fixture_config "$TMP_FILE" "$TMP_FILE_B"
 
 # ---------------------------------------------------------------- canonical config format
 
@@ -1164,7 +1224,8 @@ fi
 if offline_enabled; then
     # Two scratch EVM chains (sepolia copies with distinct selectors) reused across the group cases.
     seed_group_pair() {
-        rm -f "$TMP_FILE" "$TMP_FILE_B" "$PROJECT_FILE" "$PROJECT_FILE_B"
+        rm_fixture_config "$TMP_FILE" "$TMP_FILE_B"
+        rm -f "$PROJECT_FILE" "$PROJECT_FILE_B"
         rm -rf "project/$GRP_X" "project/$GRP_Y"
         python3 -c "
 import json
@@ -1308,7 +1369,8 @@ for name, cid, sel in [('$TMP_CHAIN','990001','9900010000000000001'),
     # project/$GRP_Y/<svm>.json with the base58 value, fires NO repoint warning, and leaves the flat
     # file byte-identical. A second flat adopt (same store) DOES fire the repoint warning naming the
     # token-group remedy - the exact contrast the group feature exists for.
-    rm -f "$SVM_FILE" "project/$SVM_CHAIN.json"
+    rm_fixture_config "$SVM_FILE"
+    rm -f "project/$SVM_CHAIN.json"
     rm -rf "project/$GRP_Y"
     python3 -c "
 import json
@@ -1426,7 +1488,8 @@ json.dump(d, open('$SVM_FILE', 'w'), indent=2, sort_keys=True)
         echo "$out" | tail -8 | sed 's/^/       | /'
     fi
 
-    rm -f "$TMP_FILE" "$TMP_FILE_B" "$SVM_FILE" "project/$SVM_CHAIN.json"
+    rm_fixture_config "$TMP_FILE" "$TMP_FILE_B" "$SVM_FILE"
+    rm -f "project/$SVM_CHAIN.json"
     rm -rf "project/$GRP_X" "project/$GRP_Y" project/zz-tt-ga project/zz-tt-gb
 fi
 
@@ -1490,7 +1553,7 @@ if offline_enabled; then
     jq --indent 2 -S '.verifier = {"type":"blockscout"}' config/chains/ethereum-testnet-sepolia.json > "$TMP_FILE"
     run_case "verify-args rejects blockscout without a verifier.url" nonzero "needs a verifier.url" -- \
         bash script/config/verify-args.sh "$TMP_CHAIN"
-    rm -f "$TMP_FILE"
+    rm_fixture_config "$TMP_FILE"
 
     # Negative: a non-EVM chain has no forge-compatible verification path.
     run_case "verify-args rejects a non-EVM chain" nonzero "not an EVM chain" -- \
@@ -1742,8 +1805,55 @@ if offline_enabled; then
     fi
 fi
 
+# ---------------------------------------------------------------- verify-execution exit contract
+
+# verify-execution.sh owns a 4-value exit contract (0 executed / 1 failed / 2 pending / 3 unresolved)
+# that CI and the migration runbook gate on. _run_case only distinguishes zero from nonzero, so the
+# offline cases pin the guards and the live cases pin the two states that matter operationally.
+
+run_case "verify-execution without args prints usage" nonzero "usage: verify-execution.sh" -- \
+    ./script/config/verify-execution.sh
+
+run_case "verify-execution without a dest chain prints usage" nonzero "usage: verify-execution.sh" -- \
+    ./script/config/verify-execution.sh 0xdeadbeef
+
+# The live cases need a dest RPC and ccip-cli, neither of which CI wires today. Under `set -u` a bare
+# "$ETHEREUM_SEPOLIA_RPC_URL" would ABORT the whole script here, taking assert_configs_intact with it,
+# so the guard is load-bearing: it keeps the committed-config assertion reachable in every environment.
+_VE_RPC="${ETHEREUM_SEPOLIA_RPC_URL:-}"
+if ! live_enabled; then
+    : # the live partition is off; nothing to skip-report
+elif [ -z "$_VE_RPC" ]; then
+    skip=$((skip + 1))
+    echo "[SKIP] verify-execution live cases (export ETHEREUM_SEPOLIA_RPC_URL to enable)"
+elif ! command -v ccip-cli > /dev/null 2>&1; then
+    skip=$((skip + 1))
+    echo "[SKIP] verify-execution live cases (install it: npm i -g @chainlink/ccip-cli)"
+else
+    # A well-formed but unknown message id must be UNRESOLVED, never mistaken for drained.
+    run_case_live "verify-execution on an unknown message id is UNRESOLVED" nonzero "UNRESOLVED" -- \
+        ./script/config/verify-execution.sh \
+        0xdead000000000000000000000000000000000000000000000000000000000000 ethereum-testnet-sepolia
+
+    run_case_live "verify-execution reports an executed message" zero "EXECUTED" -- \
+        bash script/config/verify-execution.sh \
+        0x7747c1ae938d217e50e73d2de8286c78dde11bd48ce9ef25c193bb673464fc31 ethereum-testnet-sepolia
+
+    run_case_live "verify-execution reports a failed message and decodes the reason" nonzero "TokenMaxCapacityExceeded" -- \
+        bash script/config/verify-execution.sh \
+        0xcba844ed3a558a62b0e3726b3007c2cc20bd39ae0dcafc0ca1ffa9fb1dfad4e9 ethereum-testnet-sepolia
+
+    # The marquee safety property: an executed message with the WRONG dest chain must NOT return a
+    # confident green. This is the single most dangerous confusion the destChain arg exists to prevent.
+    run_case_live "verify-execution rejects a message destined for a different chain" nonzero "destined for selector" -- \
+        bash script/config/verify-execution.sh \
+        0x7747c1ae938d217e50e73d2de8286c78dde11bd48ce9ef25c193bb673464fc31 avalanche-testnet-fuji
+fi
+
+assert_configs_intact
+
 echo ""
-echo "== test-tooling ($PARTITION): $pass passed, $fail failed =="
+echo "== test-tooling ($PARTITION): $pass passed, $fail failed, $skip skipped =="
 if [ $fail -ne 0 ]; then
     printf 'failed: %s\n' "${failures[@]}"
     exit 1
