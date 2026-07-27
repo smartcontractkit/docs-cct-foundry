@@ -18,6 +18,8 @@ Reads and displays the remote pool addresses configured on a TokenPool for a giv
 | Env var | Description |
 | --- | --- |
 | `DEST_CHAIN` | See the script header. |
+| `DEST_CHAIN_FAMILY` | See the script header. |
+| `DEST_CHAIN_SELECTOR` | See the script header. |
 
 ## Reference
 
