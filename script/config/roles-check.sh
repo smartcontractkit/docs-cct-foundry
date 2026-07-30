@@ -139,7 +139,8 @@ for i in "${!pair_chain[@]}"; do
     echo ">> roles-check [group: $label] $name"
     # No FOUNDRY_PROFILE=sync here (unlike sync-check.sh): RolesCheck is read-only and needs no ffi; the
     # default profile already grants the fs read it uses. PROJECT_GROUP selects the group's project store.
-    out="$(PROJECT_GROUP="$g" forge script script/config/RolesCheck.s.sol --sig "run(string)" "$name" 2>&1)"
+    evm="$(bash script/config/evm-version.sh "$name" --lenient)"
+    out="$(PROJECT_GROUP="$g" forge script script/config/RolesCheck.s.sol --evm-version "$evm" --sig "run(string)" "$name" 2>&1)"
     status=$?
     grep -q "NO_ROLES_DECLARED" <<< "$out" || reconciled=$((reconciled + 1))
     matched="$(echo "$out" | grep -E "\[PASS\]|\[FAIL\]|\[WARN\]|\[SKIP\]|CLEAN|ROLES_DRIFT|RPC_UNAVAILABLE|NO_ROLES_DECLARED|unknown chain" || true)"

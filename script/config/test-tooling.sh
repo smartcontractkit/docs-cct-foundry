@@ -1598,7 +1598,7 @@ EOF
     argv="$(tr '\n' ' ' < "$argv_file")"
     wrapper_ok=1
     [ $status -eq 0 ] || wrapper_ok=0
-    grep -q "verify-contract --chain 763373 --watch --retries 10 --delay 10 " <<< "$argv" || wrapper_ok=0
+    grep -q "verify-contract --chain 763373 --evm-version $(bash script/config/evm-version.sh ink-testnet-sepolia) --watch --retries 10 --delay 10 " <<< "$argv" || wrapper_ok=0
     grep -q -- "--verifier blockscout --verifier-url https://explorer-sepolia.inkonchain.com/api" <<< "$argv" || wrapper_ok=0
     grep -q -- "--constructor-args 0x1234 0x000000000000000000000000000000000000dEaD src/CrossChainToken.sol:CrossChainToken" <<< "$argv" || wrapper_ok=0
     if grep -q -- "--guess-constructor-args" <<< "$argv"; then wrapper_ok=0; fi
@@ -1626,7 +1626,8 @@ EOF
         echo "[FAIL] verify-contract wrapper guess path (exit=$status, argv='$argv')"
     fi
 
-    # No ctor-args and the rpcEnv unset: a named error BEFORE any forge invocation.
+    # No ctor-args and the rpcEnv unset: a named error BEFORE any forge invocation - including the
+    # `forge config` the evm-version resolver makes, which is why that resolution runs after the guard.
     rm -f "$argv_file"
     run_case "verify-contract wrapper: no ctor-args and no RPC -> named error" nonzero "needs the RPC" -- \
         env PATH="$stub_dir:$PATH" STUB_ARGV_FILE="$argv_file" bash -c \
@@ -1658,6 +1659,179 @@ EOF
         echo "[FAIL] verify-contract wrapper retry loop (exit=$status): $(tail -2 <<< "$out" | tr '\n' ' ')"
     fi
     rm -rf "$stub_dir"
+fi
+
+# ---------------------------------------------------------------- per-chain evm version (offline)
+#
+# evm-version.sh resolves the EVM version a chain's forge runs use: the optional evmVersion key, else
+# the repo default read back from `forge config` (so there is no second copy of the default to drift).
+# The value is validated here rather than at forge's CLI, and the two exits differ ON PURPOSE: a
+# broadcast path must refuse an unreadable declaration, while a read/diagnose path (--lenient) has to
+# keep running so `make doctor` can name the problem instead of dying on a forge CLI error.
+
+if offline_enabled; then
+    # No key: the repo default, and it must equal what forge itself would use.
+    out="$(bash script/config/evm-version.sh ethereum-testnet-sepolia 2>&1)"
+    expected="$(forge config --json | jq -r '.evm_version')"
+    if [ "$out" = "$expected" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] evm-version: no evmVersion key -> the foundry.toml default ($expected)"
+    else
+        fail=$((fail + 1))
+        failures+=("evm-version default")
+        echo "[FAIL] evm-version default (got '$out', forge config says '$expected')"
+    fi
+
+    # A declared value wins over the default.
+    jq --indent 2 -S '.evmVersion = "paris"' config/chains/ethereum-testnet-sepolia.json > "$TMP_FILE"
+    out="$(bash script/config/evm-version.sh "$TMP_CHAIN" 2>&1)"
+    if [ "$out" = "paris" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] evm-version: a declared evmVersion wins over the default"
+    else
+        fail=$((fail + 1))
+        failures+=("evm-version declared")
+        echo "[FAIL] evm-version declared (got '$out')"
+    fi
+
+    # An unrecognized value: broadcast paths get a non-zero exit naming the file and the fix.
+    jq --indent 2 -S '.evmVersion = "parris"' config/chains/ethereum-testnet-sepolia.json > "$TMP_FILE"
+    run_case "evm-version rejects an unrecognized value by name" nonzero "is not an evmVersion this repo" -- \
+        bash script/config/evm-version.sh "$TMP_CHAIN"
+
+    # The same value with --lenient: the default on stdout so the caller can carry on and report it.
+    out="$(bash script/config/evm-version.sh "$TMP_CHAIN" --lenient 2> /dev/null)"
+    if [ "$out" = "$expected" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] evm-version: --lenient degrades an unrecognized value to the default"
+    else
+        fail=$((fail + 1))
+        failures+=("evm-version lenient")
+        echo "[FAIL] evm-version lenient (got '$out')"
+    fi
+
+    # And the deploy path refuses BEFORE forge runs, so nothing is ever broadcast on a bad declaration.
+    run_case "deploy-token refuses an unrecognized evmVersion before forge runs" nonzero "is not an evmVersion this repo" -- \
+        make deploy-token "CHAIN=$TMP_CHAIN" KEYSTORE_NAME=zz-scratch-not-a-real-keystore
+
+    rm_fixture_config "$TMP_FILE"
+
+    # An unknown chain resolves to the default rather than erroring: the callers all guard the config
+    # file's existence themselves, with a better message than this could give.
+    out="$(bash script/config/evm-version.sh zz-scratch-no-such-chain 2>&1)"
+    if [ "$out" = "$expected" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] evm-version: an unknown chain resolves to the default"
+    else
+        fail=$((fail + 1))
+        failures+=("evm-version unknown chain")
+        echo "[FAIL] evm-version unknown chain (got '$out')"
+    fi
+
+    # A file that does not parse must not read as a file with no declaration: the chain may well be
+    # pinned, so handing the default to a broadcast would compile for the wrong EVM.
+    printf '{"evmVersion": "paris",,}' > "$TMP_FILE"
+    run_case "evm-version refuses a malformed chain config on the broadcast path" nonzero "is not valid JSON" -- \
+        bash script/config/evm-version.sh "$TMP_CHAIN"
+
+    # A present-but-empty declaration is a broken key, not an absent one. The schema rung FAILs it, so
+    # resolving it to the default here would have the two disagree about the same file.
+    jq --indent 2 -S '.evmVersion = null' config/chains/ethereum-testnet-sepolia.json > "$TMP_FILE"
+    run_case "evm-version refuses a null evmVersion" nonzero "is empty or null" -- \
+        bash script/config/evm-version.sh "$TMP_CHAIN"
+    jq --indent 2 -S '.evmVersion = ""' config/chains/ethereum-testnet-sepolia.json > "$TMP_FILE"
+    run_case "evm-version refuses an empty evmVersion" nonzero "is empty or null" -- \
+        bash script/config/evm-version.sh "$TMP_CHAIN"
+
+    rm_fixture_config "$TMP_FILE"
+
+    # ---------------------------------------------------------------- detect-evm-version.sh
+    #
+    # The probe writes a tracked config file, so its refusals matter more than its successes: a wrong
+    # pin is permanent, is valid enough for `doctor` to pass, and silently returns the chain to the
+    # compile target the per-chain mechanism exists to move it off. `cast` is stubbed on PATH so each
+    # node behaviour can be reproduced exactly, offline.
+    STUB_DIR="$(mktemp -d)"
+    make_cast_stub() {
+        # $1 = what the PUSH0 probe prints, $2 = its exit code.
+        cat > "$STUB_DIR/cast" <<STUB
+#!/usr/bin/env bash
+for a in "\$@"; do
+    case "\$a" in
+        0xfe) exit 1 ;;                    # INVALID: must error, as a real node does
+        0x60006000f3) echo "0x"; exit 0 ;; # paris-valid control: succeeds
+        0x5f5ff3) echo "$1"; exit $2 ;;    # the PUSH0 probe under test
+    esac
+done
+case "\$1" in chain-id) echo "1112"; exit 0 ;; esac
+echo "0x"
+STUB
+        chmod +x "$STUB_DIR/cast"
+    }
+    jq --indent 2 -S '.chainId = "1112" | .rpcEnv = "ZZ_STUB_RPC_URL" | .chainFamily = "evm" | del(.evmVersion)' \
+        config/chains/ethereum-testnet-sepolia.json > "$TMP_FILE"
+
+    # A transient failure is NOT a rejection. Pinning on "did not return 0x" turns one rate-limited
+    # request into a permanent paris pin that a later probe then refuses to remove.
+    make_cast_stub "error: server returned an error response: 429 Too Many Requests" 1
+    ZZ_STUB_RPC_URL=http://stub PATH="$STUB_DIR:$PATH" \
+        bash script/config/detect-evm-version.sh "$TMP_CHAIN" > /dev/null 2>&1
+    status=$?
+    pinned="$(jq -r '.evmVersion // "absent"' "$TMP_FILE")"
+    if [ "$status" -eq 4 ] && [ "$pinned" = "absent" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] detect-evm-version: a transient probe error writes no pin"
+    else
+        fail=$((fail + 1))
+        failures+=("detect-evm-version transient")
+        echo "[FAIL] detect-evm-version transient (exit=$status, evmVersion=$pinned - expected 4/absent)"
+    fi
+
+    # A node that says the opcode is invalid is the one case that justifies writing the pin.
+    make_cast_stub "error: server returned an error response: -32000 invalid opcode: PUSH0" 1
+    ZZ_STUB_RPC_URL=http://stub PATH="$STUB_DIR:$PATH" \
+        bash script/config/detect-evm-version.sh "$TMP_CHAIN" > /dev/null 2>&1
+    status=$?
+    pinned="$(jq -r '.evmVersion // "absent"' "$TMP_FILE")"
+    if [ "$status" -eq 0 ] && [ "$pinned" = "paris" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] detect-evm-version: a reported invalid opcode pins paris"
+    else
+        fail=$((fail + 1))
+        failures+=("detect-evm-version rejects")
+        echo "[FAIL] detect-evm-version rejects (exit=$status, evmVersion=$pinned - expected 0/paris)"
+    fi
+
+    # A supported chain gets no key at all, so the common case leaves the config untouched.
+    jq --indent 2 -S 'del(.evmVersion)' "$TMP_FILE" > "$TMP_FILE.t" && mv "$TMP_FILE.t" "$TMP_FILE"
+    before="$(md5 -q "$TMP_FILE" 2> /dev/null || md5sum "$TMP_FILE" | cut -d' ' -f1)"
+    make_cast_stub "0x" 0
+    ZZ_STUB_RPC_URL=http://stub PATH="$STUB_DIR:$PATH" \
+        bash script/config/detect-evm-version.sh "$TMP_CHAIN" > /dev/null 2>&1
+    status=$?
+    after="$(md5 -q "$TMP_FILE" 2> /dev/null || md5sum "$TMP_FILE" | cut -d' ' -f1)"
+    if [ "$status" -eq 0 ] && [ "$before" = "$after" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] detect-evm-version: a PUSH0 chain is left byte-identical"
+    else
+        fail=$((fail + 1))
+        failures+=("detect-evm-version supported")
+        echo "[FAIL] detect-evm-version supported (exit=$status, file changed=$([ "$before" = "$after" ] && echo no || echo yes))"
+    fi
+
+    # Malformed JSON must not read as "not an EVM chain" and exit 0 - that is a success that measured
+    # nothing, and it is indistinguishable from a real one.
+    printf '{"chainFamily": "evm",,}' > "$TMP_FILE"
+    run_case "detect-evm-version refuses a malformed chain config" nonzero "is not valid JSON" -- \
+        bash script/config/detect-evm-version.sh "$TMP_CHAIN"
+
+    # No rpcEnv: a named refusal, not an unbound-variable crash.
+    jq -n '{name: "x", chainId: "1112", chainFamily: "evm"}' > "$TMP_FILE"
+    run_case "detect-evm-version refuses a config with no rpcEnv" nonzero "declares no rpcEnv" -- \
+        bash script/config/detect-evm-version.sh "$TMP_CHAIN"
+
+    rm -rf "$STUB_DIR"
+    rm_fixture_config "$TMP_FILE"
 fi
 
 # ---------------------------------------------------------------- committed-tree gates (offline)

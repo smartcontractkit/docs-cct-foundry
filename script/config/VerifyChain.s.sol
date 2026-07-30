@@ -493,6 +493,65 @@ contract VerifyChain is Script {
             );
         }
         _checkVerifierBlock(name, json);
+        _checkEvmVersion(name, json);
+    }
+
+    /// @dev The optional hand-authored `evmVersion` key: the EVM version every forge run scoped to
+    /// this chain compiles and simulates at (`script/config/evm-version.sh`, forwarded by the make
+    /// targets as `--evm-version`). Absent is the normal case and means the repo default from
+    /// `foundry.toml`. It is declared only for a chain whose network never activated the default's
+    /// opcodes - the `PUSH0` chains - where bytecode built at the default would be undeployable.
+    ///
+    /// A typo here is silent otherwise: the resolver substitutes the default for an unreadable value,
+    /// and the operator would be told nothing until a deploy reverts on chain. So an unknown value is
+    /// a FAIL that names the accepted set, and a value read through the probe so a non-string node is
+    /// a named FAIL rather than a raw cheatcode revert that aborts the whole doctor.
+    function _checkEvmVersion(string memory name, string memory json) private {
+        bool isEvmChain = vm.keyExistsJson(json, ".chainFamily")
+            && keccak256(bytes(vm.parseJsonString(json, ".chainFamily"))) == keccak256(bytes("evm"));
+
+        // Absent is the correct and overwhelmingly common state: nearly every chain runs PUSH0, so it
+        // needs no pin. It cannot be distinguished here from a chain nothing ever probed, and warning on
+        // every healthy chain to catch that minority would train operators to ignore the rung. The probe
+        // runs at `add-chain` instead, and says so on the spot when it cannot reach the RPC.
+        if (!vm.keyExistsJson(json, ".evmVersion")) return;
+
+        // The key selects a compile target for EVM bytecode, so on any other family it is inert. Passing
+        // it told the operator a setting was in force that nothing reads.
+        if (!isEvmChain) {
+            _fail(
+                string.concat(
+                    "schema: evmVersion in config/chains/",
+                    name,
+                    ".json has no effect on a non-EVM chain - remove the key"
+                )
+            );
+            return;
+        }
+        (bool ok, string memory version) = _optionalString(json, ".evmVersion");
+        if (!ok) {
+            _fail(
+                string.concat("schema: evmVersion in config/chains/", name, ".json must be a string (e.g. \"paris\")")
+            );
+            return;
+        }
+        bytes32 v = keccak256(bytes(version));
+        bool known = v == keccak256(bytes("london")) || v == keccak256(bytes("paris"))
+            || v == keccak256(bytes("shanghai")) || v == keccak256(bytes("cancun")) || v == keccak256(bytes("prague"))
+            || v == keccak256(bytes("osaka"));
+        if (!known) {
+            _fail(
+                string.concat(
+                    "schema: evmVersion '",
+                    version,
+                    "' in config/chains/",
+                    name,
+                    ".json is not one of london/paris/shanghai/cancun/prague/osaka"
+                )
+            );
+            return;
+        }
+        _pass(string.concat("schema: evmVersion '", version, "' is a known EVM version"));
     }
 
     /// @dev The optional hand-authored `verifier{type,url}` block: `type` must be one of
@@ -505,7 +564,7 @@ contract VerifyChain is Script {
     /// a valid url (`vm.parseJsonString` would otherwise coerce `123` to `"123"`).
     function _checkVerifierBlock(string memory name, string memory json) private {
         if (!vm.keyExistsJson(json, ".verifier")) return;
-        (bool typeOk, string memory vtype) = _verifierString(json, ".verifier.type");
+        (bool typeOk, string memory vtype) = _optionalString(json, ".verifier.type");
         if (!typeOk) {
             _fail(
                 string.concat(
@@ -532,7 +591,7 @@ contract VerifyChain is Script {
             return;
         }
         if (t == keccak256(bytes("blockscout"))) {
-            (bool urlOk, string memory url) = _verifierString(json, ".verifier.url");
+            (bool urlOk, string memory url) = _optionalString(json, ".verifier.url");
             if (!urlOk || !_hasPrefix(url, "http")) {
                 _fail(
                     string.concat(
@@ -547,11 +606,11 @@ contract VerifyChain is Script {
         _pass(string.concat("schema: verifier{} is valid (", vtype, ")"));
     }
 
-    /// @dev Reads a verifier{} string key through the probe: returns `(false, "")` when the key is
+    /// @dev Reads an optional string key through the probe: returns `(false, "")` when the key is
     /// absent OR its value is not a JSON string the parse can read (an array/object reverts, and the
     /// probe's external call makes that revert catchable). A scalar number/bool coerces to its text
     /// here, so callers that need a real string (the blockscout url) additionally shape-check it.
-    function _verifierString(string memory json, string memory path)
+    function _optionalString(string memory json, string memory path)
         private
         view
         returns (bool ok, string memory value)

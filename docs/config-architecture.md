@@ -113,7 +113,7 @@ flowchart TD
 identity, then rewrites **every API-served field** - the `.ccip` subtree AND the API-served identity/metadata
 (`displayName`, `chainFamily`, `environment`, `explorerUrl`, `nativeCurrencySymbol`) - and re-canonicalizes,
 so a no-drift sync is a zero-diff no-op. The hand-authored keys (`chainNameIdentifier`, `rpcEnv`, the
-optional `verifier{}` block) and the guarded join keys are left untouched.
+optional `verifier{}` block, the optional `evmVersion`) and the guarded join keys are left untouched.
 
 ```mermaid
 %%{init: {'theme':'base','themeVariables':{'primaryColor':'#375BD2','primaryTextColor':'#FFFFFF','primaryBorderColor':'#1A2B6B','lineColor':'#375BD2','actorBkg':'#375BD2','actorTextColor':'#FFFFFF','actorBorder':'#1A2B6B','signalColor':'#1A2B6B','signalTextColor':'#0B1636','noteBkgColor':'#E8EDFB','noteTextColor':'#0B1636','noteBorderColor':'#375BD2','fontFamily':'Inter, system-ui, sans-serif'}}}%%
@@ -141,7 +141,8 @@ Project state lives in two files per chain, both keyed by the canonical **select
 - **`config/chains/<selectorName>.json`** - pure API/chain facts. Everything the CCIP REST API serves
   (`ccip{}` addresses + the identity/metadata fields `displayName`/`chainFamily`/`environment`/
   `explorerUrl`/`nativeCurrencySymbol`) is API-owned, written by the sync. The keys the API serves nothing
-  for are hand-authored in reviewed PRs (`chainNameIdentifier`, `rpcEnv`, the optional `verifier{}` block), and the join keys
+  for are hand-authored in reviewed PRs (`chainNameIdentifier`, `rpcEnv`, the optional `verifier{}` block, the optional
+  `evmVersion`), and the join keys
   (`name`/`chainSelector`/`chainId`) are seeded once and guard-validated.
 - **`project/[<group>/]<selectorName>.json`** - the project store: three subtrees plus a top-level
   `"schema": 3`, **one writer each**. `addresses{}` (deployed-address registry) is written by the deploy

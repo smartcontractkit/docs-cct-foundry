@@ -1,11 +1,38 @@
+# `evm_version` is the repo-wide DEFAULT, and in Foundry it configures two things at once: the compile
+# target for bytecode this repo deploys, AND the local EVM that `forge test` and every `forge script`
+# simulation runs in. `shanghai` is the floor for a current toolchain - the `PUSH0` opcode (0x5f) it
+# introduced is emitted by any recent solc, and a `paris` interpreter halts on it with
+# `EvmError: NotActivated`, so a paris-pinned run cannot read an operator's BYO token at all.
+#
+# A handful of CCIP chains never activated shanghai and reject PUSH0 bytecode. They are handled per
+# chain, in data, not by lowering this default: `config/chains/<selectorName>.json` carries an optional
+# `"evmVersion"` key, and the make targets forward it as `--evm-version` for that chain's runs. See
+# docs/config-schema.md ("Per-chain EVM version") and docs/gotchas/index.md#evm-version-push0.
+#
+# `ignored_error_codes` EXTENDS nothing - it REPLACES Foundry's defaults, so all six of them are
+# repeated here (`forge config` prints the list on a tree that does not set the key). Naming only the
+# ones this repo cares about would silently un-ignore the rest. `too-many-warnings` (solc 4591) is the
+# addition: shanghai activates EIP-3860, whose ~107 extra initcode-size warnings push the total past
+# solc's 256-warning print cap, and solc then emits 4591 to say it truncated. Dropping `code-size` or
+# `init-code-size` would surface 64+ size warnings on test and script contracts that never leave the
+# local EVM.
 [profile.default]
 src = "src"
 out = "out"
 libs = ["node_modules"]
 solc_version = "0.8.24"
-evm_version = "paris"
+evm_version = "shanghai"
 optimizer = true
 optimizer_runs = 200
+ignored_error_codes = [
+  "license",
+  "code-size",
+  "init-code-size",
+  "transient-storage",
+  "transfer-deprecated",
+  "natspec-memory-safe-assembly-deprecated",
+  "too-many-warnings",
+]
 
 remappings = [
   "forge-std/=node_modules/@chainlink/contracts/src/v0.8/vendor/forge-std/src/",
@@ -29,9 +56,18 @@ src = "src"
 out = "out"
 libs = ["node_modules"]
 solc_version = "0.8.24"
-evm_version = "paris"
+evm_version = "shanghai"
 optimizer = true
 optimizer_runs = 200
+ignored_error_codes = [
+  "license",
+  "code-size",
+  "init-code-size",
+  "transient-storage",
+  "transfer-deprecated",
+  "natspec-memory-safe-assembly-deprecated",
+  "too-many-warnings",
+]
 ffi = true
 remappings = [
   "forge-std/=node_modules/@chainlink/contracts/src/v0.8/vendor/forge-std/src/",
