@@ -6,12 +6,13 @@ import {HelperConfig} from "../HelperConfig.s.sol"; // Network configuration hel
 import {BurnMintTokenPool} from "@chainlink/contracts-ccip/contracts/pools/BurnMintTokenPool.sol";
 import {CrossChainToken} from "@chainlink/contracts-ccip/contracts/tokens/CrossChainToken.sol";
 import {IBurnMintERC20} from "@chainlink/contracts-ccip/contracts/interfaces/IBurnMintERC20.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {DeploymentUtils} from "../utils/DeploymentUtils.s.sol";
 import {DeploymentRecorder} from "../utils/DeploymentRecorder.s.sol";
 import {RegistryWriter} from "../../src/utils/RegistryWriter.sol";
 
 /// @notice Deploys a BurnMint token pool for a token and records it in the address registry.
+/// DECIMALS=<n> is required only when the token does not answer decimals(), and must agree with it when
+/// both exist; the resolved value is the pool's immutable scaling factor.
 contract DeployBurnMintTokenPool is Script {
     HelperConfig public helperConfig;
 
@@ -46,14 +47,13 @@ contract DeployBurnMintTokenPool is Script {
         require(config.router != address(0), "Router not defined for this network");
         require(config.rmnProxy != address(0), "RMN Proxy not defined for this network");
 
-        // decimals() is optional in ERC20; fall back to DECIMALS env var if not present
-        uint8 decimals;
-        try IERC20Metadata(tokenAddress).decimals() returns (uint8 d) {
-            decimals = d;
-        } catch {
-            console.log(unicode"⚠️  decimals() not found on token, falling back to DECIMALS env var");
-            decimals = uint8(vm.envUint("DECIMALS"));
-        }
+        // decimals() when the token answers, an explicit DECIMALS when it does not (the getter is
+        // optional in ERC20 and the pool takes the value as a constructor argument by design), a
+        // mismatch or a missing-on-both-sides refusal otherwise. Never a guess: the value is immutable
+        // and scales every amount the pool moves.
+        uint8 decimals = DeploymentUtils._resolveTokenDecimals(
+            vm, tokenAddress, vm.envOr("DECIMALS", DeploymentUtils.DECIMALS_UNSET)
+        );
         // POOL_HOOKS alias > {CHAIN}_POOL_HOOKS > registry active.poolHooks. Optional (0x0 = no hooks).
         address poolHooks = vm.envOr("POOL_HOOKS", helperConfig.getDeployedPoolHooks(chainId));
 

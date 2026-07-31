@@ -66,7 +66,13 @@ contract GetLockBox is Script {
 
                     console.log(string.concat("   Token:   ", vm.toString(tokenAddress), symbol));
                     console.log(string.concat("   Balance: ", vm.toString(balance)));
-                } catch {}
+                } catch {
+                    // Catching silently would leave a lockbox whose token cannot be read looking like one
+                    // with nothing worth printing. The lockbox address above holds either way, so name
+                    // the part that is missing.
+                    console.log("   Token:   could not be read from the lockbox");
+                    console.log("   Balance: unknown (it is read through the token)");
+                }
             }
         } catch (bytes memory err) {
             console.log(unicode"❌ Error: getLockBox() reverted.");

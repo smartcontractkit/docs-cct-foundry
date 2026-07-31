@@ -39,6 +39,44 @@ contract IsAllowListed is Script {
         console.log("========================================");
         console.log("");
 
+        // Enforcement decides what a membership check can mean. `checkAllowList` is a no-op while the
+        // allowlist is disabled: it returns without reverting for every address, 0x0 included, so a
+        // non-revert says nothing until enforcement is established. Enforcement is fixed at deployment
+        // (`i_allowlistEnabled = allowlist.length > 0`, immutable), so hooks deployed with an empty
+        // allowlist can never enforce one.
+        bool enforced;
+        try AdvancedPoolHooks(hooksAddress).getAllowListEnabled() returns (bool enabled) {
+            enforced = enabled;
+        } catch {
+            console.log(unicode"❓ Could not read the allowlist state at this address.");
+            console.log("   Without it, nothing can be reported about CHECK_ADDRESS.");
+            console.log(
+                string.concat("   Confirm POOL_HOOKS is an AdvancedPoolHooks contract: ", vm.toString(hooksAddress))
+            );
+            console.log("========================================");
+            console.log("");
+            // The revert carries the failure into the exit code: printing an error and exiting 0
+            // would tell any wrapper reading it that the allowlist state was read.
+            revert("getAllowListEnabled() could not be read (see above)");
+        }
+
+        if (!enforced) {
+            console.log(
+                unicode"⚠️  These hooks enforce NO allowlist: every sender is permitted, this one included."
+            );
+            console.log("   Enforcement is fixed at deployment and cannot be turned on later. To restrict");
+            console.log("   senders, deploy AdvancedPoolHooks with a non-empty ALLOWLIST and point the");
+            console.log("   pool at it.");
+            console.log("========================================");
+            console.log(
+                string.concat("Pool Hooks:   ", helperConfig.getExplorerUrl(chainId, "/address/", hooksAddress))
+            );
+            console.log("========================================");
+            console.log("");
+            return;
+        }
+
+        // Enforcement is on, so a revert now carries the membership answer and nothing else.
         bool isAllowListed = false;
         try AdvancedPoolHooks(hooksAddress).checkAllowList(checkAddress) {
             isAllowListed = true;
