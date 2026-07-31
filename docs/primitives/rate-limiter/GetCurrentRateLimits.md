@@ -18,6 +18,7 @@ Reads and displays the current rate limiter state for a TokenPool, compatible wi
 | Env var | Description |
 | --- | --- |
 | `DEST_CHAIN` | See the script header. |
+| `DEST_CHAIN_SELECTOR` | See the script header. |
 | `FAST_FINALITY` | See the script header. |
 
 ## Reference

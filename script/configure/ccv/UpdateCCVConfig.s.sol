@@ -33,7 +33,11 @@ import {ProjectStore} from "../../../src/utils/ProjectStore.sol";
 /// resolves and displays it and MUST be broadcast from that account.
 ///
 /// Environment Variables:
-///   DEST_CHAIN                 - the remote lane to configure CCVs for (optional; omit for threshold-only)
+///   DEST_CHAIN                 - the remote lane to configure CCVs for (optional; omit for threshold-only).
+///                                Accepts EVM and non-EVM destinations (e.g. MANTLE_SEPOLIA,
+///                                SOLANA_DEVNET, APTOS_TESTNET).
+///   DEST_CHAIN_FAMILY          - Override destination family (default: from DEST_CHAIN config)
+///   DEST_CHAIN_SELECTOR        - Override destination selector (default: from DEST_CHAIN config)
 ///   OUTBOUND_CCVS              - comma-separated address list: base CCVs for outbound messages
 ///   THRESHOLD_OUTBOUND_CCVS    - comma-separated address list: extra outbound CCVs at/above the threshold
 ///   INBOUND_CCVS               - comma-separated address list: base CCVs for inbound messages
@@ -130,9 +134,16 @@ contract UpdateCCVConfig is EoaExecutor, LanePolicySource {
         _header(chainName, tokenPoolAddress, hooksAddress, hooksOwner, destChainName, haveLane);
 
         // ── Read current on-chain state (RMW baseline) ─────────────────────
-        uint64 destChainSelector = haveLane
-            ? helperConfig.getNetworkConfig(helperConfig.parseChainName(destChainName)).chainSelector
-            : uint64(0);
+        uint64 destChainSelector;
+        if (haveLane) {
+            HelperConfig.NetworkConfig memory destConfig = helperConfig.getDestChainConfig(destChainName);
+            destChainSelector = uint64(vm.envOr("DEST_CHAIN_SELECTOR", uint256(destConfig.chainSelector)));
+            require(
+                destChainSelector != 0, "Chain selector is not defined for destination chain. Set DEST_CHAIN_SELECTOR."
+            );
+        } else {
+            destChainSelector = uint64(0);
+        }
         AdvancedPoolHooks.CCVConfig memory currentConfig =
             haveLane ? AdvancedPoolHooks(hooksAddress).getCCVConfig(destChainSelector) : _emptyConfig();
         uint256 currentThreshold = AdvancedPoolHooks(hooksAddress).getThresholdAmount();

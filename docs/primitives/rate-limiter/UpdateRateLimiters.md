@@ -18,6 +18,7 @@ Updates rate limiter configuration on a TokenPool, compatible with both v1 and v
 | Env var | Description |
 | --- | --- |
 | `DEST_CHAIN` | See the script header. |
+| `DEST_CHAIN_SELECTOR` | See the script header. |
 | `FAST_FINALITY` | See the script header. |
 
 ## Reference

@@ -18,6 +18,7 @@ Applies token transfer fee configuration updates to a token pool on a given dest
 | Env var | Description |
 | --- | --- |
 | `DEST_CHAIN` | See the script header. |
+| `DEST_CHAIN_SELECTOR` | See the script header. |
 | `DISABLE` | See the script header. |
 
 ## Reference

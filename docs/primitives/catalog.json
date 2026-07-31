@@ -239,7 +239,8 @@
       "writes_onchain": true,
       "destructive": false,
       "inputs": [
-        "DEST_CHAIN"
+        "DEST_CHAIN",
+        "DEST_CHAIN_SELECTOR"
       ]
     },
     {
@@ -285,7 +286,8 @@
       "writes_onchain": false,
       "destructive": false,
       "inputs": [
-        "DEST_CHAIN"
+        "DEST_CHAIN",
+        "DEST_CHAIN_SELECTOR"
       ]
     },
     {
@@ -302,6 +304,7 @@
       "destructive": false,
       "inputs": [
         "DEST_CHAIN",
+        "DEST_CHAIN_SELECTOR",
         "DISABLE"
       ]
     },
@@ -331,7 +334,8 @@
       "writes_onchain": true,
       "destructive": false,
       "inputs": [
-        "DEST_CHAIN"
+        "DEST_CHAIN",
+        "DEST_CHAIN_SELECTOR"
       ]
     },
     {
@@ -421,6 +425,7 @@
       "destructive": false,
       "inputs": [
         "DEST_CHAIN",
+        "DEST_CHAIN_SELECTOR",
         "FAST_FINALITY"
       ]
     },
@@ -438,6 +443,7 @@
       "destructive": false,
       "inputs": [
         "DEST_CHAIN",
+        "DEST_CHAIN_SELECTOR",
         "FAST_FINALITY"
       ]
     },
@@ -454,7 +460,8 @@
       "writes_onchain": true,
       "destructive": true,
       "inputs": [
-        "DEST_CHAIN"
+        "DEST_CHAIN",
+        "DEST_CHAIN_SELECTOR"
       ]
     },
     {

@@ -18,6 +18,7 @@ Reads and displays the token transfer fee configuration for a token pool on a gi
 | Env var | Description |
 | --- | --- |
 | `DEST_CHAIN` | See the script header. |
+| `DEST_CHAIN_SELECTOR` | See the script header. |
 
 ## Reference
 

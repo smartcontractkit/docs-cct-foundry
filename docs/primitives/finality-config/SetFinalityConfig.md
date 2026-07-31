@@ -18,6 +18,7 @@ Sets the allowed finality configuration on a TokenPool, and optionally updates r
 | Env var | Description |
 | --- | --- |
 | `DEST_CHAIN` | See the script header. |
+| `DEST_CHAIN_SELECTOR` | See the script header. |
 
 ## Reference
 

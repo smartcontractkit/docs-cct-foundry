@@ -18,6 +18,7 @@ Fully unsupports a remote chain on the source TokenPool: removes the chain selec
 | Env var | Description |
 | --- | --- |
 | `DEST_CHAIN` | See the script header. |
+| `DEST_CHAIN_SELECTOR` | See the script header. |
 
 ## Reference
 

@@ -39,9 +39,11 @@ import {ProjectStore} from "../../../src/utils/ProjectStore.sol";
 /// hand edit). The declaration is owner intent: an env-driven apply never writes it back.
 ///
 /// Environment Variables (optional - rate limiter):
-///   DEST_CHAIN                    - Remote chain whose lane is queried/updated (e.g. MANTLE_SEPOLIA).
-///                                   Required when any rate limit variable is set; if omitted the rate
-///                                   limiter section is skipped entirely.
+///   DEST_CHAIN                    - Remote chain whose lane is queried/updated (e.g. MANTLE_SEPOLIA,
+///                                   SOLANA_DEVNET, APTOS_TESTNET). Required when any rate limit
+///                                   variable is set; if omitted the rate limiter section is skipped.
+///   DEST_CHAIN_FAMILY             - Override destination family (default: from DEST_CHAIN config)
+///   DEST_CHAIN_SELECTOR           - Override destination selector (default: from DEST_CHAIN config)
 ///   OUTBOUND_RATE_LIMIT_CAPACITY  - uint128, outbound token bucket capacity
 ///   OUTBOUND_RATE_LIMIT_RATE      - uint128, outbound token bucket refill rate
 ///   OUTBOUND_RATE_LIMIT_ENABLED   - true/false (defaults to true when CAPACITY or RATE are set)
@@ -191,9 +193,13 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
         uint64 remoteChainSelector;
         string memory destChainFullName;
         if (destChainSet) {
-            uint256 destChainId = helperConfig.parseChainName(destChainName);
-            remoteChainSelector = helperConfig.getNetworkConfig(destChainId).chainSelector;
-            destChainFullName = helperConfig.getChainName(destChainId);
+            HelperConfig.NetworkConfig memory destConfig = helperConfig.getDestChainConfig(destChainName);
+            remoteChainSelector = uint64(vm.envOr("DEST_CHAIN_SELECTOR", uint256(destConfig.chainSelector)));
+            require(
+                remoteChainSelector != 0,
+                "Chain selector is not defined for destination chain. Set DEST_CHAIN_SELECTOR."
+            );
+            destChainFullName = bytes(destConfig.chainName).length > 0 ? destConfig.chainName : destChainName;
         }
 
         // ── Header ─────────────────────────────────────────────────────────
