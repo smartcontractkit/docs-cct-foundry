@@ -35,6 +35,14 @@ is no need to pass a separate enabled flag. A bucket is enabled automatically wh
 `*_RATE` is set; pass `OUTBOUND_RATE_LIMIT_ENABLED=false` (or the inbound equivalent) to disable it
 explicitly.
 
+Within a direction the inputs are all-or-nothing: an enabled bucket needs `*_CAPACITY` and `*_RATE`
+supplied together, and a run that supplies only one is refused naming the missing variable. An unset
+field never becomes a `0` written on chain - a capacity without a rate would enable a bucket that lets N
+tokens through and then stays shut with `TokenRateLimitReached`, while the run prints success. The
+one exception is `*_ENABLED=false` on its own, which is a complete instruction: a disabled bucket's
+capacity and rate are 0 by protocol rule. Values that do not fit `uint128` are refused rather than
+truncated into a different live value.
+
 The golden path for v2 lanes is to declare the policy in the local chain config and apply from the
 declaration: with no rate-limit env vars, a direction resolves from the `lanes{}` entry in
 `project/<local>.json` (the standard bucket from `capacity`/`rate` plus the optional `inbound{}` block,

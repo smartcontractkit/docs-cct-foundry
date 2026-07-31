@@ -12,7 +12,9 @@
 # recipe failure to exit 2, so `make roles-check` is pass/fail only; CI calls the script directly, the
 # same lesson as sync-check.sh):
 #   0  CLEAN            every checked chain's declared roles{} matches the live chain
-#   1  ROLES_DRIFT      at least one declared holder/config mismatches (or a real config error)
+#   1  ROLES_DRIFT      at least one declared holder/config mismatches, or a declared value's read was
+#                       refused ("could not be read, so nothing was compared" - not drift; fix the
+#                       read, see docs/roles.md verdict (c)), or a real config error
 #   2  RPC_UNAVAILABLE  an RPC was unset/unreachable for at least one chain and NOTHING drifted
 #                       (flake/missing secret, not drift — CI should warn-and-pass, never go red)
 #
@@ -162,7 +164,7 @@ for i in "${!pair_chain[@]}"; do
 done
 
 if [ $drift -ne 0 ]; then
-    echo "roles-check: ROLES_DRIFT (or config error) for: ${drifted[*]} - remediate on-chain or re-declare via make snapshot-chain CHAIN=<name> [GROUP=<g>]"
+    echo "roles-check: ROLES_DRIFT (or config error) for: ${drifted[*]} - remediate on-chain or re-declare via make snapshot-chain CHAIN=<name> [GROUP=<g>]; a FAIL reading 'could not be read' is a refused read, not drift - fix the RPC or the declared address (docs/roles.md verdict (c))"
     exit 1
 elif [ $unreachable -ne 0 ]; then
     echo "roles-check: RPC_UNAVAILABLE for: ${flaked[*]} - flake/missing secret, not drift; retry with the RPC env set"

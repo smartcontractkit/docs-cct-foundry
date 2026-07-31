@@ -589,6 +589,16 @@ carry an honest **`complete` marker**: `true` only when the token enumerates its
 `snapshot-chain SCAN_FROM_BLOCK=<n>` event scan proved the list; `false` (candidate seed) otherwise, and
 the auditor WARNs so a partial list is never read as full.
 
+**Absence is the unread state.** A chain-readable field the snapshot could not read is **not written** -
+never written as `0x0` / `false` / `[]`, which are what a failed probe returns and are indistinguishable
+from real values once on disk. The snapshot logs each such field as `UNREAD` and omits it; the audit then
+refuses to compare a declared value against a read that failed (`could not be read, so nothing was
+compared` - a FAIL, not a PASS), and a declared `hooks`/`lockbox` contract that answers none of its
+getters fails as unauditable outright. A declaration can still carry zeros
+that were produced by failed reads (a snapshot written by older tooling, or a hand edit): they were
+never facts, and against a still-unreadable contract they FAIL instead of reconciling - re-run
+`make snapshot-chain` on a working RPC to rebuild the block from actual reads.
+
 The token block **dispatches on a declared `type`**, because the admin model differs per template - the
 engine never assumes one:
 

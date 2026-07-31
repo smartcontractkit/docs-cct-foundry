@@ -86,7 +86,7 @@ never read and never a FAIL.
 
 | Command                            | Reads                        | Writes                                                      | Exit contract                                                 |
 | ---------------------------------- | ---------------------------- | ----------------------------------------------------------- | ------------------------------------------------------------- |
-| `make roles-check CHAIN=<name> [GROUP=<g>]`    | live chain + the declaration | **nothing**                                      | `0` clean / `1` drift (names the field) / `2` RPC unavailable |
+| `make roles-check CHAIN=<name> [GROUP=<g>]`    | live chain + the declaration | **nothing**                                      | `0` clean / `1` drift or a refused read (names the field) / `2` RPC unavailable |
 | `make snapshot-chain CHAIN=<name> [GROUP=<g>]` | live chain                   | **only** the `.roles` subtree of that chain's project store | writes the declaration; canonicalizes the file    |
 
 - **`make roles-check` is READ-ONLY.** It reads the live chain, compares to the declaration, prints one
@@ -98,7 +98,10 @@ never read and never a FAIL.
 - **`make snapshot-chain` is the ONLY writer.** It backfills the declaration FROM the chain
   (preserve-and-replace on the `.roles` subtree only), for the initial bootstrap or an intentional
   resync. Same no-silent-writeback rule as `lanes{}`: a read check never edits your files, and the one
-  writer is an explicit, reviewed command.
+  writer is an explicit, reviewed command. A field the snapshot cannot read is **not written**: each is
+  logged as `[snapshot] UNREAD` and omitted, and the closing output warns that the block is partial. Do
+  not commit a partial block - re-run on a working RPC first. (Absence is the unread state; see the
+  `roles{}` schema notes in [config-schema.md](config-schema.md).)
 
 Bootstrap a chain that has no `roles{}` yet:
 
@@ -171,6 +174,11 @@ flowchart TD
 - **(b) The change was INTENDED** - a deliberate authority change (e.g. you moved a role to a new
   governance address on purpose). Update the **declaration** through a reviewed edit or
   `make snapshot-chain`, and PR the diff so the new intent is recorded and approved.
+- **(c) Nothing was compared** - the FAIL reads `could not be read, so nothing was compared` (or names a
+  contract that `cannot be audited`). This is not drift: the chain neither confirmed nor contradicted
+  the declaration, because the read itself failed. Fix the read, not the roles: check the RPC's health,
+  and check that the declared address points at the contract you think it does (a wrong or unauditable
+  address answers no getter). Then re-run; only a completed read can produce verdict (a) or (b).
 
 `make doctor`'s roles rung and the scheduled CI `roles-check` (in `.github/workflows/config-drift.yml`,
 non-blocking) keep surfacing the drift as a `[FAIL]`/`::warning::` until it is reconciled one way or the

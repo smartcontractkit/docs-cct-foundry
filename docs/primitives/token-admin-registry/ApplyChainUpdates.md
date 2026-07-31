@@ -24,6 +24,12 @@ Configures cross-chain lanes on the source TokenPool by calling applyChainUpdate
 | `DEST_CHAIN_SELECTOR` | See the script header. |
 | `DEST_TOKEN` | See the script header. |
 | `DEST_TOKEN_POOL` | See the script header. |
+| `INBOUND_RATE_LIMIT_CAPACITY` | uint128 token-bucket capacity (inbound). Same all-or-nothing rule per direction. |
+| `INBOUND_RATE_LIMIT_ENABLED` | true/false; defaults to true when CAPACITY or RATE are set. false stands alone as a disable. |
+| `INBOUND_RATE_LIMIT_RATE` | uint128 token-bucket refill rate (inbound). |
+| `OUTBOUND_RATE_LIMIT_CAPACITY` | uint128 token-bucket capacity. Per direction the inputs are all-or-nothing: an enabled bucket needs CAPACITY and RATE together, and a partial set is refused naming the missing variable. |
+| `OUTBOUND_RATE_LIMIT_ENABLED` | true/false; defaults to true when CAPACITY or RATE are set. false stands alone as a disable. |
+| `OUTBOUND_RATE_LIMIT_RATE` | uint128 token-bucket refill rate. An enabled bucket needs CAPACITY and RATE together. |
 | `VIA_JSON_FILE` | See the script header. |
 
 ## Preconditions

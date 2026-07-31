@@ -45,6 +45,9 @@ library RolesProbes {
 
     // ---------------------------------------------------------------- generic tolerant getters
 
+    /// @dev Callers gate on `ok` before using the value: the zero value is what a failed read returns,
+    /// not a fact about the target, so comparing or authorizing against it asserts something nobody
+    /// observed. The same contract holds for every probe below.
     function _tryAddress(address target, string memory sig) internal view returns (bool ok, address val) {
         (bool s, bytes memory ret) = target.staticcall(abi.encodeWithSignature(sig));
         if (s && ret.length >= 32) return (true, abi.decode(ret, (address)));
@@ -280,14 +283,26 @@ library RolesProbes {
         view
         returns (bool isV2, address router, address rateLimitAdmin, address feeAdmin)
     {
+        (isV2,, router, rateLimitAdmin, feeAdmin) = _tryPoolAdmins(pool);
+    }
+
+    /// @notice `_readPoolAdmins` with the read outcome kept: `adminsOk` is false when NEITHER admin
+    /// surface answered, in which case the three addresses are the zero value of a failed read, not a
+    /// fact about the pool. Callers that record or reconcile the admins use this variant; callers that
+    /// only need the values for a comparison a zero cannot satisfy may keep `_readPoolAdmins`.
+    function _tryPoolAdmins(address pool)
+        internal
+        view
+        returns (bool isV2, bool adminsOk, address router, address rateLimitAdmin, address feeAdmin)
+    {
         (bool s, bytes memory ret) = pool.staticcall(abi.encodeWithSignature("getDynamicConfig()"));
         if (s && ret.length >= 96) {
             (router, rateLimitAdmin, feeAdmin) = abi.decode(ret, (address, address, address));
-            return (true, router, rateLimitAdmin, feeAdmin);
+            return (true, true, router, rateLimitAdmin, feeAdmin);
         }
         (, router) = _tryAddress(pool, "getRouter()");
-        (, rateLimitAdmin) = _tryAddress(pool, "getRateLimitAdmin()");
-        return (false, router, rateLimitAdmin, address(0));
+        (bool okRla, address rla) = _tryAddress(pool, "getRateLimitAdmin()");
+        return (false, okRla, router, rla, address(0));
     }
 
     // ---------------------------------------------------------------- governance probes

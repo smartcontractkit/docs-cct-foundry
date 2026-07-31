@@ -39,7 +39,8 @@ abstract contract TokenRoleScript is EoaExecutor {
         address actor
     ) internal view {
         if (template == RolesProbes.TokenTemplate.FactoryBurnMintERC20) {
-            (, address owner_) = RolesProbes._tryAddress(token, "owner()");
+            (bool okOwner, address owner_) = RolesProbes._tryAddress(token, "owner()");
+            require(okOwner, "owner() could not be read from the token, so authority cannot be verified");
             require(
                 owner_ == actor,
                 string.concat(

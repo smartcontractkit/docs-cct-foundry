@@ -169,6 +169,9 @@ DEST_CHAIN=MANTLE_SEPOLIA \
 | `INBOUND_RATE_LIMIT_RATE`      | No       | Token bucket refill rate (tokens/second) for inbound transfers                                       |
 | `INBOUND_RATE_LIMIT_ENABLED`   | No       | Override `isEnabled` explicitly (`true`/`false`; defaults to `true` when CAPACITY or RATE are set)   |
 
+These env buckets follow the same all-or-nothing rule per direction as `UpdateRateLimiters`; see
+[Rate limits](rate-limits.md).
+
 `ApplyChainUpdates` only configures the standard finality rate limit bucket. To configure the fast
 finality bucket, run `UpdateRateLimiters` with `FAST_FINALITY=true` after the lane is set up (see [Rate
 limits](rate-limits.md)).

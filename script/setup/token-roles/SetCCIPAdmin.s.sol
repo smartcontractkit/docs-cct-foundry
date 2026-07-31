@@ -56,7 +56,8 @@ contract SetCCIPAdmin is TokenRoleScript {
         // DEFAULT_ADMIN_ROLE; the factory template with owner(). A BYO token's gate is unknown -
         // the simulation run (no --broadcast) surfaces an unauthorized actor before anything is sent.
         if (template == RolesProbes.TokenTemplate.FactoryBurnMintERC20) {
-            (, address owner_) = RolesProbes._tryAddress(token, "owner()");
+            (bool okOwner, address owner_) = RolesProbes._tryAddress(token, "owner()");
+            require(okOwner, "owner() could not be read from the token, so authority cannot be verified");
             require(
                 owner_ == actor,
                 string.concat(

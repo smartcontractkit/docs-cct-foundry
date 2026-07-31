@@ -126,7 +126,8 @@ contract TransferTokenAdmin is TokenRoleScript {
         console.log(string.concat("New Admin:    ", vm.toString(newAdmin)));
 
         if (template == RolesProbes.TokenTemplate.CrossChainToken) {
-            (, address current) = RolesProbes._tryAddress(token, "defaultAdmin()");
+            (bool okCurrent, address current) = RolesProbes._tryAddress(token, "defaultAdmin()");
+            require(okCurrent, "defaultAdmin() could not be read from the token, so authority cannot be verified");
             require(
                 current == actor,
                 string.concat(
@@ -160,7 +161,8 @@ contract TransferTokenAdmin is TokenRoleScript {
             return;
         }
         // factory (Ownable2Step)
-        (, address owner_) = RolesProbes._tryAddress(token, "owner()");
+        (bool okOwner, address owner_) = RolesProbes._tryAddress(token, "owner()");
+        require(okOwner, "owner() could not be read from the token, so authority cannot be verified");
         require(
             owner_ == actor,
             string.concat(
@@ -176,7 +178,10 @@ contract TransferTokenAdmin is TokenRoleScript {
         private
     {
         if (template == RolesProbes.TokenTemplate.CrossChainToken) {
-            (, address pending) = RolesProbes._tryAddress(token, "pendingDefaultAdmin()");
+            (bool okPending, address pending) = RolesProbes._tryAddress(token, "pendingDefaultAdmin()");
+            require(
+                okPending, "pendingDefaultAdmin() could not be read from the token, so the transfer cannot be verified"
+            );
             require(
                 pending == actor,
                 string.concat(

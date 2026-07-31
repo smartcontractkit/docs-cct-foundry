@@ -137,6 +137,38 @@ contract RolesAuditor {
         }
     }
 
+    /// @dev A failed read refuses the comparison instead of comparing against the probe's zero value.
+    /// Without this, a declaration of `0x0` / `false` / `[]` reconciles PASS against a contract the
+    /// audit could not read, because both sides hold the zero value for opposite reasons: one was
+    /// declared, the other is a failed read.
+    function _refuseUnread(string memory field, string memory sig) private {
+        _fail(field, string.concat(sig, " could not be read, so nothing was compared"));
+    }
+
+    function _checkReadAddress(string memory field, string memory sig, bool ok, address declared, address live)
+        private
+    {
+        if (!ok) {
+            _refuseUnread(field, sig);
+            return;
+        }
+        _checkAddress(field, declared, live);
+    }
+
+    function _checkReadSet(
+        string memory field,
+        string memory sig,
+        bool ok,
+        address[] memory declared,
+        address[] memory live
+    ) private {
+        if (!ok) {
+            _refuseUnread(field, sig);
+            return;
+        }
+        _checkSet(field, declared, live);
+    }
+
     function _checkSet(string memory field, address[] memory declared, address[] memory live) private {
         if (RolesProbes._sameSet(declared, live)) {
             _pass(field, string.concat(VM.toString(live.length), " member(s), sets match"));
@@ -229,16 +261,24 @@ contract RolesAuditor {
     function _auditTokenAdminPoint(string memory json, address token, RolesProbes.TokenTemplate t) private {
         if (t == RolesProbes.TokenTemplate.CrossChainToken) {
             if (VM.keyExistsJson(json, ".roles.token.defaultAdmin")) {
-                (, address live) = RolesProbes._tryAddress(token, "defaultAdmin()");
-                _checkAddress("token.defaultAdmin", VM.parseJsonAddress(json, ".roles.token.defaultAdmin"), live);
+                (bool ok, address live) = RolesProbes._tryAddress(token, "defaultAdmin()");
+                _checkReadAddress(
+                    "token.defaultAdmin",
+                    "defaultAdmin()",
+                    ok,
+                    VM.parseJsonAddress(json, ".roles.token.defaultAdmin"),
+                    live
+                );
             } else {
                 _skip("token.defaultAdmin", "not declared");
             }
-            (, address pending) = RolesProbes._tryAddress(token, "pendingDefaultAdmin()");
+            (bool okPending, address pending) = RolesProbes._tryAddress(token, "pendingDefaultAdmin()");
             address declaredPending = VM.keyExistsJson(json, ".roles.token.pendingDefaultAdmin")
                 ? VM.parseJsonAddress(json, ".roles.token.pendingDefaultAdmin")
                 : address(0);
-            if (pending == declaredPending) {
+            if (!okPending) {
+                _refuseUnread("token.pendingDefaultAdmin", "pendingDefaultAdmin()");
+            } else if (pending == declaredPending) {
                 if (pending != address(0)) {
                     _warn(
                         "token.pendingDefaultAdmin",
@@ -263,8 +303,8 @@ contract RolesAuditor {
         }
         if (t == RolesProbes.TokenTemplate.FactoryBurnMintERC20) {
             if (VM.keyExistsJson(json, ".roles.token.owner")) {
-                (, address live) = RolesProbes._tryAddress(token, "owner()");
-                _checkAddress("token.owner", VM.parseJsonAddress(json, ".roles.token.owner"), live);
+                (bool ok, address live) = RolesProbes._tryAddress(token, "owner()");
+                _checkReadAddress("token.owner", "owner()", ok, VM.parseJsonAddress(json, ".roles.token.owner"), live);
             } else {
                 _skip("token.owner", "not declared");
             }
@@ -481,17 +521,21 @@ contract RolesAuditor {
     // ---------------------------------------------------------------- pool
 
     function _auditPool(string memory json, address pool) private {
-        (bool isV2,, address rateLimitAdmin, address feeAdmin) = RolesProbes._readPoolAdmins(pool);
-        (, address owner_) = RolesProbes._tryAddress(pool, "owner()");
+        (bool isV2, bool adminsOk, address rateLimitAdmin, address feeAdmin) = _poolAdmins(pool);
+        (bool okOwner, address owner_) = RolesProbes._tryAddress(pool, "owner()");
         if (VM.keyExistsJson(json, ".roles.pool.owner")) {
-            _checkAddress("pool.owner", VM.parseJsonAddress(json, ".roles.pool.owner"), owner_);
+            _checkReadAddress("pool.owner", "owner()", okOwner, VM.parseJsonAddress(json, ".roles.pool.owner"), owner_);
         } else {
             _skip("pool.owner", "not declared");
         }
         _auditPendingOwner("pool", pool);
         if (VM.keyExistsJson(json, ".roles.pool.rateLimitAdmin")) {
-            _checkAddress(
-                "pool.rateLimitAdmin", VM.parseJsonAddress(json, ".roles.pool.rateLimitAdmin"), rateLimitAdmin
+            _checkReadAddress(
+                "pool.rateLimitAdmin",
+                "getDynamicConfig()/getRateLimitAdmin()",
+                adminsOk,
+                VM.parseJsonAddress(json, ".roles.pool.rateLimitAdmin"),
+                rateLimitAdmin
             );
         } else {
             // Governance-critical slot: an undeclared one is a visible SKIP, never a silent CLEAN.
@@ -510,12 +554,28 @@ contract RolesAuditor {
         }
         if (VM.keyExistsJson(json, ".roles.pool.hooks")) {
             if (isV2) {
-                (, address hooks) = RolesProbes._tryAddress(pool, "getAdvancedPoolHooks()");
-                _checkAddress("pool.hooks", VM.parseJsonAddress(json, ".roles.pool.hooks"), hooks);
+                (bool okHooks, address hooks) = RolesProbes._tryAddress(pool, "getAdvancedPoolHooks()");
+                _checkReadAddress(
+                    "pool.hooks",
+                    "getAdvancedPoolHooks()",
+                    okHooks,
+                    VM.parseJsonAddress(json, ".roles.pool.hooks"),
+                    hooks
+                );
             } else {
                 _fail("pool.hooks", "declared, but the pool is v1.x (no AdvancedPoolHooks surface)");
             }
         }
+    }
+
+    /// @dev `isV2 == true` implies the admins were decoded from `getDynamicConfig()`, so `adminsOk` is
+    /// only ever false on the v1.x path where `getRateLimitAdmin()` did not answer.
+    function _poolAdmins(address pool)
+        private
+        view
+        returns (bool isV2, bool adminsOk, address rateLimitAdmin, address feeAdmin)
+    {
+        (isV2, adminsOk,, rateLimitAdmin, feeAdmin) = RolesProbes._tryPoolAdmins(pool);
     }
 
     /// @dev Chainlink `Ownable2Step`/`ConfirmedOwner` keep `s_pendingOwner` private with no getter;
@@ -549,15 +609,45 @@ contract RolesAuditor {
         }
         address declared = VM.parseJsonAddress(json, ".roles.lockbox.address");
         (bool has, address live) = RolesProbes._tryAddress(pool, "getLockBox()");
-        if (has) _checkAddress("lockbox.address", declared, live);
-        (, address owner_) = RolesProbes._tryAddress(declared, "owner()");
-        _checkAddress("lockbox.owner", VM.parseJsonAddress(json, ".roles.lockbox.owner"), owner_);
-        _auditPendingOwner("lockbox", declared);
-        (, address[] memory callers) =
+        if (has) {
+            _checkAddress("lockbox.address", declared, live);
+        } else {
+            _fail("lockbox.address", "declared, but the pool did not answer getLockBox(), so it was not confirmed");
+        }
+        (bool okOwner, address owner_) = RolesProbes._tryAddress(declared, "owner()");
+        (bool okCallers, address[] memory callers) =
             RolesProbes._tryAddressArray(declared, abi.encodeWithSignature("getAllAuthorizedCallers()"));
-        _checkSet(
-            "lockbox.authorizedCallers", VM.parseJsonAddressArray(json, ".roles.lockbox.authorizedCallers"), callers
-        );
+        // The surface gate: a declared lockbox that answers neither getter cannot be audited at all,
+        // and per-field refusals below it would only repeat the same fact. One FAIL, then stop.
+        if (!okOwner && !okCallers) {
+            _fail(
+                "lockbox.address",
+                string.concat(
+                    VM.toString(declared),
+                    " answers neither owner() nor getAllAuthorizedCallers(), so it cannot be audited as an ERC20LockBox"
+                )
+            );
+            return;
+        }
+        if (VM.keyExistsJson(json, ".roles.lockbox.owner")) {
+            _checkReadAddress(
+                "lockbox.owner", "owner()", okOwner, VM.parseJsonAddress(json, ".roles.lockbox.owner"), owner_
+            );
+        } else {
+            _skip("lockbox.owner", "not declared - run snapshot-chain to backfill it");
+        }
+        _auditPendingOwner("lockbox", declared);
+        if (VM.keyExistsJson(json, ".roles.lockbox.authorizedCallers")) {
+            _checkReadSet(
+                "lockbox.authorizedCallers",
+                "getAllAuthorizedCallers()",
+                okCallers,
+                VM.parseJsonAddressArray(json, ".roles.lockbox.authorizedCallers"),
+                callers
+            );
+        } else {
+            _skip("lockbox.authorizedCallers", "not declared - run snapshot-chain to backfill it");
+        }
     }
 
     function _auditHooks(string memory json) private {
@@ -566,10 +656,68 @@ contract RolesAuditor {
             return;
         }
         address hooks = VM.parseJsonAddress(json, ".roles.hooks.address");
-        (, address owner_) = RolesProbes._tryAddress(hooks, "owner()");
-        _checkAddress("hooks.owner", VM.parseJsonAddress(json, ".roles.hooks.owner"), owner_);
+        // The surface gate: a hooks contract that answers none of its getters is unauditable, and every
+        // declared field under it would only refuse for the same reason. One FAIL naming the address,
+        // then stop - this is what separates "the chain confirmed an empty allowlist" from "nothing
+        // was read and empty is what failure looks like".
+        if (_hooksAnswersNothing(hooks)) {
+            _fail(
+                "hooks.address",
+                string.concat(
+                    VM.toString(hooks),
+                    " answers no AdvancedPoolHooks getter (owner/getAllowListEnabled/getAllowList/",
+                    "getAllAuthorizedCallers), so it cannot be audited as a hooks contract"
+                )
+            );
+            return;
+        }
+        _auditHooksOwner(json, hooks);
         _auditPendingOwner("hooks", hooks);
-        (, bool allowlistEnabled) = RolesProbes._tryBool(hooks, "getAllowListEnabled()");
+        _auditHooksAllowlistEnabled(json, hooks);
+        _auditHooksSet(json, hooks, "allowlist", "getAllowList()");
+        _auditHooksSet(json, hooks, "authorizedCallers", "getAllAuthorizedCallers()");
+        if (VM.keyExistsJson(json, ".roles.hooks.policyEngine")) {
+            (bool okEngine, address engine) = RolesProbes._tryAddress(hooks, "getPolicyEngine()");
+            _checkReadAddress(
+                "hooks.policyEngine",
+                "getPolicyEngine()",
+                okEngine,
+                VM.parseJsonAddress(json, ".roles.hooks.policyEngine"),
+                engine
+            );
+        }
+    }
+
+    function _hooksAnswersNothing(address hooks) private view returns (bool) {
+        (bool okOwner,) = RolesProbes._tryAddress(hooks, "owner()");
+        if (okOwner) return false;
+        (bool okEnabled,) = RolesProbes._tryBool(hooks, "getAllowListEnabled()");
+        if (okEnabled) return false;
+        (bool okAllowlist,) = RolesProbes._tryAddressArray(hooks, abi.encodeWithSignature("getAllowList()"));
+        if (okAllowlist) return false;
+        (bool okCallers,) = RolesProbes._tryAddressArray(hooks, abi.encodeWithSignature("getAllAuthorizedCallers()"));
+        return !okCallers;
+    }
+
+    function _auditHooksOwner(string memory json, address hooks) private {
+        if (!VM.keyExistsJson(json, ".roles.hooks.owner")) {
+            _skip("hooks.owner", "not declared - run snapshot-chain to backfill it");
+            return;
+        }
+        (bool ok, address owner_) = RolesProbes._tryAddress(hooks, "owner()");
+        _checkReadAddress("hooks.owner", "owner()", ok, VM.parseJsonAddress(json, ".roles.hooks.owner"), owner_);
+    }
+
+    function _auditHooksAllowlistEnabled(string memory json, address hooks) private {
+        if (!VM.keyExistsJson(json, ".roles.hooks.allowlistEnabled")) {
+            _skip("hooks.allowlistEnabled", "not declared - run snapshot-chain to backfill it");
+            return;
+        }
+        (bool ok, bool allowlistEnabled) = RolesProbes._tryBool(hooks, "getAllowListEnabled()");
+        if (!ok) {
+            _refuseUnread("hooks.allowlistEnabled", "getAllowListEnabled()");
+            return;
+        }
         bool declaredEnabled = VM.parseJsonBool(json, ".roles.hooks.allowlistEnabled");
         if (declaredEnabled == allowlistEnabled) {
             _pass("hooks.allowlistEnabled", allowlistEnabled ? "true (IMMUTABLE - set at deploy)" : "false");
@@ -585,15 +733,16 @@ contract RolesAuditor {
                 )
             );
         }
-        (, address[] memory allowlist) = RolesProbes._tryAddressArray(hooks, abi.encodeWithSignature("getAllowList()"));
-        _checkSet("hooks.allowlist", VM.parseJsonAddressArray(json, ".roles.hooks.allowlist"), allowlist);
-        (, address[] memory callers) =
-            RolesProbes._tryAddressArray(hooks, abi.encodeWithSignature("getAllAuthorizedCallers()"));
-        _checkSet("hooks.authorizedCallers", VM.parseJsonAddressArray(json, ".roles.hooks.authorizedCallers"), callers);
-        if (VM.keyExistsJson(json, ".roles.hooks.policyEngine")) {
-            (, address engine) = RolesProbes._tryAddress(hooks, "getPolicyEngine()");
-            _checkAddress("hooks.policyEngine", VM.parseJsonAddress(json, ".roles.hooks.policyEngine"), engine);
+    }
+
+    function _auditHooksSet(string memory json, address hooks, string memory label, string memory sig) private {
+        string memory field = string.concat("hooks.", label);
+        if (!VM.keyExistsJson(json, string.concat(".roles.hooks.", label))) {
+            _skip(field, "not declared - run snapshot-chain to backfill it");
+            return;
         }
+        (bool ok, address[] memory live) = RolesProbes._tryAddressArray(hooks, abi.encodeWithSignature(sig));
+        _checkReadSet(field, sig, ok, VM.parseJsonAddressArray(json, string.concat(".roles.hooks.", label)), live);
     }
 
     function _auditRebalancer(string memory json, address pool) private {
@@ -859,7 +1008,7 @@ contract RolesAuditor {
             uint256 declared = VM.parseJsonUint(json, ".roles.governance.safe.threshold");
             (bool ok, uint256 live) = RolesProbes._tryUint(safe, "getThreshold()");
             if (!ok) {
-                _fail("governance.safe.threshold", "getThreshold() could not be read, so nothing was compared");
+                _refuseUnread("governance.safe.threshold", "getThreshold()");
             } else if (declared == live) {
                 _pass("governance.safe.threshold", VM.toString(live));
             } else {
@@ -872,13 +1021,13 @@ contract RolesAuditor {
         if (VM.keyExistsJson(json, ".roles.governance.safe.owners")) {
             (bool ok, address[] memory owners) =
                 RolesProbes._tryAddressArray(safe, abi.encodeWithSignature("getOwners()"));
-            if (!ok) {
-                _fail("governance.safe.owners", "getOwners() could not be read, so nothing was compared");
-            } else {
-                _checkSet(
-                    "governance.safe.owners", VM.parseJsonAddressArray(json, ".roles.governance.safe.owners"), owners
-                );
-            }
+            _checkReadSet(
+                "governance.safe.owners",
+                "getOwners()",
+                ok,
+                VM.parseJsonAddressArray(json, ".roles.governance.safe.owners"),
+                owners
+            );
         }
     }
 
@@ -891,8 +1040,10 @@ contract RolesAuditor {
         _pass("governance.timelock.address", string.concat(VM.toString(tl), " (has code)"));
         if (VM.keyExistsJson(json, ".roles.governance.timelock.minDelay")) {
             uint256 declared = VM.parseJsonUint(json, ".roles.governance.timelock.minDelay");
-            (, uint256 live) = RolesProbes._tryUint(tl, "getMinDelay()");
-            if (declared == live) {
+            (bool ok, uint256 live) = RolesProbes._tryUint(tl, "getMinDelay()");
+            if (!ok) {
+                _refuseUnread("governance.timelock.minDelay", "getMinDelay()");
+            } else if (declared == live) {
                 _pass("governance.timelock.minDelay", VM.toString(live));
             } else {
                 _fail(

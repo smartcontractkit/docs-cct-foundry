@@ -335,7 +335,13 @@
       "destructive": false,
       "inputs": [
         "DEST_CHAIN",
-        "DEST_CHAIN_SELECTOR"
+        "DEST_CHAIN_SELECTOR",
+        "INBOUND_RATE_LIMIT_CAPACITY",
+        "INBOUND_RATE_LIMIT_ENABLED",
+        "INBOUND_RATE_LIMIT_RATE",
+        "OUTBOUND_RATE_LIMIT_CAPACITY",
+        "OUTBOUND_RATE_LIMIT_ENABLED",
+        "OUTBOUND_RATE_LIMIT_RATE"
       ]
     },
     {
@@ -444,7 +450,13 @@
       "inputs": [
         "DEST_CHAIN",
         "DEST_CHAIN_SELECTOR",
-        "FAST_FINALITY"
+        "FAST_FINALITY",
+        "INBOUND_RATE_LIMIT_CAPACITY",
+        "INBOUND_RATE_LIMIT_ENABLED",
+        "INBOUND_RATE_LIMIT_RATE",
+        "OUTBOUND_RATE_LIMIT_CAPACITY",
+        "OUTBOUND_RATE_LIMIT_ENABLED",
+        "OUTBOUND_RATE_LIMIT_RATE"
       ]
     },
     {
@@ -799,6 +811,12 @@
         "DEST_CHAIN_SELECTOR",
         "DEST_TOKEN",
         "DEST_TOKEN_POOL",
+        "INBOUND_RATE_LIMIT_CAPACITY",
+        "INBOUND_RATE_LIMIT_ENABLED",
+        "INBOUND_RATE_LIMIT_RATE",
+        "OUTBOUND_RATE_LIMIT_CAPACITY",
+        "OUTBOUND_RATE_LIMIT_ENABLED",
+        "OUTBOUND_RATE_LIMIT_RATE",
         "VIA_JSON_FILE"
       ]
     },

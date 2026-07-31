@@ -22,6 +22,8 @@ the complete gate.
 
 ## What a clean run looks like
 
-`make doctor` green up to the expected project-placeholder warnings, `make roles-check` at exit 0, every
-contract verified on its explorer, and a `SUCCESS` smoke transfer each way. Anything less is a launch
-blocker, not a warning to note and move past.
+`make doctor` ends VERIFIED (with any warnings beyond the expected project-placeholder ones
+investigated), `make roles-check` at exit 0, every contract verified on its explorer, and a `SUCCESS`
+smoke transfer each way. A doctor run that ends INCOMPLETE checked less than it claims - close the
+`[SKIP] UNVERIFIED` gaps (usually an unset RPC env) before reading anything into it. Anything less is a
+launch blocker, not a warning to note and move past.

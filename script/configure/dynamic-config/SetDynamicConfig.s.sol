@@ -11,11 +11,14 @@ import {EoaExecutor} from "../../../src/base/EoaExecutor.s.sol";
 ///
 /// Environment Variables (optional):
 ///   ROUTER           - The new router address (default: current on-chain value)
-///   RATE_LIMIT_ADMIN - The new rate limit admin address
-///                      Default: current on-chain value (if set), otherwise the broadcaster address.
-///   FEE_ADMIN        - The new fee admin address
-///                      Default: current on-chain value (if set), otherwise the broadcaster address.
+///   RATE_LIMIT_ADMIN - The new rate limit admin address (default: current on-chain value)
+///   FEE_ADMIN        - The new fee admin address (default: current on-chain value)
 ///                      Set to address(0) to restrict fee withdrawal to the owner only.
+///
+/// An unset variable preserves the pool's current value verbatim, address(0) included: this script
+/// writes the whole struct, so anything else would turn a one-field update into a silent grant of the
+/// other fields (a broadcaster fallback would hand both admin slots to the acting account on a
+/// ROUTER-only run whenever they are unset on chain).
 ///
 /// Usage example:
 ///   ROUTER=0xYourRouterAddress \
@@ -24,6 +27,26 @@ import {EoaExecutor} from "../../../src/base/EoaExecutor.s.sol";
 ///   forge script script/configure/dynamic-config/SetDynamicConfig.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account <KEYSTORE_NAME> --broadcast
 contract SetDynamicConfig is EoaExecutor {
     HelperConfig public helperConfig;
+
+    /// @dev An unset variable preserves the current on-chain value VERBATIM, address(0) included. The
+    ///      call writes the whole struct, so any other default turns a one-field update into a silent
+    ///      grant of the others: a broadcaster fallback would hand both admin slots to the acting
+    ///      account on a ROUTER-only run whenever they are unset on chain.
+    function _resolveNewConfig(address currentRouter, address currentRateLimitAdmin, address currentFeeAdmin)
+        internal
+        view
+        returns (address router, address rateLimitAdmin, address feeAdmin)
+    {
+        router = _dcEnvOr("ROUTER", currentRouter);
+        rateLimitAdmin = _dcEnvOr("RATE_LIMIT_ADMIN", currentRateLimitAdmin);
+        feeAdmin = _dcEnvOr("FEE_ADMIN", currentFeeAdmin);
+    }
+
+    /// @dev Virtual input seam (like the `_rlEnv*` seams elsewhere): env vars are process-wide and
+    ///      suites run in parallel, so tests pin the resolution through an override, never `vm.setEnv`.
+    function _dcEnvOr(string memory name, address defaultValue) internal view virtual returns (address) {
+        return vm.envOr(name, defaultValue);
+    }
 
     function run() external {
         // ── Resolve chain ID ──────────────────────────────────────────────
@@ -63,12 +86,8 @@ contract SetDynamicConfig is EoaExecutor {
         console.log(string.concat("  Fee Admin:                    ", vm.toString(currentFeeAdmin)));
         console.log("");
 
-        // Defaults: env var → current on-chain value → broadcaster (as last resort if unset)
-        address broadcasterAddr = _broadcaster();
-        address router = vm.envOr("ROUTER", currentRouter);
-        address rateLimitAdmin =
-            vm.envOr("RATE_LIMIT_ADMIN", currentRateLimitAdmin != address(0) ? currentRateLimitAdmin : broadcasterAddr);
-        address feeAdmin = vm.envOr("FEE_ADMIN", currentFeeAdmin != address(0) ? currentFeeAdmin : broadcasterAddr);
+        (address router, address rateLimitAdmin, address feeAdmin) =
+            _resolveNewConfig(currentRouter, currentRateLimitAdmin, currentFeeAdmin);
 
         console.log("New Configuration:");
         console.log(string.concat("  Router:                       ", vm.toString(router)));

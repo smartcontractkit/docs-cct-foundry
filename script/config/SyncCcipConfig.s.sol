@@ -555,7 +555,7 @@ contract SyncCcipConfig is Script {
                 string.concat(
                     "  5. verify: FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig \"run(string)\" ",
                     localName,
-                    " (re-run until it reports 0 FAIL)"
+                    " (re-run until it reports VERIFIED)"
                 )
             );
         } else {

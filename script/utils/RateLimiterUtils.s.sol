@@ -45,8 +45,8 @@ library RateLimiterUtils {
     }
 
     /// @dev Reads optional rate limit env vars using a sentinel to detect which were actually set.
-    /// Direction is inferred from any OUTBOUND_* / INBOUND_* var being present.
-    /// isEnabled defaults to true when CAPACITY or RATE are provided; override with ENABLED=false.
+    /// Direction is inferred from any OUTBOUND_* / INBOUND_* var being present. Per-direction the
+    /// inputs are all-or-nothing (`_establishBucket`): an unset variable never becomes a 0 on chain.
     function _readRateLimitUpdate() internal view returns (RateLimitUpdate memory u) {
         string memory sentinel = "__not_set__";
         bool outboundEnabledSet =
@@ -62,19 +62,94 @@ library RateLimiterUtils {
         bool inboundRateSet =
             keccak256(bytes(VM.envOr("INBOUND_RATE_LIMIT_RATE", sentinel))) != keccak256(bytes(sentinel));
 
-        u.updateOutbound = outboundEnabledSet || outboundCapacitySet || outboundRateSet;
-        u.updateInbound = inboundEnabledSet || inboundCapacitySet || inboundRateSet;
+        (u.updateOutbound, u.outboundEnabled, u.outboundCapacity, u.outboundRate) = _establishBucket(
+            "OUTBOUND",
+            outboundEnabledSet,
+            VM.envOr("OUTBOUND_RATE_LIMIT_ENABLED", false),
+            outboundCapacitySet,
+            VM.envOr("OUTBOUND_RATE_LIMIT_CAPACITY", uint256(0)),
+            outboundRateSet,
+            VM.envOr("OUTBOUND_RATE_LIMIT_RATE", uint256(0))
+        );
+        (u.updateInbound, u.inboundEnabled, u.inboundCapacity, u.inboundRate) = _establishBucket(
+            "INBOUND",
+            inboundEnabledSet,
+            VM.envOr("INBOUND_RATE_LIMIT_ENABLED", false),
+            inboundCapacitySet,
+            VM.envOr("INBOUND_RATE_LIMIT_CAPACITY", uint256(0)),
+            inboundRateSet,
+            VM.envOr("INBOUND_RATE_LIMIT_RATE", uint256(0))
+        );
+    }
 
-        if (u.updateOutbound) {
-            u.outboundEnabled = VM.envOr("OUTBOUND_RATE_LIMIT_ENABLED", outboundCapacitySet || outboundRateSet);
-            u.outboundCapacity = uint128(VM.envOr("OUTBOUND_RATE_LIMIT_CAPACITY", uint256(0)));
-            u.outboundRate = uint128(VM.envOr("OUTBOUND_RATE_LIMIT_RATE", uint256(0)));
+    /// @notice One direction's bucket from its three inputs, all-or-nothing: an unset variable must
+    /// never become a 0 written on chain. Letting one variable trigger the direction with the rest
+    /// defaulted would enable a bucket with rate 0 from capacity alone (the lane works for N tokens,
+    /// then is permanently dead with `TokenRateLimitReached`) or write capacity 0 from ENABLED=true
+    /// alone (every transfer reverts `TokenMaxCapacityExceeded`), under a success message.
+    /// @dev Pure so the decision is pinnable without touching the process env. `enabled` is the
+    ///      EXPLICIT value and is read only when `enabledSet`; the implied default (supplying capacity
+    ///      or rate enables the bucket) is computed here, once, so no consumer can wire it
+    ///      differently. The shapes:
+    ///      - nothing set: the direction is untouched;
+    ///      - ENABLED=false: a valid disable on its own - a disabled bucket's capacity and rate are 0
+    ///        by protocol rule, so the zeros are forced, not guessed; a NONZERO capacity/rate alongside
+    ///        is refused here rather than left to revert on chain;
+    ///      - enabled (explicitly, or implied by supplying capacity or rate): CAPACITY and RATE are
+    ///        required together, and each must fit uint128 rather than truncate.
+    function _establishBucket(
+        string memory direction,
+        bool enabledSet,
+        bool enabled,
+        bool capacitySet,
+        uint256 capacity,
+        bool rateSet,
+        uint256 rate
+    ) internal pure returns (bool update, bool isEnabled, uint128 capacity128, uint128 rate128) {
+        update = enabledSet || capacitySet || rateSet;
+        if (!update) return (false, false, 0, 0);
+        isEnabled = enabledSet ? enabled : (capacitySet || rateSet);
+        if (!isEnabled) {
+            require(
+                (!capacitySet || capacity == 0) && (!rateSet || rate == 0),
+                string.concat(
+                    direction,
+                    ": a disabled rate-limit bucket has capacity 0 and rate 0 by protocol rule - drop the",
+                    " CAPACITY/RATE variables or set ",
+                    direction,
+                    "_RATE_LIMIT_ENABLED=true"
+                )
+            );
+            return (true, false, 0, 0);
         }
-        if (u.updateInbound) {
-            u.inboundEnabled = VM.envOr("INBOUND_RATE_LIMIT_ENABLED", inboundCapacitySet || inboundRateSet);
-            u.inboundCapacity = uint128(VM.envOr("INBOUND_RATE_LIMIT_CAPACITY", uint256(0)));
-            u.inboundRate = uint128(VM.envOr("INBOUND_RATE_LIMIT_RATE", uint256(0)));
-        }
+        require(
+            capacitySet,
+            string.concat(
+                direction,
+                "_RATE_LIMIT_CAPACITY is not set - an enabled bucket needs CAPACITY and RATE supplied",
+                " together; an unset field must not become a 0 written on chain"
+            )
+        );
+        require(
+            rateSet,
+            string.concat(
+                direction,
+                "_RATE_LIMIT_RATE is not set - an enabled bucket needs CAPACITY and RATE supplied",
+                " together; an unset field must not become a 0 written on chain"
+            )
+        );
+        capacity128 = _requireUint128(string.concat(direction, "_RATE_LIMIT_CAPACITY"), capacity);
+        rate128 = _requireUint128(string.concat(direction, "_RATE_LIMIT_RATE"), rate);
+    }
+
+    /// @notice Range-check before the uint128 narrowing: 1e39 would otherwise wrap to a plausible
+    /// wrong capacity and 2^128 to 0, both written on chain without a trace.
+    function _requireUint128(string memory field, uint256 value) internal pure returns (uint128) {
+        require(
+            value <= type(uint128).max,
+            string.concat(field, " does not fit uint128 - refusing to truncate it into a different live value")
+        );
+        return uint128(value);
     }
 
     /// @notice Returns the current outbound and inbound TokenBuckets for a given lane, dispatched

@@ -70,6 +70,8 @@ its `rpcEnv` and `KEYSTORE_NAME` in `.env`, then `source .env`).
    make deploy-token CHAIN=<chain> TOKEN_NAME="My Token" TOKEN_SYMBOL=MTK
    make deploy-pool  CHAIN=<chain>        # BurnMint pool; token resolved from the registry
    make doctor       CHAIN=<chain>        # verify on-chain code at the recorded addresses
+   # doctor ends VERIFIED (exit 0), INCOMPLETE, or FAILED (both nonzero); a run without the chain's
+   # RPC env is INCOMPLETE by design - see docs/operations/chains.md
    ```
 
    `make deploy-new-chain CHAIN=<chain> SELECTOR=<sel>` runs `add-chain -> deploy-token -> deploy-pool ->
