@@ -104,6 +104,20 @@ contract DynamicChainDiscoveryTest is Test {
         );
         assertEq(helperConfig.getChainNameBySelector(SCRATCH_SELECTOR), "Zz Scratch Dynamic", "getChainNameBySelector");
 
+        // getDestChainConfigBySelector(selector) - the selector-keyed lookup GetSupportedChains uses
+        // to resolve a remote's family. Must resolve via the discovered-chain cache (the scratch chain
+        // has no hardcoded fast path), and must NOT depend on the displayName round-trip.
+        assertEq(
+            helperConfig.getDestChainConfigBySelector(SCRATCH_SELECTOR).chainSelector,
+            SCRATCH_SELECTOR,
+            "getDestChainConfigBySelector"
+        );
+        assertEq(
+            helperConfig.getDestChainConfigBySelector(SCRATCH_SELECTOR).chainFamily,
+            "evm",
+            "getDestChainConfigBySelector family"
+        );
+
         // getConfiguredChains() enumerates the new chain alongside the committed ones
         string[] memory chains = helperConfig.getConfiguredChains();
         bool foundScratch = false;

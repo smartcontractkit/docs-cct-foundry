@@ -72,12 +72,15 @@ contract GetSupportedChains is Script {
         for (uint256 i = 0; i < supportedChains.length; i++) {
             uint64 selector = supportedChains[i];
             bytes[] memory remotePools = PoolVersion._remotePools(tokenPoolAddress, version, selector);
-            string memory remoteChainName = helperConfig.getChainNameBySelector(selector);
-            // Resolve the remote's family from its config (EVM/SVM/APTOS) so the display loop below
-            // decodes addresses for the right family. A short-form Aptos address (e.g. 0x1) left-pads
-            // to 32 bytes with 12+ leading zeros and would be silently misdecoded as a truncated EVM
-            // address by the high-bytes-zero heuristic alone - the family gate prevents that.
-            HelperConfig.NetworkConfig memory remoteConfig = helperConfig.getDestChainConfig(remoteChainName);
+            // Resolve the remote's family from its config by SELECTOR (not by display name):
+            // getChainNameBySelector returns the displayName ("Solana Devnet") but getDestChainConfig
+            // matches the identifier ("SOLANA_DEVNET"), so the round-trip misses for non-EVM chains
+            // and falls back to a zero/evm config - which would misdecode SVM pubkeys as EVM addresses
+            // and never reach the base58 branch. The selector-based lookup resolves the family directly.
+            HelperConfig.NetworkConfig memory remoteConfig = helperConfig.getDestChainConfigBySelector(selector);
+            string memory remoteChainName = bytes(remoteConfig.chainName).length > 0
+                ? remoteConfig.chainName
+                : helperConfig.getChainNameBySelector(selector);
             ChainHandlers.ChainFamily remoteFamily = ChainHandlers._parseChainFamily(
                 bytes(remoteConfig.chainFamily).length > 0 ? remoteConfig.chainFamily : string("evm")
             );

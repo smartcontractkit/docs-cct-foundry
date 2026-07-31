@@ -193,6 +193,28 @@ contract HelperConfigGoldenDataTest is Test {
         assertEq(helperConfig.getDestChainConfig(NEVER_ONBOARDED_CHAIN_NAME).chainSelector, 0);
         assertEq(helperConfig.getDestChainConfig(NEVER_ONBOARDED_CHAIN_NAME).chainFamily, "");
 
+        // getDestChainConfigBySelector: selector -> config (the selector-keyed analog of
+        // getDestChainConfig). This is the path GetSupportedChains uses to resolve a remote's
+        // family, and it must return the SVM family for Solana - the displayName round-trip
+        // (getChainNameBySelector -> getDestChainConfig) misses because getDestChainConfig matches
+        // the identifier ("SOLANA_DEVNET"), not the displayName ("Solana Devnet").
+        assertEq(
+            helperConfig.getDestChainConfigBySelector(16015286601757825753).chainFamily, "evm", "EVM selector -> evm"
+        );
+        assertEq(
+            helperConfig.getDestChainConfigBySelector(16423721717087811551).chainFamily, "svm", "SVM selector -> svm"
+        );
+        assertEq(
+            helperConfig.getDestChainConfigBySelector(16423721717087811551).chainName,
+            "Solana Devnet",
+            "SVM selector -> displayName"
+        );
+        assertEq(
+            helperConfig.getDestChainConfigBySelector(1).chainFamily,
+            "",
+            "unknown selector -> zero config (evm fallback)"
+        );
+
         // getExplorerUrl composition
         assertEq(
             helperConfig.getExplorerUrl(11155111, "/address/", 0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59),
