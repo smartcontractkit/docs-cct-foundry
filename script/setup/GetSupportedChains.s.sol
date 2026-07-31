@@ -7,6 +7,7 @@ import {ChainHandlers} from "../utils/ChainHandlers.s.sol";
 import {TokenPool} from "@chainlink/contracts-ccip/contracts/pools/TokenPool.sol";
 import {PoolVersion} from "../utils/PoolVersion.s.sol";
 import {PoolVersions} from "../../src/PoolVersions.sol";
+import {AddressEncoding} from "../utils/AddressEncoding.s.sol";
 
 /// @notice Reads and displays all remote chains supported by a TokenPool.
 ///
@@ -72,20 +73,27 @@ contract GetSupportedChains is Script {
             uint64 selector = supportedChains[i];
             bytes[] memory remotePools = PoolVersion._remotePools(tokenPoolAddress, version, selector);
             string memory remoteChainName = helperConfig.getChainNameBySelector(selector);
+            // Resolve the remote's family from its config (EVM/SVM/APTOS) so the display loop below
+            // decodes addresses for the right family. A short-form Aptos address (e.g. 0x1) left-pads
+            // to 32 bytes with 12+ leading zeros and would be silently misdecoded as a truncated EVM
+            // address by the high-bytes-zero heuristic alone - the family gate prevents that.
+            HelperConfig.NetworkConfig memory remoteConfig = helperConfig.getDestChainConfig(remoteChainName);
+            ChainHandlers.ChainFamily remoteFamily = ChainHandlers._parseChainFamily(
+                bytes(remoteConfig.chainFamily).length > 0 ? remoteConfig.chainFamily : string("evm")
+            );
             console.log(string.concat("  [", vm.toString(i), "] ", remoteChainName, " (", vm.toString(selector), ")"));
             console.log(string.concat("       Remote Pools: ", vm.toString(remotePools.length)));
             for (uint256 j = 0; j < remotePools.length; j++) {
                 bytes memory pool = remotePools[j];
-                // ABI-encoded EVM address: 32 bytes with 12 leading zero bytes.
-                // Raw SVM pubkey: 32 bytes, no leading-zero padding.
-                if (pool.length == 32 && _isEvmEncoded(pool)) {
+                if (remoteFamily == ChainHandlers.ChainFamily.EVM && AddressEncoding._isAbiEncodedAddress(pool)) {
                     console.log(
                         string.concat("         [", vm.toString(j), "] ", vm.toString(abi.decode(pool, (address))))
                     );
-                } else if (pool.length == 32) {
+                } else if (remoteFamily == ChainHandlers.ChainFamily.SVM) {
                     // Raw SVM (Solana) public key - display as base58
                     console.log(string.concat("         [", vm.toString(j), "] ", ChainHandlers._encodeBase58(pool)));
                 } else {
+                    // Aptos (raw 32-byte hex) or any unrecognized shape - display as raw hex
                     console.log(string.concat("         [", vm.toString(j), "] (raw) ", vm.toString(pool)));
                 }
             }
@@ -98,14 +106,5 @@ contract GetSupportedChains is Script {
         );
         console.log("========================================");
         console.log("");
-    }
-
-    /// @dev Returns true if `data` looks like an ABI-encoded EVM address:
-    ///      32 bytes where the first 12 bytes are all zero.
-    function _isEvmEncoded(bytes memory data) private pure returns (bool) {
-        for (uint256 i = 0; i < 12; i++) {
-            if (data[i] != 0) return false;
-        }
-        return true;
     }
 }

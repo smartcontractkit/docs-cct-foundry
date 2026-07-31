@@ -2,7 +2,7 @@
   "generatedBy": "script/docs/gen-primitives.mjs",
   "note": "Generated from the script/ tree and the Makefile. Do not edit by hand; run `npm run docs:catalog`.",
   "counts": {
-    "primitives": 60,
+    "primitives": 61,
     "makeTargets": 27
   },
   "primitives": [
@@ -461,6 +461,7 @@
       "destructive": true,
       "inputs": [
         "DEST_CHAIN",
+        "DEST_CHAIN_FAMILY",
         "DEST_CHAIN_SELECTOR"
       ]
     },
