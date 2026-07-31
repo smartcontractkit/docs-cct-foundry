@@ -46,6 +46,13 @@ copy-pasteable. The `make` golden path resolves the RPC and keystore from each c
 you never hand-export an RPC per chain; the raw `forge script` each target wraps is documented on the
 linked operations page as the escape hatch.
 
+A target also resolves the chain's EVM version. Most chains use the `foundry.toml` default and the flag
+is a no-op, but the few CCIP networks without `PUSH0` declare `"evmVersion": "paris"` in their chain
+file so their bytecode stays deployable there. The escape hatch bypasses that resolution along with the
+RPC and keystore, so on such a chain pass it yourself:
+`--evm-version "$(bash script/config/evm-version.sh <chain>)"`. See
+[per-chain EVM version](docs/config-schema.md#per-chain-evm-version).
+
 Run these for EACH of your two chains (`<chain>` is a selectorName such as `ethereum-testnet-sepolia`;
 selectorNames may contain underscores, e.g. `binance_smart_chain-mainnet`; set
 its `rpcEnv` and `KEYSTORE_NAME` in `.env`, then `source .env`).

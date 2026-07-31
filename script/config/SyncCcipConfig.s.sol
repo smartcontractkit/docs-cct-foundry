@@ -36,7 +36,7 @@ import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 /// API-served identity + metadata fields (`displayName`, `chainFamily`, `environment`, `explorerUrl`,
 /// `nativeCurrencySymbol`), all of which `GET /v2/chains/{selector}` serves, so none is hand-typed.
 /// What it PRESERVES (never touches): the genuinely hand-authored keys the API serves nothing for
-/// (`chainNameIdentifier`, `rpcEnv`, and the optional `verifier{}` block) and the immutable join keys
+/// (`chainNameIdentifier`, `rpcEnv`, the optional `verifier{}` block, and the optional `evmVersion`) and the immutable join keys
 /// (`name`/`chainSelector`/`chainId`) which are GUARD-validated, not rewritten. One writer per field.
 /// Project state (`lanes{}`, `roles{}`, deployed `addresses{}`) is NOT in this file — it lives in
 /// `project/<selectorName>.json`, so the sync never touches it (config/chains is pure API/chain facts).
@@ -281,7 +281,7 @@ contract SyncCcipConfig is Script {
     /// `GET /v2/chains/{selector}` — `displayName`/`chainFamily`/`environment` from `.chain`,
     /// `explorerUrl`/`nativeCurrencySymbol` from `.chainMetadata` — so none is hand-authored. NOT in
     /// this list (genuinely hand-authored, the API serves nothing for them): `chainNameIdentifier`,
-    /// `rpcEnv`, the optional `verifier{}` block.
+    /// `rpcEnv`, the optional `verifier{}` block, the optional `evmVersion`.
     function metadataKeys() public pure returns (string[5] memory) {
         return ["displayName", "chainFamily", "environment", "explorerUrl", "nativeCurrencySymbol"];
     }

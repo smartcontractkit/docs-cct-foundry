@@ -29,15 +29,23 @@ chain_id="$(jq -r '.chainId' "$file")"
 rpc_env="$(jq -r '.rpcEnv' "$file")"
 rpc_url="${!rpc_env:-}"
 
+# Every input check happens before anything external is invoked, so a run that cannot succeed says why
+# without having called out first.
+if [ -z "$ctor_args" ] && [ -z "$rpc_url" ]; then
+    echo "[verify] no ctor-args given and ${rpc_env} is unset - --guess-constructor-args needs the RPC. Pass ctor-args or export ${rpc_env}" >&2
+    exit 1
+fi
+
+# Explorer verification recompiles the source and compares bytecode, so it must use the SAME evm
+# version the deploy did. A chain that pins `evmVersion` would otherwise be re-compiled at the repo
+# default here and fail on a bytecode mismatch that has nothing to do with the source.
+evm_version="$(bash script/config/evm-version.sh "$name")" || exit 1
+
 # shellcheck disable=SC2086 # $flags is a composed flag list, word-splitting is the point
-cmd=(forge verify-contract --chain "$chain_id" --watch --retries 10 --delay 10 $flags)
+cmd=(forge verify-contract --chain "$chain_id" --evm-version "$evm_version" --watch --retries 10 --delay 10 $flags)
 if [ -n "$ctor_args" ]; then
     cmd+=(--constructor-args "$ctor_args")
 else
-    if [ -z "$rpc_url" ]; then
-        echo "[verify] no ctor-args given and ${rpc_env} is unset - --guess-constructor-args needs the RPC. Pass ctor-args or export ${rpc_env}" >&2
-        exit 1
-    fi
     cmd+=(--guess-constructor-args --rpc-url "$rpc_url")
 fi
 cmd+=("$address" "$contract")

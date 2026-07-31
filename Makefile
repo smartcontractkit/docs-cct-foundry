@@ -15,6 +15,25 @@ CONFIG_DIR := config/chains
 KNOWN_CHAINS := $(filter-out zz-scratch-%,$(basename $(notdir $(wildcard $(CONFIG_DIR)/*.json))))
 SYNC_SCRIPT := script/config/SyncCcipConfig.s.sol
 
+# Per-chain EVM version. `foundry.toml` pins the repo default (see the comment there); a chain whose
+# network never activated an opcode the default emits declares an optional `"evmVersion"` in its
+# config/chains/<CHAIN>.json, and every forge run scoped to that chain forwards it as --evm-version.
+# It matters most on the deploy path, where it is the compile target for bytecode that has to run on
+# that chain; on the read paths it is the local interpreter the simulation executes in.
+#
+# One resolver for every caller: `script/config/evm-version.sh <chain>` (the shell tooling calls it
+# directly). It falls back to `forge config`'s own value, so a chain that declares nothing is passed
+# the version forge would have chosen anyway - a no-op flag, never a second default to keep in sync.
+#
+# `$(call evm-version,<chain>)` is deliberately recursive (`=`, not `:=`): it must expand when a recipe
+# runs and CHAIN is known, not when the Makefile is parsed.
+# Read/diagnose targets resolve LENIENTLY: an unrecognized declaration degrades to the repo default
+# with a stderr diagnostic, so `make doctor` still runs and FAILs the schema rung by name instead of
+# dying on a forge CLI error about a flag the operator never typed. The shell macros below that
+# BROADCAST use the strict form (no --lenient) and abort.
+evm-version = $(shell bash script/config/evm-version.sh "$(1)" --lenient)
+evm-version-flag = --evm-version $(call evm-version,$(1))
+
 # Optional token group. GROUP=<name> selects one of N token groups
 # (project/<group>/<selectorName>.json); unset is the flat default (project/<selectorName>.json). It
 # threads to the scripts as PROJECT_GROUP; GROUP_DIR locates the same file for the jq repair steps here.
@@ -88,8 +107,13 @@ discover: tools ## List the CCIP API testnet catalog vs local configs (FILTER=<t
 add-chain: tools ## Generate config/chains/<CHAIN>.json from the live API (CHAIN= and SELECTOR= required)
 	$(if $(CHAIN),,$(error CHAIN is required: make add-chain CHAIN=<selectorName> SELECTOR=<selector> - both from the make discover API NAME + SELECTOR columns))
 	$(if $(SELECTOR),,$(error SELECTOR is required - find it with: make discover FILTER=<term>))
-	FOUNDRY_PROFILE=sync forge script $(SYNC_SCRIPT) --sig "init(string,uint256)" "$(CHAIN)" "$(SELECTOR)"
+	FOUNDRY_PROFILE=sync forge script $(SYNC_SCRIPT) $(call evm-version-flag,$(CHAIN)) --sig "init(string,uint256)" "$(CHAIN)" "$(SELECTOR)"
 	$(canon-chain-config)
+	@bash script/config/detect-evm-version.sh "$(CHAIN)" || true
+
+detect-evm-version: tools ## Re-probe CHAIN for PUSH0 support and pin evmVersion if the chain needs it
+	$(if $(CHAIN),,$(error CHAIN is required: make detect-evm-version CHAIN=<selectorName>))
+	@bash script/config/detect-evm-version.sh "$(CHAIN)" || true
 
 add-lane: tools ## Append a lanes{} policy entry LOCAL -> REMOTE (LOCAL= REMOTE= CAPACITY= RATE= required; INBOUND_CAPACITY= + INBOUND_RATE= add the inbound block; BOTH=1 adds the reciprocal; GROUP= scopes to a token group)
 	$(if $(LOCAL),,$(error LOCAL is required: make add-lane LOCAL=<name> REMOTE=<name> CAPACITY=<wei> RATE=<wei> [INBOUND_CAPACITY=<wei> INBOUND_RATE=<wei>] [BOTH=1]))
@@ -109,15 +133,15 @@ endif
 			exit 1; }; \
 	done
 ifdef INBOUND_CAPACITY
-	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script $(SYNC_SCRIPT) --sig "addLane(string,string,uint256,uint256,uint256,uint256)" "$(LOCAL)" "$(REMOTE)" "$(CAPACITY)" "$(RATE)" "$(INBOUND_CAPACITY)" "$(INBOUND_RATE)"
+	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script $(SYNC_SCRIPT) $(call evm-version-flag,$(LOCAL)) --sig "addLane(string,string,uint256,uint256,uint256,uint256)" "$(LOCAL)" "$(REMOTE)" "$(CAPACITY)" "$(RATE)" "$(INBOUND_CAPACITY)" "$(INBOUND_RATE)"
 else
-	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script $(SYNC_SCRIPT) --sig "addLane(string,string,uint256,uint256)" "$(LOCAL)" "$(REMOTE)" "$(CAPACITY)" "$(RATE)"
+	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script $(SYNC_SCRIPT) $(call evm-version-flag,$(LOCAL)) --sig "addLane(string,string,uint256,uint256)" "$(LOCAL)" "$(REMOTE)" "$(CAPACITY)" "$(RATE)"
 endif
 ifdef BOTH
 ifdef INBOUND_CAPACITY
-	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script $(SYNC_SCRIPT) --sig "addLane(string,string,uint256,uint256,uint256,uint256)" "$(REMOTE)" "$(LOCAL)" "$(CAPACITY)" "$(RATE)" "$(INBOUND_CAPACITY)" "$(INBOUND_RATE)"
+	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script $(SYNC_SCRIPT) $(call evm-version-flag,$(REMOTE)) --sig "addLane(string,string,uint256,uint256,uint256,uint256)" "$(REMOTE)" "$(LOCAL)" "$(CAPACITY)" "$(RATE)" "$(INBOUND_CAPACITY)" "$(INBOUND_RATE)"
 else
-	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script $(SYNC_SCRIPT) --sig "addLane(string,string,uint256,uint256)" "$(REMOTE)" "$(LOCAL)" "$(CAPACITY)" "$(RATE)"
+	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script $(SYNC_SCRIPT) $(call evm-version-flag,$(REMOTE)) --sig "addLane(string,string,uint256,uint256)" "$(REMOTE)" "$(LOCAL)" "$(CAPACITY)" "$(RATE)"
 endif
 endif
 	@for c in "$(LOCAL)" "$(REMOTE)"; do \
@@ -128,9 +152,9 @@ endif
 remove-lane: tools ## Remove a lanes{} policy entry LOCAL -> REMOTE from the declaration (LOCAL= REMOTE= required; BOTH=1 removes the reciprocal; GROUP= scopes to a token group; on-chain removal via RemoveChain, or RemoveRemotePool for a single pool, is a separate step)
 	$(if $(LOCAL),,$(error LOCAL is required: make remove-lane LOCAL=<name> REMOTE=<name> [BOTH=1]))
 	$(if $(REMOTE),,$(error REMOTE is required: make remove-lane LOCAL=<name> REMOTE=<name> [BOTH=1]))
-	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script $(SYNC_SCRIPT) --sig "removeLane(string,string)" "$(LOCAL)" "$(REMOTE)"
+	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script $(SYNC_SCRIPT) $(call evm-version-flag,$(LOCAL)) --sig "removeLane(string,string)" "$(LOCAL)" "$(REMOTE)"
 ifdef BOTH
-	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script $(SYNC_SCRIPT) --sig "removeLane(string,string)" "$(REMOTE)" "$(LOCAL)"
+	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script $(SYNC_SCRIPT) $(call evm-version-flag,$(REMOTE)) --sig "removeLane(string,string)" "$(REMOTE)" "$(LOCAL)"
 endif
 	@for c in "$(LOCAL)" "$(REMOTE)"; do \
 		test -f "$(CONFIG_DIR)/$$c.json" || continue; \
@@ -142,29 +166,30 @@ adopt-token: tools ## Adopt an externally deployed token into project/[<GROUP>/]
 	$(if $(CHAIN),,$(error CHAIN is required: make adopt-token CHAIN=<name> TOKEN=<addr> [TOKEN_POOL=<addr>], or non-EVM: TOKEN_B58=<base58> [POOL_B58=<base58>]))
 	$(require-chain-config)
 ifdef TOKEN_B58
-	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script script/config/AdoptToken.s.sol --sig "runNonEvm(string,string,string)" "$(CHAIN)" "$(TOKEN_B58)" "$(POOL_B58)"
+	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script script/config/AdoptToken.s.sol $(call evm-version-flag,$(CHAIN)) --sig "runNonEvm(string,string,string)" "$(CHAIN)" "$(TOKEN_B58)" "$(POOL_B58)"
 else
 	$(if $(TOKEN),,$(error TOKEN is required - the externally deployed token address to adopt (or TOKEN_B58 for a non-EVM chain)))
-	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script script/config/AdoptToken.s.sol --sig "run(string,address,address)" "$(CHAIN)" "$(TOKEN)" "$(or $(TOKEN_POOL),0x0000000000000000000000000000000000000000)"
+	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script script/config/AdoptToken.s.sol $(call evm-version-flag,$(CHAIN)) --sig "run(string,address,address)" "$(CHAIN)" "$(TOKEN)" "$(or $(TOKEN_POOL),0x0000000000000000000000000000000000000000)"
 endif
 
 sync: tools ## Refresh <CHAIN>'s ccip{} block from the live API (CHAIN= required)
 	$(if $(CHAIN),,$(error CHAIN is required: make sync CHAIN=<name>))
 	$(require-chain-config)
-	FOUNDRY_PROFILE=sync forge script $(SYNC_SCRIPT) --sig "run(string)" "$(CHAIN)"
+	FOUNDRY_PROFILE=sync forge script $(SYNC_SCRIPT) $(call evm-version-flag,$(CHAIN)) --sig "run(string)" "$(CHAIN)"
 	$(canon-chain-config)
 
 sync-preview: tools ## Fetch + log <CHAIN>'s ccip{} from the API without writing (CHAIN= required)
 	$(if $(CHAIN),,$(error CHAIN is required: make sync-preview CHAIN=<name>))
 	$(require-chain-config)
-	FOUNDRY_PROFILE=sync forge script $(SYNC_SCRIPT) --sig "preview(string)" "$(CHAIN)"
+	FOUNDRY_PROFILE=sync forge script $(SYNC_SCRIPT) $(call evm-version-flag,$(CHAIN)) --sig "preview(string)" "$(CHAIN)"
 
 sync-all: tools ## Refresh every configured chain (non-EVM chains SKIP; failures are collected)
 	@failed=""; for f in $(CONFIG_DIR)/*.json; do \
 		name="$$(basename "$$f" .json)"; \
 		case "$$name" in zz-scratch-*) continue ;; esac; \
 		echo ">> sync $$name"; \
-		FOUNDRY_PROFILE=sync forge script $(SYNC_SCRIPT) --sig "run(string)" "$$name" || failed="$$failed $$name"; \
+		evm="$$(bash script/config/evm-version.sh "$$name" --lenient)"; \
+		FOUNDRY_PROFILE=sync forge script $(SYNC_SCRIPT) --evm-version "$$evm" --sig "run(string)" "$$name" || failed="$$failed $$name"; \
 		tmp="$$(mktemp)" && jq --indent 2 -S . "$$f" > "$$tmp" && mv "$$tmp" "$$f"; \
 	done; \
 	if [ -n "$$failed" ]; then echo "sync-all: FAILED for:$$failed"; exit 1; fi; \
@@ -208,8 +233,13 @@ verify: tools ## Source-verify an already-deployed contract on <CHAIN>'s explore
 doctor: tools ## Layered verification of one chain's config (CHAIN= required; GROUP= scopes to one token group)
 	$(if $(CHAIN),,$(error CHAIN is required: make doctor CHAIN=<name>))
 	$(require-chain-config)
-	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$(CHAIN)"
+	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script script/config/VerifyChain.s.sol $(call evm-version-flag,$(CHAIN)) --tc VerifyChain --sig "run(string)" "$(CHAIN)"
 
+# The one target that spans TWO chains in one forge process, so it cannot use "the chain's" evm
+# version - it picks the LATER of the two. That is sound because preflight only simulates: an
+# interpreter always executes bytecode built for an earlier EVM, and a chain that rejects the later
+# version's opcodes cannot be hosting contracts that contain them in the first place. An unrecognized
+# value (a version newer than this list) ranks highest, so an explicit declaration always wins.
 preflight: tools ## Preflight a token transfer before sending: simulate source lockOrBurn + dest releaseOrMint against live state, GO/NO-GO (SOURCE_CHAIN= DEST_CHAIN= AMOUNT= RECEIVER= required; opt SOURCE_POOL= DEST_POOL= ORIGINAL_SENDER= REQUESTED_FINALITY=; read-only, no keystore)
 	$(if $(SOURCE_CHAIN),,$(error SOURCE_CHAIN is required: make preflight SOURCE_CHAIN=<name> DEST_CHAIN=<name> AMOUNT=<wei> RECEIVER=<addr>))
 	$(if $(DEST_CHAIN),,$(error DEST_CHAIN is required: make preflight SOURCE_CHAIN=<name> DEST_CHAIN=<name> AMOUNT=<wei> RECEIVER=<addr>))
@@ -219,11 +249,14 @@ preflight: tools ## Preflight a token transfer before sending: simulate source l
 	test -f "$(CONFIG_DIR)/$(DEST_CHAIN).json" || { echo "unknown DEST_CHAIN '$(DEST_CHAIN)' - known chains: $(KNOWN_CHAINS)"; exit 1; }; \
 	src_rpc_env="$$(jq -r '.rpcEnv // empty' "$(CONFIG_DIR)/$(SOURCE_CHAIN).json")"; \
 	dst_rpc_env="$$(jq -r '.rpcEnv // empty' "$(CONFIG_DIR)/$(DEST_CHAIN).json")"; \
+	src_evm="$$(bash script/config/evm-version.sh "$(SOURCE_CHAIN)")" || exit 1; \
+	dst_evm="$$(bash script/config/evm-version.sh "$(DEST_CHAIN)")" || exit 1; \
 	src_rpc="$$(printenv "$$src_rpc_env" || true)"; dst_rpc="$$(printenv "$$dst_rpc_env" || true)"; \
 	test -n "$$src_rpc" || { echo "source RPC not set - export $$src_rpc_env=<url> (the rpcEnv field in $(CONFIG_DIR)/$(SOURCE_CHAIN).json)"; exit 1; }; \
 	test -n "$$dst_rpc" || { echo "dest RPC not set - export $$dst_rpc_env=<url> (the rpcEnv field in $(CONFIG_DIR)/$(DEST_CHAIN).json)"; exit 1; }; \
+	evm_version="$$(printf '%s\n%s\n' "$$src_evm" "$$dst_evm" | awk '{r["london"]=1;r["paris"]=2;r["shanghai"]=3;r["cancun"]=4;r["prague"]=5;r["osaka"]=6} {v=r[$$0]; if (v==0) v=99; if (v>best) {best=v; pick=$$0}} END {print pick}')"; \
 	SOURCE_CHAIN="$(SOURCE_CHAIN)" DEST_CHAIN="$(DEST_CHAIN)" SOURCE_RPC_URL="$$src_rpc" DEST_RPC_URL="$$dst_rpc" \
-	  forge script script/diagnostics/PreflightTransfer.s.sol --tc PreflightTransfer
+	  forge script script/diagnostics/PreflightTransfer.s.sol --evm-version "$$evm_version" --tc PreflightTransfer
 
 # No `tools:` prereq (unlike the sibling targets): this needs ccip-cli + jq, not the forge/curl that
 # `tools` checks, and the script self-checks its own dependencies.
@@ -242,17 +275,22 @@ verify-execution: ## Check whether a sent message executed on its destination (M
 # $(call run-deploy,<script-path>): resolve the chain's RPC + keystore, then broadcast. VERIFY=1 appends
 # --verify plus the config-driven verifier flags (script/config/verify-args.sh) so deploy and explorer
 # verification are one step; ETHERSCAN_API_KEY is read from the environment and never echoed.
+# The evmVersion declaration is resolved BEFORE the RPC and keystore are required. A broken value in
+# config/chains is wrong wherever it is read, so reporting it does not depend on having an endpoint or a
+# signer to hand, and an operator fixing their config should not have to satisfy unrelated prerequisites
+# first to see the message. It also keeps this reachable where no RPC is configured, such as CI.
 define run-deploy
 	@case "$(CHAIN)" in ""|*[!a-z0-9-]*) echo "invalid CHAIN '$(CHAIN)' - use lowercase letters, digits, and hyphens only"; exit 1;; esac; \
 	rpc_env="$$(jq -r '.rpcEnv // empty' "$(CONFIG_DIR)/$(CHAIN).json")"; \
 	test -n "$$rpc_env" || { echo "chain '$(CHAIN)' declares no rpcEnv - run: make sync CHAIN=$(CHAIN)"; exit 1; }; \
+	evm_version="$$(bash script/config/evm-version.sh "$(CHAIN)")" || exit 1; \
 	rpc_url="$$(printenv "$$rpc_env" || true)"; \
 	test -n "$$rpc_url" || { echo "RPC URL not set - export $$rpc_env=<url> (the rpcEnv field named in $(CONFIG_DIR)/$(CHAIN).json)"; exit 1; }; \
 	test -n "$(KEYSTORE_NAME)" || { echo "KEYSTORE_NAME is required - export KEYSTORE_NAME=<forge keystore account> (create one with: cast wallet import)"; exit 1; }; \
 	verify=""; \
 	if [ -n "$(VERIFY)" ]; then verify="--verify $$(bash script/config/verify-args.sh "$(CHAIN)")" || { echo "could not compose verifier flags for $(CHAIN)"; exit 1; }; fi; \
-	echo ">> deploy $(1) on $(CHAIN) (rpc: $$rpc_env, account: $(KEYSTORE_NAME))"; \
-	PROJECT_GROUP="$(GROUP)" forge script $(1) --rpc-url "$$rpc_url" --account "$(KEYSTORE_NAME)" --broadcast $$verify
+	echo ">> deploy $(1) on $(CHAIN) (rpc: $$rpc_env, account: $(KEYSTORE_NAME), evm: $$evm_version)"; \
+	PROJECT_GROUP="$(GROUP)" forge script $(1) --rpc-url "$$rpc_url" --evm-version "$$evm_version" --account "$(KEYSTORE_NAME)" --broadcast $$verify
 endef
 
 deploy-token: tools ## Deploy a cross-chain token on <CHAIN> (CHAIN= + KEYSTORE_NAME= required; token params via env TOKEN_NAME= TOKEN_SYMBOL= ...; VERIFY=1 source-verifies; FORCE_REDEPLOY=1 overrides the redeploy guard; GROUP= scopes to a token group)
@@ -292,7 +330,7 @@ deploy-new-chain: tools ## Guided deploy: add-chain -> deploy-token -> deploy-po
 snapshot-chain: tools ## Backfill the declared roles{} authority block FROM chain (CHAIN= required; GROUP= scopes to one token group; opt: TOKEN= TOKEN_POOL= TAR= SCAN_FROM_BLOCK=)
 	$(if $(CHAIN),,$(error CHAIN is required: make snapshot-chain CHAIN=<name>))
 	$(require-chain-config)
-	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script script/config/SnapshotChain.s.sol --sig "run(string)" "$(CHAIN)"
+	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script script/config/SnapshotChain.s.sol $(call evm-version-flag,$(CHAIN)) --sig "run(string)" "$(CHAIN)"
 	$(canon-project)
 	@echo "review the roles{} diff in project/$(GROUP_DIR)$(CHAIN).json (roles{} = declared authority), then reconcile: make roles-check CHAIN=$(CHAIN)$(if $(GROUP), GROUP=$(GROUP),)"
 

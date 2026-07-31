@@ -3,7 +3,7 @@
   "note": "Generated from the script/ tree and the Makefile. Do not edit by hand; run `npm run docs:catalog`.",
   "counts": {
     "primitives": 60,
-    "makeTargets": 26
+    "makeTargets": 27
   },
   "primitives": [
     {
@@ -991,6 +991,10 @@
     {
       "target": "add-chain",
       "help": "Generate config/chains/<CHAIN>.json from the live API (CHAIN= and SELECTOR= required)"
+    },
+    {
+      "target": "detect-evm-version",
+      "help": "Re-probe CHAIN for PUSH0 support and pin evmVersion if the chain needs it"
     },
     {
       "target": "add-lane",

@@ -21,6 +21,11 @@ import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 ///      name when malformed (unknown type; a structurally-wrong array/object type; blockscout with a
 ///      missing, empty, or non-http url) without ever raw-reverting the doctor; a stray `confirmations`
 ///      key (the removed field) is a NAMED FAIL; a config without either is clean (non-regression).
+///   4. **evmVersion validation** - the optional per-chain `evmVersion` key (the EVM version every
+///      forge run scoped to that chain compiles and simulates at) passes for a known version, FAILs by
+///      name for an unrecognized one, and FAILs by name rather than raw-reverting when written as a
+///      JSON array. Absent is the normal case and is covered by the clean config in (1), which has 0
+///      fails - a typo must never quietly resolve to the repo default.
 /// Every test writes uniquely-named `config/chains/zz-scratch-*` (discovery-safe, all chain-fact keys)
 /// and cleans both config + project in setUp() (revert-safe, gitignored).
 contract VerifyChainSchemaRungTest is Test {
@@ -38,6 +43,9 @@ contract VerifyChainSchemaRungTest is Test {
     string internal constant SEL_VER_ARRTYPE = "zz-scratch-schema-verarrtype";
     string internal constant SEL_VER_NUMURL = "zz-scratch-schema-vernumurl";
     string internal constant SEL_VER_ARRURL = "zz-scratch-schema-verarrurl";
+    string internal constant SEL_EVM_PARIS = "zz-scratch-schema-evmparis";
+    string internal constant SEL_EVM_BAD = "zz-scratch-schema-evmbad";
+    string internal constant SEL_EVM_ARR = "zz-scratch-schema-evmarr";
 
     function setUp() public {
         _clean();
@@ -48,7 +56,7 @@ contract VerifyChainSchemaRungTest is Test {
     /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
     /// run leaves no residue.
     function _clean() private {
-        string[13] memory sels = [
+        string[16] memory sels = [
             SEL_CLEAN,
             SEL_STRAY_LANES,
             SEL_STRAY_ROLES,
@@ -61,7 +69,10 @@ contract VerifyChainSchemaRungTest is Test {
             SEL_VER_EMPTYURL,
             SEL_VER_ARRTYPE,
             SEL_VER_NUMURL,
-            SEL_VER_ARRURL
+            SEL_VER_ARRURL,
+            SEL_EVM_PARIS,
+            SEL_EVM_BAD,
+            SEL_EVM_ARR
         ];
         for (uint256 i = 0; i < sels.length; i++) {
             _clean(sels[i]);
@@ -246,5 +257,34 @@ contract VerifyChainSchemaRungTest is Test {
         (, uint256 fails,) = new VerifyChain().checkSchemaForTest(SEL_VER_ARRURL);
         assertEq(fails, 1, "a blockscout verifier.url written as a JSON array must FAIL by name (not revert) once");
         _clean(SEL_VER_ARRURL);
+    }
+
+    // (14) A known evmVersion passes. This is the key a PUSH0-less chain declares so its bytecode is
+    // compiled down to what that network can execute; the clean config in (1) pins that an absent key
+    // is equally valid (the repo default from foundry.toml applies).
+    function test_SchemaRung_EvmVersionKnown_Pass() public {
+        _writeConfig(SEL_EVM_PARIS, 889001401, 8890014010000000001, ',"evmVersion":"paris"');
+        (, uint256 fails,) = new VerifyChain().checkSchemaForTest(SEL_EVM_PARIS);
+        assertEq(fails, 0, "a known evmVersion must not FAIL the schema rung");
+        _clean(SEL_EVM_PARIS);
+    }
+
+    // (15) An unrecognized evmVersion is a NAMED FAIL. The resolver substitutes the repo default for a
+    // value it cannot use, so without this the operator would learn about the typo from a reverted
+    // deploy rather than from the doctor.
+    function test_SchemaRung_EvmVersionUnknown_NamedFail() public {
+        _writeConfig(SEL_EVM_BAD, 889001501, 8890015010000000001, ',"evmVersion":"parris"');
+        (, uint256 fails,) = new VerifyChain().checkSchemaForTest(SEL_EVM_BAD);
+        assertEq(fails, 1, "an unrecognized evmVersion must FAIL exactly once");
+        _clean(SEL_EVM_BAD);
+    }
+
+    // (16) A structurally-wrong evmVersion (a JSON array) FAILs by name, never a raw cheatcode revert
+    // that would abort the doctor before its remaining rungs run.
+    function test_SchemaRung_EvmVersionArray_NamedFail() public {
+        _writeConfig(SEL_EVM_ARR, 889001601, 8890016010000000001, ',"evmVersion":["paris"]');
+        (, uint256 fails,) = new VerifyChain().checkSchemaForTest(SEL_EVM_ARR);
+        assertEq(fails, 1, "an evmVersion written as a JSON array must FAIL by name (not revert) exactly once");
+        _clean(SEL_EVM_ARR);
     }
 }

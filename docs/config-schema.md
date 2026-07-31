@@ -49,6 +49,7 @@ tracks `project/` gets a git diff there too (see [The project store](#the-projec
 | --------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `config/chains` | `ccip{}` + the API-served identity/metadata fields (`displayName`, `chainFamily`, `environment`, `explorerUrl`, `nativeCurrencySymbol`) | the CCIP REST API                              | the **API sync** (`make add-chain` / `sync` / `sync-all`) - never by hand                                              |
 | `config/chains` | the hand-authored keys the API serves nothing for (`chainNameIdentifier`, `rpcEnv`, the optional `verifier{}` block)                    | repo maintainers                               | a **reviewed hand edit** in a pull request                                                                             |
+| `config/chains` | the optional `evmVersion`                                                                                                               | the chain itself, probed for PUSH0 support     | `script/config/detect-evm-version.sh` (from `make add-chain` / `make detect-evm-version`), overridable by hand         |
 | `config/chains` | immutable join keys (`name`, `chainSelector`, `chainId`)                                                                                | the chain-selectors registry                   | seeded at `add-chain`, then **guard-validated** by the sync (never rewritten)                                          |
 | `project`       | `addresses{}` (the deployed-address registry sub-store)                                                                                 | the deployer                                   | the **deploy scripts** (one `DeploymentRecorder` call → `RegistryWriter`) and **`make adopt-token`**, on `--broadcast` |
 | `project`       | `lanes{}` (which remotes this pool connects to, at what outbound rate limits)                                                           | the token owner (policy)                       | **`make add-lane`** / **`make remove-lane`** or a reviewed hand edit - **never the API sync**                          |
@@ -57,8 +58,8 @@ tracks `project/` gets a git diff there too (see [The project store](#the-projec
 
 The sync enforces this structurally: `SyncCcipConfig.run` writes **only** the API-served fields: the
 `.ccip` subtree (`vm.writeJson(json, path, ".ccip")`) plus the five identity/metadata keys the CCIP REST
-API serves, each a targeted `vm.writeJson(value, path, ".<key>")`. So the hand-authored keys
-(`chainNameIdentifier`, `rpcEnv`, the optional `verifier{}` block) are preserved untouched and the join keys are validated,
+API serves, each a targeted `vm.writeJson(value, path, ".<key>")`. So the keys the API serves nothing for
+(`chainNameIdentifier`, `rpcEnv`, the optional `verifier{}` block, the optional probed `evmVersion`) are preserved untouched and the join keys are validated,
 not overwritten. The sync **never touches the project store** at all. Each project-store writer mirrors the
 same discipline from its side: `make add-lane` writes **only** `.lanes` (`vm.writeJson(lanes, path, ".lanes")`),
 `RegistryWriter` writes **only** `.addresses`, and `make snapshot-chain` writes **only** `.roles`
@@ -108,6 +109,8 @@ Example (`config/chains/ethereum-testnet-sepolia.json`), grouped by writer:
   "chainNameIdentifier": "ETHEREUM_SEPOLIA", // UPPER_SNAKE env-var prefix: <ID>_RPC_URL, <ID>_TOKEN, <ID>_TOKEN_POOL
   "rpcEnv": "ETHEREUM_SEPOLIA_RPC_URL" // name of the env var holding this chain's RPC URL
   // optional "verifier": { "type": "...", "url": "..." } - explorer-verification backend (absent = Etherscan v2)
+  // optional "evmVersion": "paris" - the EVM version forge compiles and simulates at for this chain
+  //   (absent = the foundry.toml default; see "Per-chain EVM version" below)
 }
 ```
 
@@ -139,6 +142,7 @@ API serves nothing for it, so a reviewed PR owns it and the sync preserves it ve
 | `rpcEnv`                         | env-var name string                   | hand                 | - (not in the API)                                | fork setup; the doctor's RPC rung             |
 | `verifier.type`                  | `"etherscan"` \| `"blockscout"` \| `"sourcify"` (optional block) | hand | (not in the API)                           | `script/config/verify-args.sh` (forge verifier flags) |
 | `verifier.url`                   | URL string (required for `blockscout` only) | hand           | (not in the API)                                  | `script/config/verify-args.sh` (`--verifier-url`) |
+| `evmVersion`                     | EVM version string (optional)         | probed               | (not in the API)                                  | `script/config/evm-version.sh` → `--evm-version` |
 
 The optional `verifier{}` block selects the chain's explorer-verification backend. Absent means the
 Etherscan family: bare `--verify` works because forge resolves the Etherscan v2 endpoint from the chain
@@ -147,6 +151,78 @@ id, with a warned fallback to Sourcify for a chain Etherscan v2 does not serve. 
 `make doctor CHAIN=<name>` validates it: an unknown `type` FAILs, `blockscout` without a `url` FAILs, and
 so does a stray `confirmations` key (not part of the schema). See
 [operations: verification](operations/verification.md).
+
+### Per-chain EVM version
+
+`foundry.toml` pins the repo-wide `evm_version`, and in Foundry that one setting does two jobs: it is
+the compile target for bytecode this repo deploys, and it configures the local EVM that `forge test`
+and every `forge script` simulation runs in. The default is `shanghai`, because the `PUSH0` opcode it
+introduced is emitted by any current solc, and a `paris` interpreter halts on it with
+`EvmError: NotActivated` rather than reading the operator's token
+([gotcha](gotchas/index.md#evm-version-push0)).
+
+A few CCIP chains never activated PUSH0. Bytecode compiled for shanghai is undeployable there, so those
+chains lower the version for their own runs, in data:
+
+```jsonc
+{
+  "name": "some-chain-without-push0",
+  "evmVersion": "paris"
+  // ... the rest of the chain facts
+}
+```
+
+**The value is measured, not maintained by hand.** `make add-chain` probes the new chain and writes the
+key only when that chain rejects PUSH0; a chain that supports it gets no key and inherits the default.
+The probe is an `eth_call` carrying initcode, so it needs no funds, no keys and no gas, and it checks
+`eth_chainId` first because public RPC directories carry chainId collisions and a mismatched endpoint
+would otherwise answer for a different chain.
+
+A chain added before its RPC was available cannot be probed, so `add-chain` says so at the time and the
+chain compiles at the default. Measure it once the RPC is set:
+
+```bash
+make detect-evm-version CHAIN=<selectorName>
+```
+
+An absent key is also the normal, correct state for the great majority of chains, so nothing treats it
+as a problem on its own.
+
+The probe writes a pin only when the node explicitly reports an invalid opcode. A timeout or a rate
+limit leaves the config alone and says so, because pinning on a failed request would record a guess that
+every later run would then treat as measured fact.
+
+`script/config/evm-version.sh <selectorName>` is the single resolver (the key if present, else the
+default read back from `forge config`, so there is no second copy of the default to drift). Every make
+target scoped to a chain forwards the result as `--evm-version`: the deploy targets, `add-chain`,
+`sync`, `sync-preview`, `sync-all`, `add-lane`, `remove-lane`, `adopt-token`, `doctor`,
+`snapshot-chain`, and the `roles-check` / `verify` shell tooling.
+`make preflight` spans two chains in one process and takes the LATER of the two, which is sound because
+it only simulates: an interpreter always runs bytecode built for an earlier EVM, and a chain that
+rejects an opcode cannot be hosting contracts that contain it.
+
+Three consequences worth knowing:
+
+- **Explorer verification must match the deploy.** `make verify` resolves the same value, so a
+  paris-pinned chain is re-compiled at paris for the bytecode comparison instead of failing on a
+  mismatch that has nothing to do with the source.
+- **A raw `forge script` gets the `foundry.toml` default, not the chain's value.** The escape hatch
+  bypasses the resolver like it bypasses the RPC and keystore resolution, so on a pinned chain pass
+  `--evm-version "$(bash script/config/evm-version.sh <selectorName>)"` yourself.
+- **Switching versions between runs forces a full recompile.** Foundry keys its build cache on the
+  compiler settings, so alternating between a default chain and a pinned one rebuilds each time.
+
+A typo is caught by the resolver, which knows the same accepted set the doctor does, and the two paths
+part deliberately:
+
+- **Anything that broadcasts refuses to run.** The deploy targets abort before
+  forge is invoked, so an unreadable declaration can never quietly ship default-version bytecode to a
+  chain that pinned another version.
+- **Diagnose paths keep running** on the repo default, printing the same `[evm-version]` diagnostic.
+  That is what lets `make doctor` reach its schema rung and FAIL the key by name with the fix, instead
+  of dying on a forge CLI error about a flag the operator never typed. `make preflight` is the
+  exception: it resolves two chains and aborts if either declaration is unreadable, because a
+  simulation run against the wrong EVM would answer the question it was asked to settle.
 
 The `lanes.<remote>` field rows (`remoteSelector`, `capacity`, `rate`, `inbound`, the `v2` blocks) live
 with the subtree in the project store - see

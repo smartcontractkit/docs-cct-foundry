@@ -57,4 +57,20 @@ link to.
   holders. A timelock owning the pool does not delay-gate a migration cutover unless the registry
   administrator moves under it too; keep the rate-limit admin on the Safe for fast emergency throttles.
 
+<a id="evm-version-push0"></a>
+- **A `paris` EVM cannot read a contract built by a current toolchain, and the failure blames the
+  contract.** `PUSH0` (`0x5f`) is a shanghai opcode that any recent solc emits, and Foundry's
+  `evm_version` configures the local interpreter as well as the compile target, so a paris-configured
+  `forge script` halts on `EvmError: NotActivated` before it signs anything (`--skip-simulation` does not
+  help: it skips the on-chain simulation, not the script body). Where the call is wrapped in `try/catch`
+  the halt is worse than a failure, because it is reported as a missing ABI member: a healthy token gets
+  `decimals() not found on token`. This repo therefore targets shanghai and declares the exception per
+  chain: the few CCIP networks that never activated PUSH0 carry `"evmVersion": "paris"` in
+  `config/chains/<selectorName>.json`. `make add-chain` probes this automatically, and
+  `make detect-evm-version CHAIN=<selectorName>` re-checks a chain already in the repo. To probe by
+  hand, run `cast call --rpc-url <rpc> --create 0x5f5ff3`, and trust the answer only when both controls
+  behave: `--create 0xfe` must error (some nodes swallow invalid opcodes) and `--create 0x60006000f3`
+  must return `0x` (otherwise the endpoint is not running `eth_call` at all). Check `eth_chainId`
+  matches the chain you meant, because public RPC directories carry chainId collisions.
+
 _The registry grows as findings graduate from the internal vault under the publication gate._
