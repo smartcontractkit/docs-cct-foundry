@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
+import {AddressEncoding} from "./AddressEncoding.s.sol";
+
 /// @title ChainHandlers
 /// @notice Address validation and encoding utilities for EVM and SVM (Solana)
 ///         destination chains. Mirrors the TypeScript chainHandlers.ts utility in the Hardhat project.
@@ -70,6 +72,91 @@ library ChainHandlers {
         }
         if (h == keccak256("aptos") || h == keccak256("APTOS")) return ChainFamily.APTOS;
         revert("ChainHandlers: unsupported chain family string");
+    }
+
+    /// @notice Renders an encoded remote pool/token address to its human-readable form for display.
+    /// @dev This is the single source of truth for how a remote address `bytes` value (as returned by
+    ///      `getRemotePools`/`getRemoteToken`) is rendered in read-only scripts. Family-gated so a
+    ///      short-form Aptos address (left-padded to 12+ zero bytes) is never misdecoded as EVM:
+    ///        EVM   → "0x…" (abi.decode'd to address, only when the high 12 bytes are zero)
+    ///        SVM   → base58 string (the form Solana tooling/Solscan expects)
+    ///        APTOS → "0x…" hex of the 32 raw bytes
+    ///        unknown family → "(raw) 0x…" (never silently guessed)
+    ///      All rendering is inline (no cheatcodes), so the function is `pure`.
+    function _formatAddress(ChainFamily family, bytes memory encoded) internal pure returns (string memory) {
+        if (family == ChainFamily.EVM) {
+            if (AddressEncoding._isAbiEncodedAddress(encoded)) {
+                return _addressToHex(abi.decode(encoded, (address)));
+            }
+            // An EVM-family entry that isn't a canonical ABI word (e.g. a legacy/v1.5.0 single-pool
+            // shape) - render as raw so nothing is silently truncated.
+            return string.concat("(raw) ", _bytesToHex(encoded));
+        }
+        if (family == ChainFamily.SVM) {
+            return _encodeBase58(encoded);
+        }
+        if (family == ChainFamily.APTOS) {
+            return _formatAptosHex(encoded);
+        }
+        // Unknown family: never guess. Render as raw so the operator sees the bytes, not a wrong
+        // address. Callers that resolve the family from config should warn when it's empty.
+        return string.concat("(raw) ", _bytesToHex(encoded));
+    }
+
+    /// @dev Renders an Aptos 32-byte address as "0x" + lowercase hex (the canonical Aptos form).
+    ///      `bytes32` is the natural width; `vm.toString(bytes32)` yields "0x" + 64 hex chars.
+    function _formatAptosHex(bytes memory encoded) private pure returns (string memory) {
+        if (encoded.length == 32) {
+            bytes32 word;
+            assembly {
+                word := mload(add(encoded, 32))
+            }
+            return _bytes32ToHex(word);
+        }
+        return string.concat("(raw) ", _bytesToHex(encoded));
+    }
+
+    /// @dev Lowercase "0x"-prefixed hex of a 20-byte address (matches vm.toString(address) output
+    ///      but stays pure - no cheatcode). EVM addresses are rendered lowercase here; the EVM
+    ///      branch of _formatAddress is the only caller.
+    function _addressToHex(address addr) private pure returns (string memory) {
+        bytes memory alphabet = "0123456789abcdef";
+        bytes memory out = new bytes(42);
+        out[0] = "0";
+        out[1] = "x";
+        for (uint256 i = 0; i < 20; i++) {
+            uint8 byteVal = uint8(uint160(addr) >> (8 * (19 - i)));
+            out[2 + i * 2] = alphabet[byteVal >> 4];
+            out[3 + i * 2] = alphabet[byteVal & 0x0f];
+        }
+        return string(out);
+    }
+
+    /// @dev Lowercase "0x"-prefixed hex of a bytes32 (no leading-zero stripping - Aptos addresses
+    ///      are canonically 32 bytes / 64 hex chars). Inline so _formatAptosHex stays pure.
+    function _bytes32ToHex(bytes32 word) private pure returns (string memory) {
+        bytes memory alphabet = "0123456789abcdef";
+        bytes memory out = new bytes(66);
+        out[0] = "0";
+        out[1] = "x";
+        for (uint256 i = 0; i < 32; i++) {
+            out[2 + i * 2] = alphabet[uint256(uint8(word[i])) >> 4];
+            out[3 + i * 2] = alphabet[uint256(uint8(word[i])) & 0x0f];
+        }
+        return string(out);
+    }
+
+    /// @dev Lowercase "0x"-prefixed hex of a variable-length bytes blob (for the raw fallback).
+    function _bytesToHex(bytes memory data) private pure returns (string memory) {
+        bytes memory alphabet = "0123456789abcdef";
+        bytes memory out = new bytes(2 + data.length * 2);
+        out[0] = "0";
+        out[1] = "x";
+        for (uint256 i = 0; i < data.length; i++) {
+            out[2 + i * 2] = alphabet[uint256(uint8(data[i])) >> 4];
+            out[3 + i * 2] = alphabet[uint256(uint8(data[i])) & 0x0f];
+        }
+        return string(out);
     }
 
     // ─── EVM ─────────────────────────────────────────────────────────────────

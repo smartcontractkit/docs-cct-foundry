@@ -9,7 +9,6 @@ import {PoolVersions} from "../../../src/PoolVersions.sol";
 import {CctActions} from "../../../src/actions/CctActions.sol";
 import {EoaExecutor} from "../../../src/base/EoaExecutor.s.sol";
 import {ChainHandlers} from "../../utils/ChainHandlers.s.sol";
-import {AddressEncoding} from "../../utils/AddressEncoding.s.sol";
 
 /// @notice Removes a remote pool address from a TokenPool for a given remote chain.
 ///
@@ -144,16 +143,11 @@ contract RemoveRemotePool is EoaExecutor {
         bytes[] memory currentPools = tokenPool.getRemotePools(remoteChainSelector);
         console.log(string.concat("Current Remote Pools: ", vm.toString(currentPools.length)));
         for (uint256 i = 0; i < currentPools.length; i++) {
-            if (
-                destChainFamily == ChainHandlers.ChainFamily.EVM
-                    && AddressEncoding._isAbiEncodedAddress(currentPools[i])
-            ) {
-                console.log(
-                    string.concat("  [", vm.toString(i), "] ", vm.toString(abi.decode(currentPools[i], (address))))
-                );
-            } else {
-                console.log(string.concat("  [", vm.toString(i), "] (raw) ", vm.toString(currentPools[i])));
-            }
+            console.log(
+                string.concat(
+                    "  [", vm.toString(i), "] ", ChainHandlers._formatAddress(destChainFamily, currentPools[i])
+                )
+            );
         }
         console.log("");
 

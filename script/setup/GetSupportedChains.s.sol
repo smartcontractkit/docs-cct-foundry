@@ -7,7 +7,6 @@ import {ChainHandlers} from "../utils/ChainHandlers.s.sol";
 import {TokenPool} from "@chainlink/contracts-ccip/contracts/pools/TokenPool.sol";
 import {PoolVersion} from "../utils/PoolVersion.s.sol";
 import {PoolVersions} from "../../src/PoolVersions.sol";
-import {AddressEncoding} from "../utils/AddressEncoding.s.sol";
 
 /// @notice Reads and displays all remote chains supported by a TokenPool.
 ///
@@ -81,24 +80,25 @@ contract GetSupportedChains is Script {
             string memory remoteChainName = bytes(remoteConfig.chainName).length > 0
                 ? remoteConfig.chainName
                 : helperConfig.getChainNameBySelector(selector);
-            ChainHandlers.ChainFamily remoteFamily = ChainHandlers._parseChainFamily(
-                bytes(remoteConfig.chainFamily).length > 0 ? remoteConfig.chainFamily : string("evm")
-            );
+            bool familyKnown = bytes(remoteConfig.chainFamily).length > 0;
+            ChainHandlers.ChainFamily remoteFamily =
+                ChainHandlers._parseChainFamily(familyKnown ? remoteConfig.chainFamily : string("evm"));
             console.log(string.concat("  [", vm.toString(i), "] ", remoteChainName, " (", vm.toString(selector), ")"));
+            if (!familyKnown) {
+                console.log(
+                    string.concat(
+                        unicode"       ⚠️  WARN: selector ",
+                        vm.toString(selector),
+                        " is not in config/chains (unknown family) - add the chain with `make add-chain` so its family is resolved. Addresses below are rendered as raw hex."
+                    )
+                );
+            }
             console.log(string.concat("       Remote Pools: ", vm.toString(remotePools.length)));
             for (uint256 j = 0; j < remotePools.length; j++) {
                 bytes memory pool = remotePools[j];
-                if (remoteFamily == ChainHandlers.ChainFamily.EVM && AddressEncoding._isAbiEncodedAddress(pool)) {
-                    console.log(
-                        string.concat("         [", vm.toString(j), "] ", vm.toString(abi.decode(pool, (address))))
-                    );
-                } else if (remoteFamily == ChainHandlers.ChainFamily.SVM) {
-                    // Raw SVM (Solana) public key - display as base58
-                    console.log(string.concat("         [", vm.toString(j), "] ", ChainHandlers._encodeBase58(pool)));
-                } else {
-                    // Aptos (raw 32-byte hex) or any unrecognized shape - display as raw hex
-                    console.log(string.concat("         [", vm.toString(j), "] (raw) ", vm.toString(pool)));
-                }
+                console.log(
+                    string.concat("         [", vm.toString(j), "] ", ChainHandlers._formatAddress(remoteFamily, pool))
+                );
             }
         }
 

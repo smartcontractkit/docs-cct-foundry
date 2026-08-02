@@ -5,7 +5,6 @@ import {Script, console} from "forge-std/Script.sol";
 import {HelperConfig} from "../../HelperConfig.s.sol";
 import {TokenPool} from "@chainlink/contracts-ccip/contracts/pools/TokenPool.sol";
 import {ChainHandlers} from "../../utils/ChainHandlers.s.sol";
-import {AddressEncoding} from "../../utils/AddressEncoding.s.sol";
 
 /// @notice Reads and displays the remote token configured on a TokenPool for a given remote chain.
 ///
@@ -75,12 +74,7 @@ contract GetRemoteToken is Script {
 
         if (isSupported) {
             bytes memory remoteToken = tokenPool.getRemoteToken(remoteChainSelector);
-            if (destChainFamily == ChainHandlers.ChainFamily.EVM && AddressEncoding._isAbiEncodedAddress(remoteToken)) {
-                address tokenAddr = abi.decode(remoteToken, (address));
-                console.log(string.concat("Remote Token:    ", vm.toString(tokenAddr)));
-            } else {
-                console.log(string.concat("Remote Token:    (raw) ", vm.toString(remoteToken)));
-            }
+            console.log(string.concat("Remote Token:    ", ChainHandlers._formatAddress(destChainFamily, remoteToken)));
         }
 
         console.log("");

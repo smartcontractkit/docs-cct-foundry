@@ -9,7 +9,6 @@ import {PoolVersion} from "../../utils/PoolVersion.s.sol";
 import {PoolVersions} from "../../../src/PoolVersions.sol";
 import {CctActions, ITokenPoolV150} from "../../../src/actions/CctActions.sol";
 import {EoaExecutor} from "../../../src/base/EoaExecutor.s.sol";
-import {AddressEncoding} from "../../utils/AddressEncoding.s.sol";
 import {ChainHandlers} from "../../utils/ChainHandlers.s.sol";
 
 /// @notice Fully unsupports a remote chain on the source TokenPool: removes the chain selector and
@@ -127,21 +126,11 @@ contract RemoveChain is EoaExecutor {
         bytes[] memory currentPools = PoolVersion._remotePools(tokenPoolAddress, poolVersion, remoteChainSelector);
         console.log(string.concat("Current Remote Pools on this lane: ", vm.toString(currentPools.length)));
         for (uint256 i = 0; i < currentPools.length; i++) {
-            // Family-aware decode: only an EVM destination's 32-byte ABI word (high 12 bytes zero)
-            // is abi.decode'd to an address. A Solana pubkey or an Aptos address is also 32 bytes,
-            // and a short-form Aptos address (e.g. 0x1) left-pads to 12+ leading zeros and would be
-            // silently misdecoded as a truncated EVM address by the heuristic alone - so gate on the
-            // resolved family first, exactly as the remote-pools scripts do.
-            if (
-                destChainFamily == ChainHandlers.ChainFamily.EVM
-                    && AddressEncoding._isAbiEncodedAddress(currentPools[i])
-            ) {
-                console.log(
-                    string.concat("  [", vm.toString(i), "] ", vm.toString(abi.decode(currentPools[i], (address))))
-                );
-            } else {
-                console.log(string.concat("  [", vm.toString(i), "] (raw) ", vm.toString(currentPools[i])));
-            }
+            console.log(
+                string.concat(
+                    "  [", vm.toString(i), "] ", ChainHandlers._formatAddress(destChainFamily, currentPools[i])
+                )
+            );
         }
         console.log("");
 

@@ -7,7 +7,6 @@ import {TokenPool} from "@chainlink/contracts-ccip/contracts/pools/TokenPool.sol
 import {PoolVersion} from "../../utils/PoolVersion.s.sol";
 import {PoolVersions} from "../../../src/PoolVersions.sol";
 import {ChainHandlers} from "../../utils/ChainHandlers.s.sol";
-import {AddressEncoding} from "../../utils/AddressEncoding.s.sol";
 
 /// @notice Reads and displays the remote pool addresses configured on a TokenPool for a given remote chain.
 ///
@@ -92,15 +91,11 @@ contract GetRemotePools is Script {
             bytes[] memory remotePools = PoolVersion._remotePools(tokenPoolAddress, version, remoteChainSelector);
             console.log(string.concat("Remote Pools:    ", vm.toString(remotePools.length)));
             for (uint256 i = 0; i < remotePools.length; i++) {
-                if (
-                    destChainFamily == ChainHandlers.ChainFamily.EVM
-                        && AddressEncoding._isAbiEncodedAddress(remotePools[i])
-                ) {
-                    address poolAddr = abi.decode(remotePools[i], (address));
-                    console.log(string.concat("  [", vm.toString(i), "] ", vm.toString(poolAddr)));
-                } else {
-                    console.log(string.concat("  [", vm.toString(i), "] (raw) ", vm.toString(remotePools[i])));
-                }
+                console.log(
+                    string.concat(
+                        "  [", vm.toString(i), "] ", ChainHandlers._formatAddress(destChainFamily, remotePools[i])
+                    )
+                );
             }
         }
 
