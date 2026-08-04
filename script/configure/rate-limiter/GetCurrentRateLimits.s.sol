@@ -11,11 +11,14 @@ import {PoolVersions} from "../../../src/PoolVersions.sol";
 /// @notice Reads and displays the current rate limiter state for a TokenPool, compatible with v1 and v2 pools.
 ///
 /// Environment Variables (required):
-///   DEST_CHAIN    - The remote chain whose lane is being queried (e.g. MANTLE_SEPOLIA)
+///   DEST_CHAIN    - The remote chain whose lane is being queried (e.g. MANTLE_SEPOLIA,
+///                   SOLANA_DEVNET, APTOS_TESTNET)
 ///
-/// Environment Variables (optional, v2 only):
-///   FAST_FINALITY - true/false, whether to read the fast finality bucket
-///                   (default: false, reads the standard finality bucket)
+/// Environment Variables (optional):
+///   DEST_CHAIN_FAMILY   - Override destination family (default: from DEST_CHAIN config)
+///   DEST_CHAIN_SELECTOR - Override destination selector (default: from DEST_CHAIN config)
+///   FAST_FINALITY       - true/false, whether to read the fast finality bucket (v2 only;
+///                         default: false, reads the standard finality bucket)
 ///
 /// Usage example:
 ///   DEST_CHAIN=MANTLE_SEPOLIA \
@@ -31,12 +34,17 @@ contract GetCurrentRateLimits is Script {
         // ── Optional env vars ──────────────────────────────────────────────
         bool fastFinality = vm.envOr("FAST_FINALITY", false);
 
-        // ── Resolve chain IDs and selectors ───────────────────────────────
+        // ── Resolve selector from destination config (EVM and non-EVM) ─────
         helperConfig = new HelperConfig();
         uint256 chainId = block.chainid;
         string memory chainName = helperConfig.getChainName(chainId);
-        uint256 destChainId = helperConfig.parseChainName(destChainName);
-        uint64 remoteChainSelector = helperConfig.getNetworkConfig(destChainId).chainSelector;
+        HelperConfig.NetworkConfig memory destConfig = helperConfig.getDestChainConfig(destChainName);
+        uint64 remoteChainSelector = uint64(vm.envOr("DEST_CHAIN_SELECTOR", uint256(destConfig.chainSelector)));
+        require(
+            remoteChainSelector != 0, "Chain selector is not defined for destination chain. Set DEST_CHAIN_SELECTOR."
+        );
+        string memory destChainDisplayName =
+            bytes(destConfig.chainName).length > 0 ? destConfig.chainName : destChainName;
 
         // ── Resolve pool address ───────────────────────────────────────────
         address tokenPoolAddress = helperConfig.getDeployedTokenPool(chainId);
@@ -55,7 +63,7 @@ contract GetCurrentRateLimits is Script {
         console.log(unicode"📊 Get Current Rate Limits");
         console.log("========================================");
         console.log(string.concat("Chain:        ", chainName));
-        console.log(string.concat("Remote Chain: ", helperConfig.getChainName(destChainId)));
+        console.log(string.concat("Remote Chain: ", destChainDisplayName));
         console.log(string.concat("Token Pool:   ", vm.toString(tokenPoolAddress)));
         console.log(string.concat("Action:       ", "View rate limits"));
         if (fastFinality) {

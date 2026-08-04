@@ -459,6 +459,30 @@ contract HelperConfig is Script {
         return "Unknown";
     }
 
+    /// @notice Resolves a NetworkConfig by chain selector directly - the selector-keyed analog of
+    ///         `getDestChainConfig(string)`. Use this when you have a selector (e.g. from
+    ///         `getSupportedChains()`) and need the chain's family/name, NOT the display name that
+    ///         `getChainNameBySelector` returns: `getDestChainConfig` matches the chainNameIdentifier
+    ///         (e.g. "SOLANA_DEVNET"), not the displayName ("Solana Devnet"), so the round-trip
+    ///         selector -> displayName -> getDestChainConfig misses for non-EVM chains and falls back
+    ///         to a zero (evm) config. This function avoids that round-trip.
+    /// @dev Returns a zero config (chainFamily = "") for an unrecognized selector, mirroring
+    ///      `getDestChainConfig`'s contract for unknown names.
+    function getDestChainConfigBySelector(uint64 chainSelector) public view returns (NetworkConfig memory) {
+        if (chainSelector == getEthereumSepoliaConfig().chainSelector) return getEthereumSepoliaConfig();
+        if (chainSelector == getZeroGTestnetConfig().chainSelector) return getZeroGTestnetConfig();
+        if (chainSelector == getPlumeTestnetConfig().chainSelector) return getPlumeTestnetConfig();
+        if (chainSelector == getInkSepoliaConfig().chainSelector) return getInkSepoliaConfig();
+        if (chainSelector == getMantleSepoliaConfig().chainSelector) return getMantleSepoliaConfig();
+        if (chainSelector == getSolanaDevnetConfig().chainSelector) return getSolanaDevnetConfig();
+        // Fallback: the discovered-chain cache.
+        for (uint256 i = 0; i < s_chains.length; i++) {
+            if (s_chains[i].chainSelector == chainSelector) return s_chains[i];
+        }
+        NetworkConfig memory unknown;
+        return unknown;
+    }
+
     function getNativeCurrencySymbol(uint256 chainId) public view returns (string memory) {
         return getNetworkConfig(chainId).nativeCurrencySymbol;
     }

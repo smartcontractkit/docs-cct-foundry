@@ -18,6 +18,8 @@ Adds a remote pool address to a TokenPool for a given remote chain.
 | Env var | Description |
 | --- | --- |
 | `DEST_CHAIN` | See the script header. |
+| `DEST_CHAIN_FAMILY` | See the script header. |
+| `DEST_CHAIN_SELECTOR` | See the script header. |
 | `REMOTE_POOL_ADDRESS` | See the script header. |
 
 ## Reference

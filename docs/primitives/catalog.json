@@ -2,7 +2,7 @@
   "generatedBy": "script/docs/gen-primitives.mjs",
   "note": "Generated from the script/ tree and the Makefile. Do not edit by hand; run `npm run docs:catalog`.",
   "counts": {
-    "primitives": 60,
+    "primitives": 61,
     "makeTargets": 27
   },
   "primitives": [
@@ -239,7 +239,8 @@
       "writes_onchain": true,
       "destructive": false,
       "inputs": [
-        "DEST_CHAIN"
+        "DEST_CHAIN",
+        "DEST_CHAIN_SELECTOR"
       ]
     },
     {
@@ -285,7 +286,8 @@
       "writes_onchain": false,
       "destructive": false,
       "inputs": [
-        "DEST_CHAIN"
+        "DEST_CHAIN",
+        "DEST_CHAIN_SELECTOR"
       ]
     },
     {
@@ -302,6 +304,7 @@
       "destructive": false,
       "inputs": [
         "DEST_CHAIN",
+        "DEST_CHAIN_SELECTOR",
         "DISABLE"
       ]
     },
@@ -331,7 +334,8 @@
       "writes_onchain": true,
       "destructive": false,
       "inputs": [
-        "DEST_CHAIN"
+        "DEST_CHAIN",
+        "DEST_CHAIN_SELECTOR"
       ]
     },
     {
@@ -421,6 +425,7 @@
       "destructive": false,
       "inputs": [
         "DEST_CHAIN",
+        "DEST_CHAIN_SELECTOR",
         "FAST_FINALITY"
       ]
     },
@@ -438,6 +443,7 @@
       "destructive": false,
       "inputs": [
         "DEST_CHAIN",
+        "DEST_CHAIN_SELECTOR",
         "FAST_FINALITY"
       ]
     },
@@ -454,7 +460,9 @@
       "writes_onchain": true,
       "destructive": true,
       "inputs": [
-        "DEST_CHAIN"
+        "DEST_CHAIN",
+        "DEST_CHAIN_FAMILY",
+        "DEST_CHAIN_SELECTOR"
       ]
     },
     {
@@ -471,6 +479,8 @@
       "destructive": false,
       "inputs": [
         "DEST_CHAIN",
+        "DEST_CHAIN_FAMILY",
+        "DEST_CHAIN_SELECTOR",
         "REMOTE_POOL_ADDRESS"
       ]
     },
@@ -486,7 +496,26 @@
       "writes_onchain": false,
       "destructive": false,
       "inputs": [
-        "DEST_CHAIN"
+        "DEST_CHAIN",
+        "DEST_CHAIN_FAMILY",
+        "DEST_CHAIN_SELECTOR"
+      ]
+    },
+    {
+      "name": "GetRemoteToken",
+      "script": "script/configure/remote-pools/GetRemoteToken.s.sol",
+      "group": "remote-pools",
+      "description": "Reads and displays the remote token configured on a TokenPool for a given remote chain.",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": [
+        "DEST_CHAIN",
+        "DEST_CHAIN_FAMILY",
+        "DEST_CHAIN_SELECTOR"
       ]
     },
     {
@@ -503,6 +532,8 @@
       "destructive": true,
       "inputs": [
         "DEST_CHAIN",
+        "DEST_CHAIN_FAMILY",
+        "DEST_CHAIN_SELECTOR",
         "REMOTE_POOL_ADDRESS"
       ]
     },

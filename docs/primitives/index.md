@@ -105,6 +105,7 @@ at [`catalog.json`](catalog.json). These pages are generated from the scripts an
 
 - [AddRemotePool](remote-pools/AddRemotePool.md) - Adds a remote pool address to a TokenPool for a given remote chain. _(write)_
 - [GetRemotePools](remote-pools/GetRemotePools.md) - Reads and displays the remote pool addresses configured on a TokenPool for a given remote chain. _(read-only)_
+- [GetRemoteToken](remote-pools/GetRemoteToken.md) - Reads and displays the remote token configured on a TokenPool for a given remote chain. _(read-only)_
 - [RemoveRemotePool](remote-pools/RemoveRemotePool.md) - Removes a remote pool address from a TokenPool for a given remote chain. _(write, destructive)_
 
 ## token-admin-registry

@@ -22,7 +22,12 @@ import {ProjectStore} from "../../../src/utils/ProjectStore.sol";
 /// To disable the fee config (reverting to FeeQuoter defaults), set DISABLE=true.
 ///
 /// Environment Variables (required):
-///   DEST_CHAIN    - The remote destination chain to configure fees for (e.g. MANTLE_SEPOLIA)
+///   DEST_CHAIN    - The remote destination chain to configure fees for
+///                   (e.g. MANTLE_SEPOLIA, SOLANA_DEVNET, APTOS_TESTNET)
+///
+/// Environment Variables (optional):
+///   DEST_CHAIN_FAMILY   - Override destination family (default: from DEST_CHAIN config)
+///   DEST_CHAIN_SELECTOR - Override destination selector (default: from DEST_CHAIN config)
 ///
 /// Environment Variables (per-field, optional when DISABLE is false or unset - see the ladder below):
 ///   DEST_GAS_OVERHEAD             - uint32, gas overhead charged on destination chain (must be > 0)
@@ -109,13 +114,16 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
         string memory destChainName = vm.envString("DEST_CHAIN");
         bool disable = vm.envOr("DISABLE", false);
 
-        // ── Resolve chain IDs, selectors ────────────────────────────────
+        // ── Resolve selector from destination config (EVM and non-EVM) ─────
         helperConfig = new HelperConfig();
 
         uint256 chainId = block.chainid;
         string memory chainName = helperConfig.getChainName(chainId);
-        uint256 destChainId = helperConfig.parseChainName(destChainName);
-        uint64 destChainSelector = helperConfig.getNetworkConfig(destChainId).chainSelector;
+        HelperConfig.NetworkConfig memory destConfig = helperConfig.getDestChainConfig(destChainName);
+        uint64 destChainSelector = uint64(vm.envOr("DEST_CHAIN_SELECTOR", uint256(destConfig.chainSelector)));
+        require(destChainSelector != 0, "Chain selector is not defined for destination chain. Set DEST_CHAIN_SELECTOR.");
+        string memory destChainDisplayName =
+            bytes(destConfig.chainName).length > 0 ? destConfig.chainName : destChainName;
 
         // ── Resolve pool address ───────────────────────────────────────────
         address tokenPoolAddress = helperConfig.getDeployedTokenPool(chainId);
@@ -142,7 +150,7 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
         console.log(unicode"💰 Update Token Transfer Fee Config");
         console.log("========================================");
         console.log(string.concat("Chain:        ", chainName));
-        console.log(string.concat("Remote Chain: ", helperConfig.getChainName(destChainId)));
+        console.log(string.concat("Remote Chain: ", destChainDisplayName));
         console.log(string.concat("Token Pool:   ", vm.toString(tokenPoolAddress)));
         console.log(string.concat("Action:       ", disable ? "Disable fee config" : "Set fee config"));
         console.log("========================================");
@@ -156,7 +164,7 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
             tokenPool.isSupportedChain(destChainSelector),
             string.concat(
                 "Destination chain ",
-                helperConfig.getChainName(destChainId),
+                destChainDisplayName,
                 " (selector: ",
                 vm.toString(destChainSelector),
                 ") is not configured on this pool. Run ApplyChainUpdates first."
@@ -166,9 +174,7 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
         FeeConfigResolution memory res;
         if (disable) {
             // ── Disable fee config for this lane ──────────────────────────
-            console.log(
-                string.concat("[Step 1] Disabling fee config for lane to ", helperConfig.getChainName(destChainId))
-            );
+            console.log(string.concat("[Step 1] Disabling fee config for lane to ", destChainDisplayName));
 
             uint64[] memory toDisable = new uint64[](1);
             toDisable[0] = destChainSelector;
@@ -224,9 +230,7 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
             TokenPool.TokenTransferFeeConfigArgs[] memory args = _buildFeeConfigArgs(res, destChainSelector);
             uint64[] memory emptyDisable = new uint64[](0);
 
-            console.log(
-                string.concat("[Step 1] Applying fee config for lane to ", helperConfig.getChainName(destChainId))
-            );
+            console.log(string.concat("[Step 1] Applying fee config for lane to ", destChainDisplayName));
 
             // applyTokenTransferFeeConfigUpdates() was introduced in TokenPool v2.0.
             // On v1 pools, fee configuration is handled by FeeQuoter and requires

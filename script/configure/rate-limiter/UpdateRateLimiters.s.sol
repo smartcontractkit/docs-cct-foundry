@@ -22,7 +22,12 @@ import {ProjectStore} from "../../../src/utils/ProjectStore.sol";
 /// two sources.
 ///
 /// Environment Variables (required):
-///   DEST_CHAIN                    - The remote chain whose rate limit lane is being updated (e.g. MANTLE_SEPOLIA)
+///   DEST_CHAIN                    - The remote chain whose rate limit lane is being updated
+///                                   (e.g. MANTLE_SEPOLIA, SOLANA_DEVNET, APTOS_TESTNET)
+///
+/// Environment Variables (optional):
+///   DEST_CHAIN_FAMILY             - Override destination family (default: from DEST_CHAIN config)
+///   DEST_CHAIN_SELECTOR           - Override destination selector (default: from DEST_CHAIN config)
 ///
 /// Environment Variables (set to update outbound - any one triggers the direction):
 ///   OUTBOUND_RATE_LIMIT_CAPACITY  - uint128, token bucket capacity (isEnabled defaults to true when set)
@@ -128,11 +133,14 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
         // isEnabled defaults to true when CAPACITY or RATE are provided.
         RateLimiterUtils.RateLimitUpdate memory envUpdate = _readRateLimitUpdate();
 
-        // ── Resolve chain IDs / selectors, store in contract storage ───────
+        // ── Resolve selector from destination config (EVM and non-EVM), store in contract storage ──
         helperConfig = new HelperConfig();
         s_chainId = block.chainid;
-        uint256 destChainId = helperConfig.parseChainName(destChainName);
-        s_selector = helperConfig.getNetworkConfig(destChainId).chainSelector;
+        HelperConfig.NetworkConfig memory destConfig = helperConfig.getDestChainConfig(destChainName);
+        s_selector = uint64(vm.envOr("DEST_CHAIN_SELECTOR", uint256(destConfig.chainSelector)));
+        require(s_selector != 0, "Chain selector is not defined for destination chain. Set DEST_CHAIN_SELECTOR.");
+        string memory destChainDisplayName =
+            bytes(destConfig.chainName).length > 0 ? destConfig.chainName : destChainName;
 
         // ── Resolve pool, detect version ───────────────────────────────────
         s_poolAddress = helperConfig.getDeployedTokenPool(s_chainId);
@@ -160,7 +168,7 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
         console.log(unicode"⚡️ Update Rate Limiters");
         console.log("========================================");
         console.log(string.concat("Chain:        ", helperConfig.getChainName(s_chainId)));
-        console.log(string.concat("Remote Chain: ", helperConfig.getChainName(destChainId)));
+        console.log(string.concat("Remote Chain: ", destChainDisplayName));
         console.log(string.concat("Token Pool:   ", vm.toString(s_poolAddress)));
         console.log(string.concat("Action:       ", "Update rate limits"));
         console.log(

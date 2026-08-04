@@ -13,7 +13,12 @@ import {IPoolV2} from "@chainlink/contracts-ccip/contracts/interfaces/IPoolV2.so
 ///      If the pool does not support this function, the script will revert with an informative message.
 ///
 /// Environment Variables (required):
-///   DEST_CHAIN    - The remote destination chain whose fee config is being queried (e.g. MANTLE_SEPOLIA)
+///   DEST_CHAIN    - The remote destination chain whose fee config is being queried
+///                   (e.g. MANTLE_SEPOLIA, SOLANA_DEVNET, APTOS_TESTNET)
+///
+/// Environment Variables (optional):
+///   DEST_CHAIN_FAMILY   - Override destination family (default: from DEST_CHAIN config)
+///   DEST_CHAIN_SELECTOR - Override destination selector (default: from DEST_CHAIN config)
 ///
 /// Usage example:
 ///   DEST_CHAIN=MANTLE_SEPOLIA \
@@ -26,12 +31,15 @@ contract GetTokenTransferFeeConfig is Script {
         // ── Required env vars ──────────────────────────────────────────────
         string memory destChainName = vm.envString("DEST_CHAIN");
 
-        // ── Resolve chain IDs and selectors ───────────────────────────────
+        // ── Resolve selector from destination config (EVM and non-EVM) ─────
         helperConfig = new HelperConfig();
         uint256 chainId = block.chainid;
         string memory chainName = helperConfig.getChainName(chainId);
-        uint256 destChainId = helperConfig.parseChainName(destChainName);
-        uint64 destChainSelector = helperConfig.getNetworkConfig(destChainId).chainSelector;
+        HelperConfig.NetworkConfig memory destConfig = helperConfig.getDestChainConfig(destChainName);
+        uint64 destChainSelector = uint64(vm.envOr("DEST_CHAIN_SELECTOR", uint256(destConfig.chainSelector)));
+        require(destChainSelector != 0, "Chain selector is not defined for destination chain. Set DEST_CHAIN_SELECTOR.");
+        string memory destChainDisplayName =
+            bytes(destConfig.chainName).length > 0 ? destConfig.chainName : destChainName;
 
         // ── Resolve pool address ───────────────────────────────────────────
         address tokenPoolAddress = helperConfig.getDeployedTokenPool(chainId);
@@ -50,7 +58,7 @@ contract GetTokenTransferFeeConfig is Script {
         console.log(unicode"💰 Get Token Transfer Fee Config");
         console.log("========================================");
         console.log(string.concat("Chain:        ", chainName));
-        console.log(string.concat("Remote Chain: ", helperConfig.getChainName(destChainId)));
+        console.log(string.concat("Remote Chain: ", destChainDisplayName));
         console.log(string.concat("Token Pool:   ", vm.toString(tokenPoolAddress)));
         console.log(string.concat("Action:       ", "View fee config"));
         console.log("========================================");

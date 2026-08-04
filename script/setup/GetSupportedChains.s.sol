@@ -71,23 +71,34 @@ contract GetSupportedChains is Script {
         for (uint256 i = 0; i < supportedChains.length; i++) {
             uint64 selector = supportedChains[i];
             bytes[] memory remotePools = PoolVersion._remotePools(tokenPoolAddress, version, selector);
-            string memory remoteChainName = helperConfig.getChainNameBySelector(selector);
+            // Resolve the remote's family from its config by SELECTOR (not by display name):
+            // getChainNameBySelector returns the displayName ("Solana Devnet") but getDestChainConfig
+            // matches the identifier ("SOLANA_DEVNET"), so the round-trip misses for non-EVM chains
+            // and falls back to a zero/evm config - which would misdecode SVM pubkeys as EVM addresses
+            // and never reach the base58 branch. The selector-based lookup resolves the family directly.
+            HelperConfig.NetworkConfig memory remoteConfig = helperConfig.getDestChainConfigBySelector(selector);
+            string memory remoteChainName = bytes(remoteConfig.chainName).length > 0
+                ? remoteConfig.chainName
+                : helperConfig.getChainNameBySelector(selector);
+            bool familyKnown = bytes(remoteConfig.chainFamily).length > 0;
+            ChainHandlers.ChainFamily remoteFamily =
+                ChainHandlers._parseChainFamily(familyKnown ? remoteConfig.chainFamily : string("evm"));
             console.log(string.concat("  [", vm.toString(i), "] ", remoteChainName, " (", vm.toString(selector), ")"));
+            if (!familyKnown) {
+                console.log(
+                    string.concat(
+                        unicode"       ⚠️  WARN: selector ",
+                        vm.toString(selector),
+                        " is not in config/chains (unknown family) - add the chain with `make add-chain` so its family is resolved. Addresses below are rendered as raw hex."
+                    )
+                );
+            }
             console.log(string.concat("       Remote Pools: ", vm.toString(remotePools.length)));
             for (uint256 j = 0; j < remotePools.length; j++) {
                 bytes memory pool = remotePools[j];
-                // ABI-encoded EVM address: 32 bytes with 12 leading zero bytes.
-                // Raw SVM pubkey: 32 bytes, no leading-zero padding.
-                if (pool.length == 32 && _isEvmEncoded(pool)) {
-                    console.log(
-                        string.concat("         [", vm.toString(j), "] ", vm.toString(abi.decode(pool, (address))))
-                    );
-                } else if (pool.length == 32) {
-                    // Raw SVM (Solana) public key - display as base58
-                    console.log(string.concat("         [", vm.toString(j), "] ", ChainHandlers._encodeBase58(pool)));
-                } else {
-                    console.log(string.concat("         [", vm.toString(j), "] (raw) ", vm.toString(pool)));
-                }
+                console.log(
+                    string.concat("         [", vm.toString(j), "] ", ChainHandlers._formatAddress(remoteFamily, pool))
+                );
             }
         }
 
@@ -98,14 +109,5 @@ contract GetSupportedChains is Script {
         );
         console.log("========================================");
         console.log("");
-    }
-
-    /// @dev Returns true if `data` looks like an ABI-encoded EVM address:
-    ///      32 bytes where the first 12 bytes are all zero.
-    function _isEvmEncoded(bytes memory data) private pure returns (bool) {
-        for (uint256 i = 0; i < 12; i++) {
-            if (data[i] != 0) return false;
-        }
-        return true;
     }
 }

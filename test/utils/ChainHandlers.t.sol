@@ -26,6 +26,14 @@ contract ChainHandlersHarness {
     function parseChainFamily(string calldata familyStr) external pure returns (ChainHandlers.ChainFamily) {
         return ChainHandlers._parseChainFamily(familyStr);
     }
+
+    function formatAddress(ChainHandlers.ChainFamily family, bytes calldata encoded)
+        external
+        pure
+        returns (string memory)
+    {
+        return ChainHandlers._formatAddress(family, encoded);
+    }
 }
 
 /// @notice Unit tests (no fork) for script/utils/ChainHandlers.s.sol: EVM address encoding,
@@ -168,5 +176,75 @@ contract ChainHandlersTest is Test {
     function test_ParseChainFamily_AptosAliases() public view {
         assertTrue(harness.parseChainFamily("aptos") == ChainHandlers.ChainFamily.APTOS, "lowercase aptos");
         assertTrue(harness.parseChainFamily("APTOS") == ChainHandlers.ChainFamily.APTOS, "uppercase APTOS");
+    }
+
+    // ─── _formatAddress (display rendering) ──────────────────────────────────
+
+    /// @dev EVM: a canonical ABI-encoded address renders as the lowercase 0x address.
+    function test_FormatAddress_Evm_Canonical() public view {
+        address addr = 0x0BF3dE8c5D3e8A2B34D2BEeB17ABfCeBaf363A59;
+        bytes memory encoded = abi.encode(addr);
+        assertEq(
+            harness.formatAddress(ChainHandlers.ChainFamily.EVM, encoded),
+            "0x0bf3de8c5d3e8a2b34d2beeb17abfcebaf363a59",
+            "EVM canonical address must render as lowercase 0x hex"
+        );
+    }
+
+    /// @dev EVM: a non-canonical shape (not 32 bytes with 12 leading zeros) renders as (raw),
+    ///      never silently truncated. This is the legacy/v1.5.0 single-pool fallback.
+    function test_FormatAddress_Evm_NonCanonical_RendersRaw() public view {
+        bytes memory short = hex"1234";
+        assertEq(
+            harness.formatAddress(ChainHandlers.ChainFamily.EVM, short),
+            "(raw) 0x1234",
+            "non-canonical EVM must render as (raw), not a truncated address"
+        );
+    }
+
+    /// @dev SVM: a 32-byte Solana public key renders as base58 (the form Solscan/tooling expects).
+    function test_FormatAddress_Svm_Base58() public view {
+        assertEq(
+            harness.formatAddress(ChainHandlers.ChainFamily.SVM, SVM_KEY_BYTES), SVM_KEY, "SVM must render as base58"
+        );
+    }
+
+    /// @dev Aptos: a full 32-byte address renders as 0x + 64 hex chars (the canonical Aptos form).
+    function test_FormatAddress_Aptos_Full() public view {
+        assertEq(
+            harness.formatAddress(ChainHandlers.ChainFamily.APTOS, APTOS_ADDR_BYTES),
+            APTOS_ADDR,
+            "Aptos full address must render as 0x + 64 hex chars"
+        );
+    }
+
+    /// @dev The critical Aptos safety test: a short-form Aptos address (0x1) left-pads to 32 bytes
+    ///      with 12+ leading zeros. Under the OLD heuristic (high-12-bytes-zero => EVM), this would
+    ///      be silently misdecoded as address(0x1). Under the family-aware _formatAddress, it renders
+    ///      as the full 32-byte Aptos hex - proving the family gate prevents the misdecode.
+    function test_FormatAddress_Aptos_ShortForm_NotMisdecodedAsEvm() public view {
+        bytes memory shortEncoded = hex"0000000000000000000000000000000000000000000000000000000000000001";
+        // As APTOS: renders the full 32-byte hex (0x00...01), NOT a truncated EVM address.
+        assertEq(
+            harness.formatAddress(ChainHandlers.ChainFamily.APTOS, shortEncoded),
+            "0x0000000000000000000000000000000000000000000000000000000000000001",
+            "Aptos short-form must render as full 32-byte hex, not a truncated EVM address"
+        );
+        // The SAME bytes under EVM would decode to address(0x1) - proving the family gate matters.
+        assertEq(
+            harness.formatAddress(ChainHandlers.ChainFamily.EVM, shortEncoded),
+            "0x0000000000000000000000000000000000000001",
+            "same bytes under EVM decode to the 20-byte address (the family gate is what differs)"
+        );
+    }
+
+    /// @dev Unknown family: never guesses - renders as (raw) so the operator sees the bytes.
+    function test_FormatAddress_UnknownFamily_RendersRaw() public view {
+        bytes memory someBytes = hex"deadbeef";
+        assertEq(
+            harness.formatAddress(ChainHandlers.ChainFamily.EVM, someBytes),
+            "(raw) 0xdeadbeef",
+            "unknown shape under EVM family renders as (raw)"
+        );
     }
 }

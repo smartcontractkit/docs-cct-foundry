@@ -1,7 +1,7 @@
 ---
-name: GetTokenTransferFeeConfig
-script: script/configure/fee-config/GetTokenTransferFeeConfig.s.sol
-group: fee-config
+name: GetRemoteToken
+script: script/configure/remote-pools/GetRemoteToken.s.sol
+group: remote-pools
 type: reference
 modes: [read]
 read_only: true
@@ -9,20 +9,21 @@ writes_onchain: false
 destructive: false
 ---
 
-# GetTokenTransferFeeConfig
+# GetRemoteToken
 
-Reads and displays the token transfer fee configuration for a token pool on a given destination lane.
+Reads and displays the remote token configured on a TokenPool for a given remote chain.
 
 ## Inputs
 
 | Env var | Description |
 | --- | --- |
 | `DEST_CHAIN` | See the script header. |
+| `DEST_CHAIN_FAMILY` | See the script header. |
 | `DEST_CHAIN_SELECTOR` | See the script header. |
 
 ## Reference
 
-- Script: [`script/configure/fee-config/GetTokenTransferFeeConfig.s.sol`](../../../script/configure/fee-config/GetTokenTransferFeeConfig.s.sol)
+- Script: [`script/configure/remote-pools/GetRemoteToken.s.sol`](../../../script/configure/remote-pools/GetRemoteToken.s.sol)
 - Modes: read
 - Read-only: true | Writes on-chain: false | Destructive: false
 

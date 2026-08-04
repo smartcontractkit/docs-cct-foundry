@@ -9,6 +9,7 @@ import {PoolVersion} from "../../utils/PoolVersion.s.sol";
 import {PoolVersions} from "../../../src/PoolVersions.sol";
 import {CctActions, ITokenPoolV150} from "../../../src/actions/CctActions.sol";
 import {EoaExecutor} from "../../../src/base/EoaExecutor.s.sol";
+import {ChainHandlers} from "../../utils/ChainHandlers.s.sol";
 
 /// @notice Fully unsupports a remote chain on the source TokenPool: removes the chain selector and
 ///         deletes its remote-chain config (pools, remote token, rate limits). After this call
@@ -28,7 +29,11 @@ import {EoaExecutor} from "../../../src/base/EoaExecutor.s.sol";
 ///      are no inflight messages to or from this chain before removing it to avoid loss of funds.
 ///
 /// Environment Variables (required):
-///   DEST_CHAIN  - The remote chain to unsupport (e.g. MANTLE_SEPOLIA)
+///   DEST_CHAIN  - The remote chain to unsupport (e.g. MANTLE_SEPOLIA, SOLANA_DEVNET, APTOS_TESTNET)
+///
+/// Environment Variables (optional):
+///   DEST_CHAIN_FAMILY   - Override destination family (default: from DEST_CHAIN config)
+///   DEST_CHAIN_SELECTOR - Override destination selector (default: from DEST_CHAIN config)
 ///
 /// Usage example:
 ///   DEST_CHAIN=MANTLE_SEPOLIA \
@@ -40,11 +45,20 @@ contract RemoveChain is EoaExecutor {
         // ── Required env vars ──────────────────────────────────────────────
         string memory destChainName = vm.envString("DEST_CHAIN");
 
-        // ── Resolve chain IDs and selectors ───────────────────────────────
+        // ── Resolve selector/family from destination config (EVM and non-EVM) ──
         helperConfig = new HelperConfig();
         uint256 sourceChainId = block.chainid;
-        uint256 destChainId = helperConfig.parseChainName(destChainName);
-        uint64 remoteChainSelector = helperConfig.getNetworkConfig(destChainId).chainSelector;
+        HelperConfig.NetworkConfig memory destConfig = helperConfig.getDestChainConfig(destChainName);
+        string memory destChainFamilyStr = vm.envOr(
+            "DEST_CHAIN_FAMILY", bytes(destConfig.chainFamily).length > 0 ? destConfig.chainFamily : string("evm")
+        );
+        ChainHandlers.ChainFamily destChainFamily = ChainHandlers._parseChainFamily(destChainFamilyStr);
+        uint64 remoteChainSelector = uint64(vm.envOr("DEST_CHAIN_SELECTOR", uint256(destConfig.chainSelector)));
+        require(
+            remoteChainSelector != 0, "Chain selector is not defined for destination chain. Set DEST_CHAIN_SELECTOR."
+        );
+        string memory destChainDisplayName =
+            bytes(destConfig.chainName).length > 0 ? destConfig.chainName : destChainName;
 
         // ── Resolve pool address ───────────────────────────────────────────
         address tokenPoolAddress = helperConfig.getDeployedTokenPool(sourceChainId);
@@ -57,7 +71,7 @@ contract RemoveChain is EoaExecutor {
             )
         );
 
-        _removeChain(tokenPoolAddress, remoteChainSelector, destChainName, destChainId);
+        _removeChain(tokenPoolAddress, remoteChainSelector, destChainName, destChainDisplayName, destChainFamily);
     }
 
     /// @dev Everything after input resolution. Split from run() so the version dispatch is testable
@@ -67,7 +81,8 @@ contract RemoveChain is EoaExecutor {
         address tokenPoolAddress,
         uint64 remoteChainSelector,
         string memory destChainName,
-        uint256 destChainId
+        string memory destChainDisplayName,
+        ChainHandlers.ChainFamily destChainFamily
     ) internal {
         uint256 sourceChainId = block.chainid;
         string memory sourceChainName = helperConfig.getChainName(sourceChainId);
@@ -87,7 +102,7 @@ contract RemoveChain is EoaExecutor {
         console.log(unicode"➖ Remove Remote Chain");
         console.log("========================================");
         console.log(string.concat("Chain:        ", sourceChainName));
-        console.log(string.concat("Remote Chain: ", helperConfig.getChainName(destChainId)));
+        console.log(string.concat("Remote Chain: ", destChainDisplayName));
         console.log(string.concat("Token Pool:   ", vm.toString(tokenPoolAddress)));
         console.log(string.concat("Action:       ", "Unsupport remote chain (full lane teardown)"));
         console.log("========================================");
@@ -111,13 +126,11 @@ contract RemoveChain is EoaExecutor {
         bytes[] memory currentPools = PoolVersion._remotePools(tokenPoolAddress, poolVersion, remoteChainSelector);
         console.log(string.concat("Current Remote Pools on this lane: ", vm.toString(currentPools.length)));
         for (uint256 i = 0; i < currentPools.length; i++) {
-            if (currentPools[i].length == 32) {
-                console.log(
-                    string.concat("  [", vm.toString(i), "] ", vm.toString(abi.decode(currentPools[i], (address))))
-                );
-            } else {
-                console.log(string.concat("  [", vm.toString(i), "] (raw) ", vm.toString(currentPools[i])));
-            }
+            console.log(
+                string.concat(
+                    "  [", vm.toString(i), "] ", ChainHandlers._formatAddress(destChainFamily, currentPools[i])
+                )
+            );
         }
         console.log("");
 
@@ -131,7 +144,7 @@ contract RemoveChain is EoaExecutor {
         console.log(string.concat(unicode"✅ Complete on ", sourceChainName, "!"));
         console.log("========================================");
         console.log(string.concat("Token Pool:      ", vm.toString(tokenPoolAddress)));
-        console.log(string.concat("Removed Chain:   ", helperConfig.getChainName(destChainId)));
+        console.log(string.concat("Removed Chain:   ", destChainDisplayName));
         console.log(string.concat("Selector:        ", vm.toString(remoteChainSelector)));
         console.log(
             string.concat(
@@ -140,6 +153,24 @@ contract RemoveChain is EoaExecutor {
         );
         console.log("========================================");
         console.log("");
+    }
+
+    /// @dev Backward-compat overload kept for test harnesses and older internal call sites.
+    ///      Resolves the display name from the EVM chain ID and delegates to the family-aware path.
+    ///      The family defaults to EVM (the historical callers are EVM-only test harnesses).
+    function _removeChain(
+        address tokenPoolAddress,
+        uint64 remoteChainSelector,
+        string memory destChainName,
+        uint256 destChainId
+    ) internal {
+        _removeChain(
+            tokenPoolAddress,
+            remoteChainSelector,
+            destChainName,
+            helperConfig.getChainName(destChainId),
+            ChainHandlers.ChainFamily.EVM
+        );
     }
 
     /// @dev The exhaustive version switch for a whole-chain removal, matching ApplyChainUpdates'
