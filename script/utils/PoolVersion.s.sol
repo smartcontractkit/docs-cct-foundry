@@ -260,17 +260,33 @@ library PoolVersion {
             try ITypeAndVersion(pool).typeAndVersion() returns (string memory t) {
                 return t;
             } catch {
-                revert(_notAPool(pool));
+                revert(_unreadable(pool));
             }
         }
-        revert(_notAPool(pool));
+        revert(_noCode(pool));
     }
 
-    function _notAPool(address pool) private pure returns (string memory) {
+    /// @dev Nothing is deployed here, which is definite, and passing a token address is the usual cause.
+    function _noCode(address pool) private pure returns (string memory) {
         return string.concat(
-            "NotACcipTokenPool: no typeAndVersion() at ",
+            "NotACcipTokenPool: no contract at ",
             VM.toString(pool),
-            "; not a CCIP token pool. Did you pass the token address instead of the pool? See ",
+            ". Did you pass the token address instead of the pool? See ",
+            PoolVersions.DOCS,
+            "."
+        );
+    }
+
+    /// @dev A contract is deployed and it did not answer. "Not a pool" is only one of the reasons, so the
+    ///      message stops short of choosing: an unrelated contract, a proxy pointing nowhere, and a pool
+    ///      whose bytecode this run cannot execute all arrive here identically, and naming one of them
+    ///      sends the reader to fix something that may be correct.
+    function _unreadable(address pool) private pure returns (string memory) {
+        return string.concat(
+            "NotACcipTokenPool: the contract at ",
+            VM.toString(pool),
+            " did not answer typeAndVersion(). It may not be a CCIP token pool, or it may be one this run"
+            " cannot execute (check evm_version against the pool's compiler target). See ",
             PoolVersions.DOCS,
             "."
         );

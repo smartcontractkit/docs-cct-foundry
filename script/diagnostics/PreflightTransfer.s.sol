@@ -45,6 +45,10 @@ interface IPoolToken {
 ///         word, e.g. `0x0000000100000000000000000000000000000000000000000000000000000000`, to select the
 ///         fast-finality inbound bucket), TOKEN_ARGS (bytes, IPoolV2 lock only).
 ///
+///         ORIGINAL_SENDER is the account the source pool gates on (allowlist, policy engine). Left at its
+///         default (RECEIVER) it asks whether the receiver could send to themselves, so set it whenever
+///         someone else sends. Otherwise a clean GO here can still be followed by a live SenderNotAllowed.
+///
 /// Usage:
 ///   make preflight SOURCE_CHAIN=ethereum-testnet-sepolia DEST_CHAIN=avalanche-fuji AMOUNT=10000 RECEIVER=0xYou
 ///   # raw forge (the make recipe sets the two RPC URLs from each chain's rpcEnv):
@@ -114,6 +118,7 @@ contract PreflightTransfer is Script, StdCheats {
         console.log(string.concat("Dest pool:     ", vm.toString(ctx.destPool)));
         console.log(string.concat("Amount:        ", vm.toString(ctx.amount)));
         console.log(string.concat("Receiver:      ", vm.toString(ctx.receiver)));
+        console.log(string.concat("Sender:        ", vm.toString(ctx.originalSender)));
 
         (bytes memory destPoolData, uint256 releaseAmount) = _simulateLockOrBurn(ctx);
         _simulateReleaseOrMint(ctx, destPoolData, releaseAmount);
@@ -210,14 +215,14 @@ contract PreflightTransfer is Script, StdCheats {
             try IPoolV2(ctx.destPool).releaseOrMint(input, ctx.requestedFinality) returns (
                 Pool.ReleaseOrMintOutV1 memory out
             ) {
-                _go(out.destinationAmount);
+                _go(out.destinationAmount, ctx.originalSender);
             } catch (bytes memory reason) {
                 _noGoRevert("destination releaseOrMint", ctx.destPool, localToken, reason);
             }
         } else {
             vm.prank(offRamp);
             try IPoolV1(ctx.destPool).releaseOrMint(input) returns (Pool.ReleaseOrMintOutV1 memory out) {
-                _go(out.destinationAmount);
+                _go(out.destinationAmount, ctx.originalSender);
             } catch (bytes memory reason) {
                 _noGoRevert("destination releaseOrMint", ctx.destPool, localToken, reason);
             }
@@ -248,9 +253,14 @@ contract PreflightTransfer is Script, StdCheats {
         }
     }
 
-    function _go(uint256 destinationAmount) internal pure {
+    /// @dev The verdict names the sender it simulated. The source pool gates on `originalSender` (the
+    ///      allowlist, and any policy engine), so a GO holds for that account only: simulate one address
+    ///      and send from another, and the same lane can strand on `SenderNotAllowed` straight after a
+    ///      clean preflight.
+    function _go(uint256 destinationAmount, address originalSender) internal pure {
         console.log("=========================================");
         console.log(unicode"✅ GO: both pool legs simulate cleanly; this transfer would execute.");
+        console.log(string.concat("   simulated sender: ", vm.toString(originalSender)));
         console.log(string.concat("   destinationAmount (local decimals): ", vm.toString(destinationAmount)));
     }
 

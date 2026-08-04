@@ -42,6 +42,14 @@ contract UpdateAllowList is EoaExecutor {
         address[] memory removes = HelperUtils._parseAddressArray(vm, vm.envOr("REMOVE_ADDRESSES", string("")), "");
         address[] memory adds = HelperUtils._parseAddressArray(vm, vm.envOr("ADD_ADDRESSES", string("")), "");
 
+        // With neither variable set both arrays parse empty, and the target accepts that as a no-op: the
+        // run would report success and link a real transaction, so a mistyped variable name would look
+        // like an applied change. Refuse before broadcasting.
+        require(
+            removes.length + adds.length > 0,
+            "No allowlist changes given. Set ADD_ADDRESSES and/or REMOVE_ADDRESSES (CSV or JSON array)."
+        );
+
         console.log("");
         console.log("========================================");
         console.log(unicode"📝 Update AllowList");

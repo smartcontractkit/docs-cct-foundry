@@ -839,11 +839,28 @@ contract RolesAuditor {
             _fail("governance.safe.address", string.concat(VM.toString(safe), " has NO code on this chain"));
             return safe;
         }
-        _pass("governance.safe.address", string.concat(VM.toString(safe), " (has code)"));
+        // Code at an address is not a Safe. A declared safe.address that is really a timelock, or any
+        // other contract, answers neither getter, so both reads return zero and a declaration of
+        // `threshold: 0` with no owners reconciles PASS, though no Safe can hold a zero threshold. The
+        // probe is the one `RolesSnapshot` writes with, so the two sides cannot disagree about what
+        // counts as a Safe.
+        if (!RolesProbes._looksLikeSafe(safe)) {
+            _fail(
+                "governance.safe.address",
+                string.concat(
+                    VM.toString(safe),
+                    " has code but does not answer both getThreshold() and getOwners(), so it cannot be audited as a Safe"
+                )
+            );
+            return safe;
+        }
+        _pass("governance.safe.address", string.concat(VM.toString(safe), " (answers getThreshold() and getOwners())"));
         if (VM.keyExistsJson(json, ".roles.governance.safe.threshold")) {
             uint256 declared = VM.parseJsonUint(json, ".roles.governance.safe.threshold");
-            (, uint256 live) = RolesProbes._tryUint(safe, "getThreshold()");
-            if (declared == live) {
+            (bool ok, uint256 live) = RolesProbes._tryUint(safe, "getThreshold()");
+            if (!ok) {
+                _fail("governance.safe.threshold", "getThreshold() could not be read, so nothing was compared");
+            } else if (declared == live) {
                 _pass("governance.safe.threshold", VM.toString(live));
             } else {
                 _fail(
@@ -853,8 +870,15 @@ contract RolesAuditor {
             }
         }
         if (VM.keyExistsJson(json, ".roles.governance.safe.owners")) {
-            (, address[] memory owners) = RolesProbes._tryAddressArray(safe, abi.encodeWithSignature("getOwners()"));
-            _checkSet("governance.safe.owners", VM.parseJsonAddressArray(json, ".roles.governance.safe.owners"), owners);
+            (bool ok, address[] memory owners) =
+                RolesProbes._tryAddressArray(safe, abi.encodeWithSignature("getOwners()"));
+            if (!ok) {
+                _fail("governance.safe.owners", "getOwners() could not be read, so nothing was compared");
+            } else {
+                _checkSet(
+                    "governance.safe.owners", VM.parseJsonAddressArray(json, ".roles.governance.safe.owners"), owners
+                );
+            }
         }
     }
 

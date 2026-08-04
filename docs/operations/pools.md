@@ -58,11 +58,14 @@ forge script \
 The address is saved to `history/token-pools/{selectorName}/{timestamp}-{SYMBOL}-BurnMintTokenPool.json`
 (keys `{CHAIN_NAME_IDENTIFIER}_TOKEN_POOL` and `{CHAIN_NAME_IDENTIFIER}_TOKEN`).
 
-Set `POOL_HOOKS=0x...` to attach an `AdvancedPoolHooks` contract at deploy time. Set `DECIMALS=<n>` if
-your token does not implement the optional `decimals()` ERC20 function; the script falls back to this
-value and fails if neither is available. The script also attempts `grantMintAndBurnRoles` on the token
-to grant the pool mint and burn rights; if the token does not implement it, the script prints
-instructions to grant the roles manually.
+Set `POOL_HOOKS=0x...` to attach an `AdvancedPoolHooks` contract at deploy time. The pool's decimals
+value comes from the token's `decimals()` when it answers; `decimals()` is optional in ERC20, so for a
+token without it set `DECIMALS=<n>` explicitly - the pool takes the value as a constructor argument by
+design and treats an on-chain read only as a cross-check. When both sources exist they must agree, and
+when neither does the deploy stops: the value is immutable and scales every amount the pool moves, so
+it is never guessed. The script also attempts `grantMintAndBurnRoles` on the token to grant the pool
+mint and burn rights; if the token does not implement it, the script prints instructions to grant the
+roles manually.
 
 ## Lock and release pool
 
@@ -72,10 +75,11 @@ lockbox must authorize the pool before it can deposit or withdraw tokens. The de
 lockbox, then pool, then authorize the pool on the lockbox.
 
 `LOCK_BOX` is required and must be the address of a deployed `ERC20LockBox` for the token. Set
-`POOL_HOOKS=0x...` to attach an already-deployed `AdvancedPoolHooks` contract. Set `DECIMALS=<n>` if
-your token does not implement `decimals()`. When deploying the lockbox, optionally set
-`AUTHORIZED_CALLERS` (CSV or JSON array) to authorize addresses immediately, useful for letting the
-deployer or token issuer deposit and withdraw initial liquidity.
+`POOL_HOOKS=0x...` to attach an already-deployed `AdvancedPoolHooks` contract. Decimals resolve the same
+way as for the BurnMint pool above: read from the token when `decimals()` answers, `DECIMALS=<n>` for a
+token without the optional getter, agreement required when both exist, refusal when neither. When
+deploying the lockbox, optionally set `AUTHORIZED_CALLERS` (CSV or JSON array) to authorize addresses
+immediately, useful for letting the deployer or token issuer deposit and withdraw initial liquidity.
 
 The golden-path targets `make deploy-lockbox CHAIN=<name> VERIFY=1` and
 `make deploy-lockrelease-pool CHAIN=<name> VERIFY=1` resolve the token and lock box from the registry;

@@ -54,11 +54,17 @@ contract GetFinalityConfig is Script {
         try tokenPool.getAllowedFinalityConfig() returns (bytes4 allowedFinality) {
             FinalityConfigUtils._logFinalityConfig(allowedFinality);
         } catch (bytes memory err) {
+            // A revert here has several causes: a pool older than TokenPool 2.0.0, an address that is not
+            // a CCIP pool, or bytecode this run cannot execute. The raw data is printed so the reader can
+            // tell which, and the revert is re-raised rather than swallowed, because printing an error
+            // and exiting 0 tells any wrapper reading the exit code that the read succeeded.
             console.log(
-                unicode"❌ Error: getAllowedFinalityConfig() reverted. Pool may be v1 (requires TokenPool v2.0+)."
+                unicode"❌ Error: getAllowedFinalityConfig() reverted. The pool may predate TokenPool 2.0.0, this"
             );
-            console.log("  Raw revert data:");
+            console.log("   address may not be a CCIP token pool, or this run may not be able to execute its");
+            console.log("   bytecode. Raw revert data:");
             console.logBytes(err);
+            revert("getAllowedFinalityConfig() reverted (see raw revert data above)");
         }
 
         // ── Footer ─────────────────────────────────────────────────────────

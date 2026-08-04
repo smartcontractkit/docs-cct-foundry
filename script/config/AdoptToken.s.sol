@@ -95,7 +95,13 @@ contract AdoptToken is Script {
         plan.chainId = chainId;
         plan.token = token;
         plan.pool = pool;
-        plan.tokenSymbol = DeploymentUtils._getSymbol(vm, token);
+        // The symbol keys every entry this adoption writes, so a defaulted one collides with any other
+        // token on this chain whose symbol could not be read, and the later adoption overwrites the
+        // earlier. Both look like ordinary entries afterwards, so require one that came from the token
+        // or from TOKEN_SYMBOL.
+        (bool symbolOk, string memory tokenSymbol) = DeploymentUtils._trySymbol(vm, token);
+        require(symbolOk, "The token supplied no usable symbol: set TOKEN_SYMBOL to the symbol to adopt it under");
+        plan.tokenSymbol = tokenSymbol;
 
         console.log("");
         console.log("========================================");

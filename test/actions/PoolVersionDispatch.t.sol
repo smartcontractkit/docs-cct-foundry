@@ -402,13 +402,27 @@ contract PoolVersionDispatchTest is Test {
     // Resolver: the four refusal classes, asserted on message content
     // ─────────────────────────────────────────────────────────────────────────
 
-    function test_Refusal_NotAPool() public {
+    /// @dev A contract is deployed here and it did not answer. Several things produce that, so the
+    ///      refusal names the possibilities rather than picking one: telling an operator their pool is
+    ///      not a pool sends them to change something that may be correct.
+    function test_Refusal_ContractPresentButDoesNotAnswer() public {
         address none = address(new NoTypeAndVersion());
         string memory reason = _catchResolve(none);
         _assertContains(reason, "NotACcipTokenPool");
         _assertContains(reason, vm.toString(none));
-        _assertContains(reason, "not a CCIP token pool");
-        _assertContains(reason, "token address instead of the pool");
+        _assertContains(reason, "did not answer typeAndVersion()");
+        _assertContains(reason, "evm_version");
+    }
+
+    /// @dev The two refusals must not read alike. One is a fact (nothing is deployed there), the other is
+    ///      a list of candidates, and an operator who cannot tell them apart debugs the wrong one.
+    function test_Refusal_DistinguishesNoCodeFromNoAnswer() public {
+        string memory present = _catchResolve(address(new NoTypeAndVersion()));
+        string memory codeless = _catchResolve(address(uint160(uint256(keccak256("codeless-distinct")))));
+        assertTrue(
+            keccak256(bytes(present)) != keccak256(bytes(codeless)),
+            "a deployed contract that stays silent and an empty address must not refuse identically"
+        );
     }
 
     function test_Refusal_NotAPool_CodelessAddress() public view {
@@ -417,7 +431,9 @@ contract PoolVersionDispatchTest is Test {
         address codeless = address(uint160(uint256(keccak256("codeless-address-fixture"))));
         string memory reason = _catchResolve(codeless);
         _assertContains(reason, "NotACcipTokenPool");
-        _assertContains(reason, "not a CCIP token pool");
+        _assertContains(reason, "no contract at");
+        // Nothing is deployed, so the usual cause is worth naming here, unlike the has-code case.
+        _assertContains(reason, "token address instead of the pool");
 
         (bool ok, PoolVersions.Version v,) = shim.tryResolve(codeless);
         assertFalse(ok, "codeless address degrades on read paths");
