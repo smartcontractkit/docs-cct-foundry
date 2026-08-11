@@ -109,3 +109,6 @@ it is not.
 | `INBOUND_RATE_LIMIT_CAPACITY`  | No       | uint128, inbound token bucket capacity (fast finality bucket)                                                                                                             |
 | `INBOUND_RATE_LIMIT_RATE`      | No       | uint128, inbound token bucket refill rate (tokens/second)                                                                                                                 |
 | `INBOUND_RATE_LIMIT_ENABLED`   | No       | Override `isEnabled` explicitly (`true`/`false`; defaults to `true` when `CAPACITY` or `RATE` are set)                                                                    |
+
+The rate-limit inputs are all-or-nothing per direction; a partial set is refused naming the missing
+variable. The full rule is in [Rate limits](rate-limits.md).

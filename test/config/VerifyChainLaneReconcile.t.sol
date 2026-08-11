@@ -457,6 +457,44 @@ contract VerifyChainLaneReconcileForkTest is BaseForkTest, LaneReconcileScratch 
 
 /// @dev A minimal v1-surface pool mock: `typeAndVersion()` is constructor-set, the chain-membership
 /// getters answer for one selector once "applied", and ONLY the per-direction v1 rate-limit getters
+/// @dev A 1.5.0-shaped pool whose `getSupportedChains()` REVERTS: the forward reconcile works, the
+/// reverse (on-chain -> declared) check cannot run. Pins that an unanswering deployed pool is an
+/// unverified gap, not a designed absence.
+contract MockNoReversePool {
+    uint64 private immutable i_selector;
+    RateLimiter.TokenBucket private s_outbound;
+    RateLimiter.TokenBucket private s_inbound;
+
+    constructor(uint64 selector_) {
+        i_selector = selector_;
+    }
+
+    function applyLane(RateLimiter.TokenBucket memory outbound, RateLimiter.TokenBucket memory inbound) external {
+        s_outbound = outbound;
+        s_inbound = inbound;
+    }
+
+    function typeAndVersion() external pure returns (string memory) {
+        return "BurnMintTokenPool 1.5.0";
+    }
+
+    function isSupportedChain(uint64 remoteChainSelector) external view returns (bool) {
+        return remoteChainSelector == i_selector;
+    }
+
+    function getSupportedChains() external pure returns (uint64[] memory) {
+        revert("no reverse enumeration");
+    }
+
+    function getCurrentOutboundRateLimiterState(uint64) external view returns (RateLimiter.TokenBucket memory) {
+        return s_outbound;
+    }
+
+    function getCurrentInboundRateLimiterState(uint64) external view returns (RateLimiter.TokenBucket memory) {
+        return s_inbound;
+    }
+}
+
 /// exist (no `getCurrentRateLimiterState(uint64,bool)`), so any v2-first read on it reverts. That
 /// absence is the point: a clean reconcile proves the rung dispatched the v1 getters.
 contract MockV1Pool {
@@ -624,6 +662,25 @@ contract VerifyChainLaneReconcileMockTest is LaneReconcileScratch {
 
     // An unrecognized typeAndVersion: one best-effort WARN, then reads degrade (v2 getter first,
     // v1 fallback - the mock only answers v1) and still reconcile the declared policy.
+    // A deployed pool that does not answer getSupportedChains(): the forward reconcile stays clean,
+    // and the skipped reverse check counts as an unverified gap (toward the INCOMPLETE verdict),
+    // never a FAIL or a designed skip.
+    function test_Lanes_PoolNotAnsweringReverse_CountsUnverifiedGap() public {
+        string memory name = "zz-scratch-lanechk-m4";
+        _writeScratchChain(name, 887001401, 8_870_014_010_000_000_001);
+        _declareLane(name, "zz-scratch-lanechk-mr4", _laneEntry(SEL, CAPACITY, RATE, _inboundBlock()));
+
+        MockNoReversePool mockPool = new MockNoReversePool(SEL);
+        mockPool.applyLane(_bucket(true, CAPACITY, RATE), _bucket(true, CAPACITY, RATE));
+
+        VerifyChain vc = new VerifyChain();
+        (uint256 fails,) = vc.checkLanesOnChainForTest(name, address(mockPool));
+        assertEq(fails, 0, "an unanswering reverse enumeration must not FAIL");
+        assertEq(vc.unverifiedForTest(), 1, "the skipped reverse check must count as an unverified gap");
+
+        _cleanupScratchOne(name);
+    }
+
     function test_Lanes_Warn_UnknownVersionDegradesToBestEffort() public {
         string memory name = "zz-scratch-lanechk-m3";
         _writeScratchChain(name, 887001301, 8_870_013_010_000_000_001);

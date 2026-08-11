@@ -29,12 +29,13 @@ import {ProjectStore} from "../../../src/utils/ProjectStore.sol";
 ///   DEST_CHAIN_FAMILY             - Override destination family (default: from DEST_CHAIN config)
 ///   DEST_CHAIN_SELECTOR           - Override destination selector (default: from DEST_CHAIN config)
 ///
-/// Environment Variables (set to update outbound - any one triggers the direction):
+/// Environment Variables (set to update outbound - any one triggers the direction; the direction's
+/// inputs are then all-or-nothing, decided by `RateLimiterUtils._establishBucket`):
 ///   OUTBOUND_RATE_LIMIT_CAPACITY  - uint128, token bucket capacity (isEnabled defaults to true when set)
 ///   OUTBOUND_RATE_LIMIT_RATE      - uint128, token bucket refill rate (isEnabled defaults to true when set)
 ///   OUTBOUND_RATE_LIMIT_ENABLED   - true/false (optional override; defaults to true if CAPACITY/RATE provided)
 ///
-/// Environment Variables (set to update inbound - any one triggers the direction):
+/// Environment Variables (set to update inbound - same all-or-nothing rule per direction):
 ///   INBOUND_RATE_LIMIT_CAPACITY   - uint128, token bucket capacity (isEnabled defaults to true when set)
 ///   INBOUND_RATE_LIMIT_RATE       - uint128, token bucket refill rate (isEnabled defaults to true when set)
 ///   INBOUND_RATE_LIMIT_ENABLED    - true/false (optional override; defaults to true if CAPACITY/RATE provided)
@@ -216,27 +217,35 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
 
     /// @dev Reads the rate-limit env vars through the env seams - the same semantics as
     ///      `RateLimiterUtils._readRateLimitUpdate` (which reads the process env directly and stays
-    ///      untouched for its other consumers): any of a direction's vars triggers the direction,
-    ///      isEnabled defaults to true when CAPACITY or RATE is set, ENABLED overrides explicitly.
+    ///      untouched for its other consumers): any of a direction's vars triggers the direction, and
+    ///      the direction's inputs are then all-or-nothing (`RateLimiterUtils._establishBucket`), so
+    ///      an unset variable never becomes a 0 written on chain.
     function _readRateLimitUpdate() internal view returns (RateLimiterUtils.RateLimitUpdate memory u) {
+        bool outboundEnabledSet = _envExists("OUTBOUND_RATE_LIMIT_ENABLED");
         bool outboundCapacitySet = _envExists("OUTBOUND_RATE_LIMIT_CAPACITY");
         bool outboundRateSet = _envExists("OUTBOUND_RATE_LIMIT_RATE");
+        bool inboundEnabledSet = _envExists("INBOUND_RATE_LIMIT_ENABLED");
         bool inboundCapacitySet = _envExists("INBOUND_RATE_LIMIT_CAPACITY");
         bool inboundRateSet = _envExists("INBOUND_RATE_LIMIT_RATE");
 
-        u.updateOutbound = _envExists("OUTBOUND_RATE_LIMIT_ENABLED") || outboundCapacitySet || outboundRateSet;
-        u.updateInbound = _envExists("INBOUND_RATE_LIMIT_ENABLED") || inboundCapacitySet || inboundRateSet;
-
-        if (u.updateOutbound) {
-            u.outboundEnabled = _envBool("OUTBOUND_RATE_LIMIT_ENABLED", outboundCapacitySet || outboundRateSet);
-            u.outboundCapacity = uint128(_envUint("OUTBOUND_RATE_LIMIT_CAPACITY"));
-            u.outboundRate = uint128(_envUint("OUTBOUND_RATE_LIMIT_RATE"));
-        }
-        if (u.updateInbound) {
-            u.inboundEnabled = _envBool("INBOUND_RATE_LIMIT_ENABLED", inboundCapacitySet || inboundRateSet);
-            u.inboundCapacity = uint128(_envUint("INBOUND_RATE_LIMIT_CAPACITY"));
-            u.inboundRate = uint128(_envUint("INBOUND_RATE_LIMIT_RATE"));
-        }
+        (u.updateOutbound, u.outboundEnabled, u.outboundCapacity, u.outboundRate) = RateLimiterUtils._establishBucket(
+            "OUTBOUND",
+            outboundEnabledSet,
+            _envBool("OUTBOUND_RATE_LIMIT_ENABLED", false),
+            outboundCapacitySet,
+            _envUint("OUTBOUND_RATE_LIMIT_CAPACITY"),
+            outboundRateSet,
+            _envUint("OUTBOUND_RATE_LIMIT_RATE")
+        );
+        (u.updateInbound, u.inboundEnabled, u.inboundCapacity, u.inboundRate) = RateLimiterUtils._establishBucket(
+            "INBOUND",
+            inboundEnabledSet,
+            _envBool("INBOUND_RATE_LIMIT_ENABLED", false),
+            inboundCapacitySet,
+            _envUint("INBOUND_RATE_LIMIT_CAPACITY"),
+            inboundRateSet,
+            _envUint("INBOUND_RATE_LIMIT_RATE")
+        );
     }
 
     /// @dev Resolves the per-direction buckets through the input ladder (see the contract natspec).

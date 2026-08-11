@@ -4,7 +4,15 @@
     "when_to_use": "Configure a remote chain on a token pool: the remote pool addresses, the remote token address, and both rate limiter configs.",
     "preconditions": "The executing account owns the pool. Every remote address is already chain-family encoded (EVM: abi.encode(address); SVM: raw 32 bytes).",
     "postconditions": "The chain's entry on the pool matches the payload exactly.",
-    "failure_modes": "REPLACE, NOT MERGE: re-applying an already-configured chain removes its whole entry first, including every registered remote pool and both rate limiter configs, so anything the payload omits is lost. Mid-migration that drops the old remote pool a lane still needs (in-flight messages then fail InvalidSourcePoolAddress) or un-throttles a lane throttled on purpose. Repeating a selector inside one payload reverts NonExistentChain, because the first removal already took it out."
+    "failure_modes": "REPLACE, NOT MERGE: re-applying an already-configured chain removes its whole entry first, including every registered remote pool and both rate limiter configs, so anything the payload omits is lost. Mid-migration that drops the old remote pool a lane still needs (in-flight messages then fail InvalidSourcePoolAddress) or un-throttles a lane throttled on purpose. Repeating a selector inside one payload reverts NonExistentChain, because the first removal already took it out.",
+    "inputs": {
+      "OUTBOUND_RATE_LIMIT_CAPACITY": "uint128 token-bucket capacity. Per direction the inputs are all-or-nothing: an enabled bucket needs CAPACITY and RATE together, and a partial set is refused naming the missing variable.",
+      "OUTBOUND_RATE_LIMIT_RATE": "uint128 token-bucket refill rate. An enabled bucket needs CAPACITY and RATE together.",
+      "OUTBOUND_RATE_LIMIT_ENABLED": "true/false; defaults to true when CAPACITY or RATE are set. false stands alone as a disable.",
+      "INBOUND_RATE_LIMIT_CAPACITY": "uint128 token-bucket capacity (inbound). Same all-or-nothing rule per direction.",
+      "INBOUND_RATE_LIMIT_RATE": "uint128 token-bucket refill rate (inbound).",
+      "INBOUND_RATE_LIMIT_ENABLED": "true/false; defaults to true when CAPACITY or RATE are set. false stands alone as a disable."
+    }
   },
   "ClaimAndAcceptAdmin": {
     "when_to_use": "Register a token you control in the TokenAdminRegistry in one atomic step. Prefer this over separate ClaimAdmin then AcceptAdminRole when you want a single Safe batch: AcceptAdminRole on its own preflight-requires the pending administrator to already be set, so the two standalone steps cannot be deferred into one batch, whereas this pair executes together.",
@@ -12,5 +20,32 @@
     "postconditions": "The TokenAdminRegistry administrator for the token is the executing account.",
     "example": "CCIP_ADMIN_ADDRESS=0xYourAdmin forge script script/setup/ClaimAndAcceptAdmin.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL --account $KEYSTORE_NAME --broadcast",
     "failure_modes": "Reverts if no claim path resolves the executing account as the token admin, or if the token is already registered to a different administrator."
+  },
+  "SetDynamicConfig": {
+    "inputs": {
+      "ROUTER": "Optional. Unset preserves the pool's current on-chain router verbatim.",
+      "RATE_LIMIT_ADMIN": "Optional. Unset preserves the current on-chain value verbatim, address(0) included.",
+      "FEE_ADMIN": "Optional. Unset preserves the current value verbatim; an explicit address(0) restricts fee withdrawal to the owner."
+    }
+  },
+  "UpdateRateLimiters": {
+    "inputs": {
+      "OUTBOUND_RATE_LIMIT_CAPACITY": "uint128 token-bucket capacity. Per direction the inputs are all-or-nothing: an enabled bucket needs CAPACITY and RATE together, and a partial set is refused naming the missing variable.",
+      "OUTBOUND_RATE_LIMIT_RATE": "uint128 token-bucket refill rate. An enabled bucket needs CAPACITY and RATE together.",
+      "OUTBOUND_RATE_LIMIT_ENABLED": "true/false; defaults to true when CAPACITY or RATE are set. false stands alone as a disable.",
+      "INBOUND_RATE_LIMIT_CAPACITY": "uint128 token-bucket capacity (inbound). Same all-or-nothing rule per direction.",
+      "INBOUND_RATE_LIMIT_RATE": "uint128 token-bucket refill rate (inbound).",
+      "INBOUND_RATE_LIMIT_ENABLED": "true/false; defaults to true when CAPACITY or RATE are set. false stands alone as a disable."
+    }
+  },
+  "SetFinalityConfig": {
+    "inputs": {
+      "OUTBOUND_RATE_LIMIT_CAPACITY": "uint128 token-bucket capacity. Per direction the inputs are all-or-nothing: an enabled bucket needs CAPACITY and RATE together, and a partial set is refused naming the missing variable.",
+      "OUTBOUND_RATE_LIMIT_RATE": "uint128 token-bucket refill rate. An enabled bucket needs CAPACITY and RATE together.",
+      "OUTBOUND_RATE_LIMIT_ENABLED": "true/false; defaults to true when CAPACITY or RATE are set. false stands alone as a disable.",
+      "INBOUND_RATE_LIMIT_CAPACITY": "uint128 token-bucket capacity (inbound). Same all-or-nothing rule per direction.",
+      "INBOUND_RATE_LIMIT_RATE": "uint128 token-bucket refill rate (inbound).",
+      "INBOUND_RATE_LIMIT_ENABLED": "true/false; defaults to true when CAPACITY or RATE are set. false stands alone as a disable."
+    }
   }
 }

@@ -352,6 +352,14 @@ function main() {
   // reached only the .md page and left the catalog and index on the name-heuristic default.
   for (const s of scripts) s.destructive = meta[s.name]?.destructive ?? s.destructive;
 
+  // Same at-the-source rule for authored inputs: a var read through an env seam is invisible to the
+  // vm.env* regex, and an authored `inputs` entry that reached only the .md page would leave the
+  // machine catalog advertising `"inputs": []` for a script that does read env vars.
+  for (const s of scripts) {
+    const authored = Object.keys(meta[s.name]?.inputs ?? {});
+    if (authored.length) s.inputs = [...new Set([...s.inputs, ...authored])].sort();
+  }
+
   // Coverage: no authored meta entry may name a script that no longer exists.
   const names = new Set(scripts.map((s) => s.name));
   const orphans = Object.keys(meta).filter((k) => !names.has(k));

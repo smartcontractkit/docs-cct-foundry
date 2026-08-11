@@ -19,7 +19,8 @@ import {RolesProbes} from "../../src/roles/RolesProbes.sol";
 /// standalone audit of who holds what right now.
 ///
 /// Every read goes through `RolesProbes`'s tolerant staticcalls, so a slot a given template/version
-/// does not expose prints as "(absent)" rather than reverting the whole report - one reader covers
+/// does not expose (or that does not answer) prints as "(<getter> did not answer)" rather than
+/// reverting the whole report - one reader covers
 /// `CrossChainToken` / `BurnMintERC20` / `FactoryBurnMintERC20` / BYO tokens and v1.x / v2.0 pools.
 ///
 ///   forge script script/governance/VerifyRoles.s.sol --sig "run(string)" ethereum-testnet-sepolia --rpc-url <url>
@@ -141,9 +142,10 @@ contract VerifyRoles is Script {
         if (!has || lockbox == address(0)) return;
         console.log("--- lockbox authority (", lockbox, ") ---");
         _logAddr("owner               ", lockbox, "owner()");
-        (, address[] memory callers) =
+        (bool okCallers, address[] memory callers) =
             RolesProbes._tryAddressArray(lockbox, abi.encodeWithSignature("getAllAuthorizedCallers()"));
-        _logSet("authorizedCallers   ", callers);
+        if (okCallers) _logSet("authorizedCallers   ", callers);
+        else console.log("  authorizedCallers   : (getAllAuthorizedCallers() did not answer)");
     }
 
     function _reportHooks(address pool) private view {
@@ -152,11 +154,15 @@ contract VerifyRoles is Script {
         console.log("--- hooks authority (", hooks, ") ---");
         _logAddr("owner               ", hooks, "owner()");
         _logAddr("policyEngine        ", hooks, "getPolicyEngine()");
-        (, bool allowlistEnabled) = RolesProbes._tryBool(hooks, "getAllowListEnabled()");
-        console.log("  allowlistEnabled    :", allowlistEnabled);
-        (, address[] memory callers) =
+        (bool okEnabled, bool allowlistEnabled) = RolesProbes._tryBool(hooks, "getAllowListEnabled()");
+        // A failed read is named as such: printing the probe's zero would report "allowlistEnabled:
+        // false" about a contract that never answered.
+        if (okEnabled) console.log("  allowlistEnabled    :", allowlistEnabled);
+        else console.log("  allowlistEnabled    : (getAllowListEnabled() did not answer)");
+        (bool okCallers, address[] memory callers) =
             RolesProbes._tryAddressArray(hooks, abi.encodeWithSignature("getAllAuthorizedCallers()"));
-        _logSet("authorizedCallers   ", callers);
+        if (okCallers) _logSet("authorizedCallers   ", callers);
+        else console.log("  authorizedCallers   : (getAllAuthorizedCallers() did not answer)");
     }
 
     // ---------------------------------------------------------------- helpers
@@ -164,7 +170,7 @@ contract VerifyRoles is Script {
     function _logAddr(string memory label, address target, string memory sig) private view {
         (bool ok, address val) = RolesProbes._tryAddress(target, sig);
         if (ok) console.log(string.concat("  ", label, ":"), val);
-        else console.log(string.concat("  ", label, ": (absent)"));
+        else console.log(string.concat("  ", label, ": (", sig, " did not answer)"));
     }
 
     function _logRole(string memory label, address token, bytes32 role) private view {

@@ -213,17 +213,20 @@ contract ApplyChainUpdatesLaneSourceTest is LaneReconcileScratch {
         _cleanupScratchOne(local);
     }
 
-    // CAPACITY alone: isEnabled defaults to true and the unset RATE reads 0 - the exact historical
-    // env semantics, pinned.
-    function test_CapacityOnly_EnabledDefaultsTrue_RateZero() public {
+    // CAPACITY alone is refused naming the missing RATE: an unset variable must never become a 0
+    // written on chain (an enabled bucket with rate 0 lets N tokens through, then stays shut with
+    // TokenRateLimitReached). The same shared decision gates UpdateRateLimiters and SetFinalityConfig.
+    function test_CapacityOnly_IsRefusedNamingRate() public {
         string memory local = _localChain(13);
         harness.setFakeEnv("OUTBOUND_RATE_LIMIT_CAPACITY", vm.toString(uint256(ENV_CAPACITY)));
 
-        ApplyChainUpdates.RateLimitResolution memory res = harness.resolve("zz-scratch-lanesrc-none13", REMOTE_SELECTOR);
-
-        _assertBucket(res.outbound, true, ENV_CAPACITY, 0);
-        _assertBucket(res.inbound, false, 0, 0);
-        assertTrue(res.outboundFromEnv, "CAPACITY alone must select the env rung");
+        vm.expectRevert(
+            bytes(
+                "OUTBOUND_RATE_LIMIT_RATE is not set - an enabled bucket needs CAPACITY and RATE supplied"
+                " together; an unset field must not become a 0 written on chain"
+            )
+        );
+        harness.resolve("zz-scratch-lanesrc-none13", REMOTE_SELECTOR);
 
         _cleanupScratchOne(local);
     }

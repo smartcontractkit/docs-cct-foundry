@@ -25,6 +25,11 @@ import {ProjectStore} from "../utils/ProjectStore.sol";
 contract RolesSnapshot {
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
+    /// @notice How many chain-readable fields the last `build` could NOT read (each is logged UNREAD
+    /// and omitted from the written block). A caller that persists the block uses this to say whether
+    /// the snapshot is complete or partial.
+    uint256 public unreadCount;
+
     bytes32 private constant ROLE_GRANTED_TOPIC = keccak256("RoleGranted(bytes32,address,address)");
     bytes32 private constant ROLE_REVOKED_TOPIC = keccak256("RoleRevoked(bytes32,address,address)");
 
@@ -36,8 +41,10 @@ contract RolesSnapshot {
         address pool;
         address tar;
         address poolOwner;
+        bool poolOwnerOk; // false = owner() did not answer; the field is then NOT written
         address tarAdmin;
         bool isV2;
+        bool poolAdminsOk; // false = neither admin surface answered; rateLimitAdmin is then NOT written
         address rateLimitAdmin;
         address feeAdmin;
         address ccipAdmin;
@@ -53,6 +60,7 @@ contract RolesSnapshot {
         external
         returns (string memory)
     {
+        unreadCount = 0;
         Ctx memory c;
         c.name = name;
         (c.token, c.pool) = _resolveProject(name, projectJson);
@@ -61,8 +69,8 @@ contract RolesSnapshot {
             : address(0);
         c.tar = _resolveTar(projectJson, ccipTar);
         c.template = RolesProbes._detectTemplate(c.token);
-        (c.isV2,, c.rateLimitAdmin, c.feeAdmin) = RolesProbes._readPoolAdmins(c.pool);
-        (, c.poolOwner) = RolesProbes._tryAddress(c.pool, "owner()");
+        (c.isV2, c.poolAdminsOk,, c.rateLimitAdmin, c.feeAdmin) = RolesProbes._tryPoolAdmins(c.pool);
+        (c.poolOwnerOk, c.poolOwner) = RolesProbes._tryAddress(c.pool, "owner()");
         (c.tarAdmin,) = _tarConfig(c.tar, c.token);
         return _assemble(c, projectJson);
     }
@@ -140,8 +148,10 @@ contract RolesSnapshot {
             c.adminHolder = _firstAdminCandidate(c, json);
             VM.serializeString(obj, "defaultAdmins", _defaultAdminsBlock(c, json));
         } else if (c.template == RolesProbes.TokenTemplate.FactoryBurnMintERC20) {
-            (, c.adminHolder) = RolesProbes._tryAddress(c.token, "owner()");
-            VM.serializeAddress(obj, "owner", c.adminHolder);
+            (bool okOwner, address tokenOwner) = RolesProbes._tryAddress(c.token, "owner()");
+            c.adminHolder = tokenOwner;
+            if (okOwner) VM.serializeAddress(obj, "owner", c.adminHolder);
+            else _logUnread("token.owner", "owner()");
         } else {
             _tokenAdminByo(c, json, obj);
         }
@@ -161,10 +171,13 @@ contract RolesSnapshot {
     /// @dev CrossChainToken admin surface: the single-holder two-step default admin + the separate
     /// `BURN_MINT_ADMIN_ROLE` that admins MINTER/BURNER - NOT moved by a defaultAdmin transfer.
     function _tokenAdminCrossChain(Ctx memory c, string memory json, string memory obj) private {
-        (, c.adminHolder) = RolesProbes._tryAddress(c.token, "defaultAdmin()");
-        VM.serializeAddress(obj, "defaultAdmin", c.adminHolder);
-        (, address pending) = RolesProbes._tryAddress(c.token, "pendingDefaultAdmin()");
-        if (pending != address(0)) VM.serializeAddress(obj, "pendingDefaultAdmin", pending);
+        (bool okAdmin, address adminHolder) = RolesProbes._tryAddress(c.token, "defaultAdmin()");
+        c.adminHolder = adminHolder;
+        if (okAdmin) VM.serializeAddress(obj, "defaultAdmin", c.adminHolder);
+        else _logUnread("token.defaultAdmin", "defaultAdmin()");
+        (bool okPending, address pending) = RolesProbes._tryAddress(c.token, "pendingDefaultAdmin()");
+        if (!okPending) _logUnread("token.pendingDefaultAdmin", "pendingDefaultAdmin()");
+        else if (pending != address(0)) VM.serializeAddress(obj, "pendingDefaultAdmin", pending);
         bytes32 role = RolesProbes._roleIdOrDefault(c.token, "BURN_MINT_ADMIN_ROLE()", RolesProbes.BURN_MINT_ADMIN_ROLE);
         address[] memory candidates = _candidates(c, json, ".roles.token.burnMintRoleAdmins.holders");
         VM.serializeString(obj, "burnMintRoleAdmins", _holdersBlock(c, "burnMintRoleAdmins", "", role, candidates));
@@ -441,16 +454,95 @@ contract RolesSnapshot {
 
     function _poolBlock(Ctx memory c) private returns (string memory) {
         string memory obj = string.concat("roles-pool-", c.name);
-        VM.serializeAddress(obj, "address", c.pool);
-        VM.serializeAddress(obj, "rateLimitAdmin", c.rateLimitAdmin);
+        string memory out = VM.serializeAddress(obj, "address", c.pool);
+        if (c.poolAdminsOk) out = VM.serializeAddress(obj, "rateLimitAdmin", c.rateLimitAdmin);
+        else _logUnread("pool.rateLimitAdmin", "getDynamicConfig()/getRateLimitAdmin()");
         if (c.isV2) {
-            VM.serializeAddress(obj, "feeAdmin", c.feeAdmin);
-            (, address hooks) = RolesProbes._tryAddress(c.pool, "getAdvancedPoolHooks()");
-            VM.serializeAddress(obj, "hooks", hooks);
+            out = VM.serializeAddress(obj, "feeAdmin", c.feeAdmin);
+            (bool okHooks, address hooks) = RolesProbes._tryAddress(c.pool, "getAdvancedPoolHooks()");
+            if (okHooks) out = VM.serializeAddress(obj, "hooks", hooks);
+            else _logUnread("pool.hooks", "getAdvancedPoolHooks()");
         }
-        // NOTE: a 1.5.0 pool's pendingOwner has NO getter (ConfirmedOwner) - the owner read below is
+        // NOTE: a 1.5.0 pool's pendingOwner has NO getter (ConfirmedOwner) - the owner read here is
         // the only ownership fact snapshottable across all cataloged versions.
-        return VM.serializeAddress(obj, "owner", c.poolOwner);
+        if (c.poolOwnerOk) out = VM.serializeAddress(obj, "owner", c.poolOwner);
+        else _logUnread("pool.owner", "owner()");
+        return out;
+    }
+
+    /// @dev A field the chain did not supply is NOT written - absence is the unread state
+    /// (docs/config-schema.md). Writing the probe's zero value instead would let the next audit
+    /// reconcile the failed read against itself and pass.
+    function _logUnread(string memory field, string memory sig) private {
+        unreadCount++;
+        console.log(string.concat("[snapshot] UNREAD roles.", field, ": ", sig, " did not answer - field not written"));
+    }
+
+    /// @dev Probe-and-serialize one field: written when the read answered, logged as UNREAD (and the
+    /// accumulated JSON passed through unchanged) when it did not. One helper per probed type keeps
+    /// the ok flags out of the block builders' stack frames.
+    function _putAddr(
+        string memory obj,
+        string memory prefix,
+        string memory key,
+        string memory out,
+        address target,
+        string memory sig
+    ) private returns (string memory) {
+        (bool ok, address v) = RolesProbes._tryAddress(target, sig);
+        if (!ok) {
+            _logUnread(string.concat(prefix, ".", key), sig);
+            return out;
+        }
+        return VM.serializeAddress(obj, key, v);
+    }
+
+    function _putBool(
+        string memory obj,
+        string memory prefix,
+        string memory key,
+        string memory out,
+        address target,
+        string memory sig
+    ) private returns (string memory) {
+        (bool ok, bool v) = RolesProbes._tryBool(target, sig);
+        if (!ok) {
+            _logUnread(string.concat(prefix, ".", key), sig);
+            return out;
+        }
+        return VM.serializeBool(obj, key, v);
+    }
+
+    function _putUint(
+        string memory obj,
+        string memory prefix,
+        string memory key,
+        string memory out,
+        address target,
+        string memory sig
+    ) private returns (string memory) {
+        (bool ok, uint256 v) = RolesProbes._tryUint(target, sig);
+        if (!ok) {
+            _logUnread(string.concat(prefix, ".", key), sig);
+            return out;
+        }
+        return VM.serializeUint(obj, key, v);
+    }
+
+    function _putAddrArray(
+        string memory obj,
+        string memory prefix,
+        string memory key,
+        string memory out,
+        address target,
+        string memory sig
+    ) private returns (string memory) {
+        (bool ok, address[] memory v) = RolesProbes._tryAddressArray(target, abi.encodeWithSignature(sig));
+        if (!ok) {
+            _logUnread(string.concat(prefix, ".", key), sig);
+            return out;
+        }
+        return VM.serializeAddress(obj, key, v);
     }
 
     // ---------------------------------------------------------------- lockbox / hooks
@@ -458,13 +550,11 @@ contract RolesSnapshot {
     function _lockboxBlock(string memory name, address pool) private returns (string memory) {
         (bool has, address lockbox) = RolesProbes._tryAddress(pool, "getLockBox()");
         if (!has || lockbox == address(0)) return "";
-        (, address owner_) = RolesProbes._tryAddress(lockbox, "owner()");
-        (, address[] memory callers) =
-            RolesProbes._tryAddressArray(lockbox, abi.encodeWithSignature("getAllAuthorizedCallers()"));
         string memory obj = string.concat("roles-lockbox-", name);
-        VM.serializeAddress(obj, "address", lockbox);
-        VM.serializeAddress(obj, "owner", owner_);
-        return VM.serializeAddress(obj, "authorizedCallers", callers);
+        string memory out = VM.serializeAddress(obj, "address", lockbox);
+        out = _putAddr(obj, "lockbox", "owner", out, lockbox, "owner()");
+        out = _putAddrArray(obj, "lockbox", "authorizedCallers", out, lockbox, "getAllAuthorizedCallers()");
+        return out;
     }
 
     /// @dev Hooks resolution: the pool's live `getAdvancedPoolHooks()` (v2, when attached) > the
@@ -479,19 +569,14 @@ contract RolesSnapshot {
             hooks = VM.parseJsonAddress(json, ".roles.hooks.address");
         }
         if (hooks == address(0)) return "";
-        (, address owner_) = RolesProbes._tryAddress(hooks, "owner()");
-        (, bool allowlistEnabled) = RolesProbes._tryBool(hooks, "getAllowListEnabled()");
-        (, address[] memory allowlist) = RolesProbes._tryAddressArray(hooks, abi.encodeWithSignature("getAllowList()"));
-        (, address[] memory callers) =
-            RolesProbes._tryAddressArray(hooks, abi.encodeWithSignature("getAllAuthorizedCallers()"));
-        (, address policyEngine) = RolesProbes._tryAddress(hooks, "getPolicyEngine()");
         string memory obj = string.concat("roles-hooks-", name);
-        VM.serializeAddress(obj, "address", hooks);
-        VM.serializeAddress(obj, "owner", owner_);
-        VM.serializeBool(obj, "allowlistEnabled", allowlistEnabled);
-        VM.serializeAddress(obj, "allowlist", allowlist);
-        VM.serializeAddress(obj, "policyEngine", policyEngine);
-        return VM.serializeAddress(obj, "authorizedCallers", callers);
+        string memory out = VM.serializeAddress(obj, "address", hooks);
+        out = _putAddr(obj, "hooks", "owner", out, hooks, "owner()");
+        out = _putBool(obj, "hooks", "allowlistEnabled", out, hooks, "getAllowListEnabled()");
+        out = _putAddrArray(obj, "hooks", "allowlist", out, hooks, "getAllowList()");
+        out = _putAddr(obj, "hooks", "policyEngine", out, hooks, "getPolicyEngine()");
+        out = _putAddrArray(obj, "hooks", "authorizedCallers", out, hooks, "getAllAuthorizedCallers()");
+        return out;
     }
 
     // ---------------------------------------------------------------- governance (OPTIONAL, three shapes)
@@ -527,17 +612,15 @@ contract RolesSnapshot {
         string memory out = "";
         if (safe != address(0)) {
             string memory sObj = string.concat("roles-gov-safe-", name);
-            VM.serializeAddress(sObj, "address", safe);
-            (, uint256 threshold) = RolesProbes._tryUint(safe, "getThreshold()");
-            VM.serializeUint(sObj, "threshold", threshold);
-            (, address[] memory owners) = RolesProbes._tryAddressArray(safe, abi.encodeWithSignature("getOwners()"));
-            out = VM.serializeString(obj, "safe", VM.serializeAddress(sObj, "owners", owners));
+            string memory sOut = VM.serializeAddress(sObj, "address", safe);
+            sOut = _putUint(sObj, "governance.safe", "threshold", sOut, safe, "getThreshold()");
+            sOut = _putAddrArray(sObj, "governance.safe", "owners", sOut, safe, "getOwners()");
+            out = VM.serializeString(obj, "safe", sOut);
         }
         if (timelock != address(0)) {
             string memory tObj = string.concat("roles-gov-tl-", name);
-            VM.serializeAddress(tObj, "address", timelock);
-            (, uint256 minDelay) = RolesProbes._tryUint(timelock, "getMinDelay()");
-            string memory tl = VM.serializeUint(tObj, "minDelay", minDelay);
+            string memory tl = VM.serializeAddress(tObj, "address", timelock);
+            tl = _putUint(tObj, "governance.timelock", "minDelay", tl, timelock, "getMinDelay()");
             tl = _copyDeclaredList(json, ".roles.governance.timelock.proposers", tObj, "proposers", tl);
             tl = _copyDeclaredList(json, ".roles.governance.timelock.cancellers", tObj, "cancellers", tl);
             tl = _copyDeclaredList(json, ".roles.governance.timelock.executors", tObj, "executors", tl);

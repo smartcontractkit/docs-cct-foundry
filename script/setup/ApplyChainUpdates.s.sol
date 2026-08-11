@@ -8,6 +8,7 @@ import {RateLimiter} from "@chainlink/contracts-ccip/contracts/libraries/RateLim
 import {ChainHandlers} from "../utils/ChainHandlers.s.sol";
 import {ChainConfig} from "../../src/config/ChainConfig.sol";
 import {PoolVersion} from "../utils/PoolVersion.s.sol";
+import {RateLimiterUtils} from "../utils/RateLimiterUtils.s.sol";
 import {PoolVersions} from "../../src/PoolVersions.sol";
 import {CctActions, ITokenPoolV150} from "../../src/actions/CctActions.sol";
 import {EoaExecutor} from "../../src/base/EoaExecutor.s.sol";
@@ -949,23 +950,27 @@ contract ApplyChainUpdates is EoaExecutor {
         }
     }
 
-    /// @dev Reads one direction's rate-limit env vars:
-    ///      isEnabled defaults to true when CAPACITY or RATE is set, ENABLED overrides it
-    ///      explicitly, and a disabled bucket zeroes its values. `provided` is true when ANY of the
-    ///      direction's env vars is set (the rung-1 trigger).
+    /// @dev Reads one direction's rate-limit env vars through the shared all-or-nothing decision
+    ///      (`RateLimiterUtils._establishBucket`): an enabled bucket needs CAPACITY and RATE supplied
+    ///      together (refused naming the missing variable), ENABLED=false stands alone, values must
+    ///      fit uint128, and an unset variable never becomes a 0 written on chain. `provided` is true
+    ///      when ANY of the direction's env vars is set (the rung-1 trigger).
     function _envBucket(string memory prefix) internal view returns (bool provided, RateLimiter.Config memory config) {
-        string memory capacityVar = string.concat(prefix, "_RATE_LIMIT_CAPACITY");
-        string memory rateVar = string.concat(prefix, "_RATE_LIMIT_RATE");
-        string memory enabledVar = string.concat(prefix, "_RATE_LIMIT_ENABLED");
-
-        bool valuesProvided = _rlEnvExists(capacityVar) || _rlEnvExists(rateVar);
-        provided = valuesProvided || _rlEnvExists(enabledVar);
-        bool enabled = _rlEnvBool(enabledVar, valuesProvided);
-        config = RateLimiter.Config({
-            isEnabled: enabled,
-            capacity: enabled ? uint128(_rlEnvUint(capacityVar)) : 0,
-            rate: enabled ? uint128(_rlEnvUint(rateVar)) : 0
-        });
+        bool capacitySet = _rlEnvExists(string.concat(prefix, "_RATE_LIMIT_CAPACITY"));
+        bool rateSet = _rlEnvExists(string.concat(prefix, "_RATE_LIMIT_RATE"));
+        bool isEnabled;
+        uint128 capacity;
+        uint128 rate;
+        (provided, isEnabled, capacity, rate) = RateLimiterUtils._establishBucket(
+            prefix,
+            _rlEnvExists(string.concat(prefix, "_RATE_LIMIT_ENABLED")),
+            _rlEnvBool(string.concat(prefix, "_RATE_LIMIT_ENABLED"), false),
+            capacitySet,
+            _rlEnvUint(string.concat(prefix, "_RATE_LIMIT_CAPACITY")),
+            rateSet,
+            _rlEnvUint(string.concat(prefix, "_RATE_LIMIT_RATE"))
+        );
+        config = RateLimiter.Config({isEnabled: isEnabled, capacity: capacity, rate: rate});
     }
 
     /// @dev A declared bucket as a RateLimiter.Config: enabled iff capacity or rate is non-zero -

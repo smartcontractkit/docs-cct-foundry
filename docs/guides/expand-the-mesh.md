@@ -51,8 +51,8 @@ verification loop for `2N` lanes, not a fixed two.
 
 ## Prove the mesh is complete
 
-`make doctor` at 0 FAIL on every chain does not prove the mesh transfers. The doctor checks two things,
-and neither reads the remote pool address that a release validates against:
+`make doctor` ending VERIFIED on every chain does not prove the mesh transfers. The doctor checks two
+things, and neither reads the remote pool address that a release validates against:
 
 - The **mesh rung** checks declaration reciprocity only: for each declared lane it confirms the remote's
   `config/chains/<remote>.json` exists and its stored `remoteSelector` matches, and that the reciprocal
@@ -61,8 +61,8 @@ and neither reads the remote pool address that a release validates against:
   rate-limit and policy value matches the live local pool. It does not read which remote pool address the
   local pool has registered for that lane.
 
-So a pool can be doctor 0-FAIL for a lane, with `isSupportedChain(remote)` true and every rate limit
-matching, while the remote pool it has registered points at a decommissioned pool. A transfer over that
+So a pool can pass the doctor (VERIFIED) for a lane, with `isSupportedChain(remote)` true and every
+rate limit matching, while the remote pool it has registered points at a decommissioned pool. A transfer over that
 lane then reverts `InvalidSourcePoolAddress` on release, because the destination pool validates the
 message's `sourcePoolAddress` against its registered remote pools and the wired-in pool is not in the set.
 See [Remove a remote pool](../operations/lanes-and-remotes.md#remove-a-remote-pool) for the same check at

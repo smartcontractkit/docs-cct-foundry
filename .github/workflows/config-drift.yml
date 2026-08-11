@@ -97,7 +97,7 @@ jobs:
           code=$?
           echo "$out"
           if [ "$code" -eq 1 ]; then
-            echo "::warning::roles-check found authority drift - a declared role no longer matches the live chain; investigate (docs/roles.md drift runbook)"
+            echo "::warning::roles-check exit 1: authority drift OR a refused read (a declared value that could not be read) - see the [FAIL] lines; docs/roles.md drift runbook, verdict (c) for refused reads"
           elif [ "$code" -eq 2 ]; then
             echo "::warning::roles-check: an RPC was unavailable - authority drift could not be determined (flake/missing secret, not drift)"
           elif echo "$out" | grep -q "checked nothing"; then

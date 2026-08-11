@@ -31,5 +31,10 @@ ROUTER=0xYourRouterAddress \
 | Env var            | Required | Description                                                                                                                              |
 | ------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `ROUTER`           | No       | The CCIP Router address to set on the pool (default: current on-chain value)                                                            |
-| `RATE_LIMIT_ADMIN` | No       | Rate limit admin address (default: current on-chain value, then broadcaster)                                                            |
-| `FEE_ADMIN`        | No       | Fee admin address (default: current on-chain value, then broadcaster). Set to `address(0)` to restrict fee withdrawal to the owner only |
+| `RATE_LIMIT_ADMIN` | No       | Rate limit admin address (default: current on-chain value, verbatim)                                                                    |
+| `FEE_ADMIN`        | No       | Fee admin address (default: current on-chain value, verbatim). Set to `address(0)` to restrict fee withdrawal to the owner only         |
+
+An unset variable preserves the pool's current value exactly, `address(0)` included. The call writes the
+whole struct, so any other default would turn a one-field update into a silent grant of the others: a
+broadcaster fallback, for example, would hand both admin slots to the acting account on a `ROUTER`-only
+run whenever they are unset on chain.

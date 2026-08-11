@@ -37,7 +37,17 @@ with `_` so the derived `rpcEnv` is a valid shell variable name (`0g-testnet-gal
 `_0G_TESTNET_GALILEO_1`). `add-chain` prints the exact `chainNameIdentifier` and
 `rpcEnv` names it generated, plus your next steps: add the chain's RPC env var to `.env`, review the
 generated defaults in the config file, wire a lane with `make add-lane`, and re-run the doctor until it
-reports 0 FAIL.
+reports VERIFIED.
+
+The doctor ends in one of three verdicts, not a pass/fail boolean. FAILED means a check ran and
+contradicted the config - including a declared `roles{}` value whose read failed, which the roles rung
+refuses as a FAIL rather than skipping. INCOMPLETE means no check failed but an infrastructure gap kept
+checks from running at all - an unset RPC env, a pool that did not answer the lanes reverse-check - and
+the run exits nonzero rather than clean: a wrapper reading exit 0 there would treat an unchecked
+chain as a healthy one. Each counted gap is tagged
+`[SKIP] UNVERIFIED` in the output. VERIFIED (exit 0) means every applicable check ran. Designed
+absences (a non-EVM chain's EVM rungs, an optional block that is not declared) are plain SKIPs and
+never make a run INCOMPLETE.
 
 Names may contain underscores, which some CCIP selectorNames use (e.g.
 `binance_smart_chain-mainnet`); pass the name from `make discover` verbatim.

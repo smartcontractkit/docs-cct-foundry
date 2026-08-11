@@ -202,6 +202,38 @@ contract UpdateRateLimitersLaneSourceTest is LaneReconcileScratch {
         vm.removeFile(_path("zz-scratch-rlsrc-r1"));
     }
 
+    // INBOUND capacity alone through the seam wiring: refused naming the missing RATE. Pins the
+    // inbound leg of the 12-argument _readRateLimitUpdate -> _establishBucket wiring, which the
+    // pure bucket tests cannot reach.
+    function test_Std_InboundCapacityAlone_RefusedNamingRate() public {
+        harness.setFakeEnv("INBOUND_RATE_LIMIT_CAPACITY", vm.toString(uint256(ENV_CAPACITY)));
+
+        vm.expectRevert(
+            bytes(
+                "INBOUND_RATE_LIMIT_RATE is not set - an enabled bucket needs CAPACITY and RATE supplied"
+                " together; an unset field must not become a 0 written on chain"
+            )
+        );
+        harness.resolve("zz-scratch-rlsrc-none", REMOTE_SELECTOR, false);
+    }
+
+    // A full INBOUND bucket lands through the same wiring, outbound untouched.
+    function test_Std_InboundFullBucket_LandsThroughTheWiring() public {
+        string memory local = _localChain(91);
+        harness.setFakeEnv("INBOUND_RATE_LIMIT_CAPACITY", vm.toString(uint256(ENV_CAPACITY)));
+        harness.setFakeEnv("INBOUND_RATE_LIMIT_RATE", vm.toString(uint256(ENV_RATE)));
+
+        UpdateRateLimiters.RateLimitResolution memory res =
+            harness.resolve("zz-scratch-rlsrc-none91", REMOTE_SELECTOR, false);
+
+        _assertInbound(res.update, true, true, ENV_CAPACITY, ENV_RATE);
+        _assertOutbound(res.update, false, false, 0, 0);
+        assertTrue(res.inboundFromEnv, "inbound must come from env");
+        assertFalse(res.outboundFromEnv, "outbound env vars are unset");
+
+        _cleanupScratchOne(local);
+    }
+
     // Env set, lanes{} entry AGREES on the core fields: env used, no divergence, no hint.
     function test_Std_EnvAndLaneAgree_NoDivergence_NoHint() public {
         string memory local = _localChain(2);

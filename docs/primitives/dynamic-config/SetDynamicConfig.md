@@ -17,9 +17,9 @@ Updates the dynamic configuration of a TokenPool (router, rateLimitAdmin, feeAdm
 
 | Env var | Description |
 | --- | --- |
-| `FEE_ADMIN` | See the script header. |
-| `RATE_LIMIT_ADMIN` | See the script header. |
-| `ROUTER` | See the script header. |
+| `FEE_ADMIN` | Optional. Unset preserves the current value verbatim; an explicit address(0) restricts fee withdrawal to the owner. |
+| `RATE_LIMIT_ADMIN` | Optional. Unset preserves the current on-chain value verbatim, address(0) included. |
+| `ROUTER` | Optional. Unset preserves the pool's current on-chain router verbatim. |
 
 ## Reference
 

@@ -32,7 +32,7 @@ that need it, never exported. Targets that touch the API need only `curl` + `jq`
 | `fmt-config`     | Repair the canonical JSON of **both** stores: `config/chains/*.json` (`jq --indent 2 -S`, trailing newline) and the project store in every group (`project/*.json` **and** `project/*/*.json`, `jq --indent 2 -S`, **no** trailing newline). Repair tool only - never a required step | -                                                                                                                                                       | `jq` over every config + project file (all groups)                                                                                                                                       |
 
 | `snapshot-chain` | Backfill the declared `roles{}` authority block FROM the live chain into the project store (the bootstrap for `roles-check`; see [`roles.md`](roles.md)) | `CHAIN=` (required); `GROUP=` (optional) scopes to a token group; `TOKEN=` `TOKEN_POOL=` `TAR=` `SCAN_FROM_BLOCK=` (optional overrides) | `SnapshotChain.s.sol --sig "run(string)" <CHAIN>` → canonicalize the project file. Exit: pass/fail via make |
-| `roles-check`    | READ-ONLY reconcile of a chain's declared `roles{}` vs the live chain (see [`roles.md`](roles.md)). Make remaps the script's exit code to pass/fail; CI calls the script directly for the full contract: 0 `CLEAN` / 1 `ROLES_DRIFT` / 2 `RPC_UNAVAILABLE` | `CHAIN=` (optional - no arg checks every declaring chain); `GROUP=` (optional) scopes to one token group | `bash script/config/roles-check.sh [<CHAIN>]` → `RolesCheck.s.sol --sig "run(string)"` per chain |
+| `roles-check`    | READ-ONLY reconcile of a chain's declared `roles{}` vs the live chain (see [`roles.md`](roles.md)). Make remaps the script's exit code to pass/fail; CI calls the script directly for the full contract: 0 `CLEAN` / 1 `ROLES_DRIFT` (a declared value mismatches, or its read was refused - see [`roles.md`](roles.md) verdict (c)) / 2 `RPC_UNAVAILABLE` | `CHAIN=` (optional - no arg checks every declaring chain); `GROUP=` (optional) scopes to one token group | `bash script/config/roles-check.sh [<CHAIN>]` → `RolesCheck.s.sol --sig "run(string)"` per chain |
 | `roles-check-all`| The same reconcile for every chain that declares `roles{}`, across the default group AND every `project/<group>/` (exit contract as above) | - | `bash script/config/roles-check.sh` (no args, no group filter) |
 | `clean-scratch`  | Remove test-scratch fixtures (`zz-scratch-*`, `zz-tt-*`, `local-*`) from `config/chains`, `project`, and `history` via explicit patterns - never `git clean -X`, which would also delete real gitignored project state | - | explicit `rm` patterns |
 
@@ -240,9 +240,11 @@ lane); the doctor's **mesh rung** proves the property across the whole directory
   **to** e.g. `solana-devnet` is checked for resolution but exempt from reciprocity (a SKIP, not a FAIL).
 
 The mesh rung proves the committed policy agrees with itself; the **lanes rung** (the doctor's last
-rung) proves it agrees with the **chain**. It is RPC-gated like the TAR reconciliation (a clean SKIP
-when the chain's `rpcEnv` is unset) and pool-gated (a SKIP naming `make adopt-token` / the deploy
-scripts when no `tokenPool` is recorded in the registry). With a fork and a pool it resolves the pool's
+rung) proves it agrees with the **chain**. It is RPC-gated like the TAR reconciliation (a
+`[SKIP] UNVERIFIED` when the chain's `rpcEnv` is unset - the run then ends INCOMPLETE, see
+[operations/chains.md](operations/chains.md)) and pool-gated (a plain SKIP naming `make adopt-token` /
+the deploy scripts when no `tokenPool` is recorded in the registry: nothing deployed means nothing
+checkable, so that skip never makes the run INCOMPLETE). With a fork and a pool it resolves the pool's
 contract version (`PoolVersion.tryResolve`; an unrecognized version WARNs and reads degrade to best
 effort) and reconciles **both directions**:
 

@@ -59,9 +59,22 @@ contract SnapshotChain is Script {
         string memory projectPath = ProjectStore._path(name);
         string memory projectJson = vm.readFile(projectPath);
 
-        string memory rolesJson = (new RolesSnapshot()).build(name, configJson, projectJson);
+        RolesSnapshot snap = new RolesSnapshot();
+        string memory rolesJson = snap.build(name, configJson, projectJson);
         vm.writeJson(rolesJson, projectPath, ".roles");
         console.log(string.concat("[snapshot] wrote .roles block for ", name, " -> ", ProjectStore._display(name)));
+        uint256 unread = snap.unreadCount();
+        if (unread != 0) {
+            console.log(
+                string.concat(
+                    "[snapshot] WARNING: ",
+                    vm.toString(unread),
+                    " field(s) were UNREAD (see the lines above) - the block is PARTIAL. Re-run on a",
+                    " working RPC before committing it; the missing fields would be SKIPped as undeclared,",
+                    " so a green roles-check on this block proves nothing about them."
+                )
+            );
+        }
         string memory grp = ProjectStore._group();
         console.log(
             string.concat(

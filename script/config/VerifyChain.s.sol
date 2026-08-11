@@ -222,8 +222,11 @@ contract ChainProbe {
 
 /// @title VerifyChain
 /// @notice The layered chain-config doctor. One aligned [PASS]/[FAIL]/[WARN]/[SKIP] line per check,
-/// reverting at the end iff any FAIL, so a chain can be verified end-to-end between "config file
-/// edited" and "scripts run against it". Layers:
+/// ending in a three-way verdict: FAILED (any [FAIL] - reverts), INCOMPLETE (no failure, but a
+/// declared or deployed check could not run, e.g. an unset RPC - also reverts, with its own marker,
+/// so a wrapper gating on the exit code cannot read an unchecked chain as a verified one), or
+/// VERIFIED (exit 0). Designed absences (non-EVM rungs, undeclared optional blocks) are plain SKIPs
+/// and never make a run INCOMPLETE. Layers:
 ///   1. TOOLS     curl + jq present (the ffi fetch preflight)
 ///   2. SCHEMA    every key the real `ChainConfig._load` path consumes, incl. the quoted-decimal
 ///                big-int rule, plus an actual `ChainConfig._load` parse, the optional
@@ -256,6 +259,7 @@ contract ChainProbe {
 contract VerifyChain is Script {
     uint256 private s_fails;
     uint256 private s_warns;
+    uint256 private s_skips; // unverified-gap skips only (see _skipUnverified); designed skips do not count
     bool private s_forked;
     ChainProbe private s_probe;
 
@@ -273,8 +277,19 @@ contract VerifyChain is Script {
         console.log(string.concat("[WARN] ", msg_));
     }
 
+    /// @dev A DESIGNED skip: there is nothing to verify (non-EVM rung, an undeclared optional block, a
+    /// bootstrap state). Printed, never counted - it cannot make the verdict INCOMPLETE.
     function _skip(string memory msg_) private pure {
         console.log(string.concat("[SKIP] ", msg_));
+    }
+
+    /// @dev An UNVERIFIED gap: something IS declared or deployed and could not be checked (an unset
+    /// RPC, a contract that did not answer). Counted into the verdict - enough of these and the run is
+    /// INCOMPLETE rather than clean, because a check that never ran proves nothing. The UNVERIFIED tag
+    /// separates these lines from designed skips, so the INCOMPLETE verdict points at exactly them.
+    function _skipUnverified(string memory msg_) private {
+        s_skips++;
+        console.log(string.concat("[SKIP] UNVERIFIED ", msg_));
     }
 
     function _path(string memory name) private pure returns (string memory) {
@@ -401,13 +416,40 @@ contract VerifyChain is Script {
         _verdict(name);
     }
 
+    /// @dev Three outcomes, not a boolean. The one that matters here is INCOMPLETE - checks that were
+    /// declared or deployed but could NOT run (an unset RPC, a contract that did not answer).
+    /// Without it, a run that verifies nothing prints
+    /// `0 FAIL, 0 WARN` and exits 0, indistinguishable from a run that verified everything, and any
+    /// wrapper gating on the exit code passes a chain the doctor never actually checked. Designed
+    /// absences (a non-EVM chain's EVM rungs, an undeclared optional block) stay plain SKIPs and do
+    /// not affect the verdict: there, nothing claimable was left unchecked.
     function _verdict(string memory name) private view {
         console.log(
             string.concat(
-                "== check-chain ", name, ": ", vm.toString(s_fails), " FAIL, ", vm.toString(s_warns), " WARN =="
+                "== check-chain ",
+                name,
+                ": ",
+                vm.toString(s_fails),
+                " FAIL, ",
+                vm.toString(s_warns),
+                " WARN, ",
+                vm.toString(s_skips),
+                " UNVERIFIED =="
             )
         );
         require(s_fails == 0, string.concat("check-chain FAILED for ", name, " - see [FAIL] lines above"));
+        require(
+            s_skips == 0,
+            string.concat(
+                "check-chain INCOMPLETE for ",
+                name,
+                " - ",
+                vm.toString(s_skips),
+                " check(s) could not run: see the [SKIP] UNVERIFIED lines above, set the named RPC env"
+                " or fix the unanswering contract, then re-run"
+            )
+        );
+        console.log(string.concat("== check-chain ", name, ": VERIFIED =="));
     }
 
     // ---------------------------------------------------------------- 1. TOOLS
@@ -776,7 +818,11 @@ contract VerifyChain is Script {
         }
         string memory url = vm.envOr(rpcEnv, string(""));
         if (bytes(url).length == 0) {
-            _skip(string.concat("rpc: env ", rpcEnv, " unset - add it to your .env to enable fork checks"));
+            _skipUnverified(
+                string.concat(
+                    "rpc: env ", rpcEnv, " unset - add it to your .env; without it the RPC-gated rungs cannot run"
+                )
+            );
             return false;
         }
         try s_probe.forkTo(url) returns (uint256 forkChainId) {
@@ -961,7 +1007,7 @@ contract VerifyChain is Script {
     /// unhandled revert that would kill the whole doctor run.
     function _reconcilePoolWithTar(address tar, address token, address pool) private {
         if (!s_forked) {
-            _skip(
+            _skipUnverified(
                 "registry: TAR reconciliation needs an RPC (no fork) - registry pool not checked against on-chain wiring"
             );
             return;
@@ -1283,6 +1329,33 @@ contract VerifyChain is Script {
         return (s_fails, s_warns);
     }
 
+    /// @notice Test hook: the unverified-gap counter, so rung tests can pin WHICH skips count toward
+    /// the INCOMPLETE verdict. Not used by any production path.
+    function unverifiedForTest() public view returns (uint256) {
+        return s_skips;
+    }
+
+    /// @notice Test hook: drives the three RPC-gated rungs in their no-fork state and returns the
+    /// unverified-gap count, so each counted site is pinned individually (a regression demoting one
+    /// back to a designed skip fails this). `rolesJson` must declare `.roles.token` so the roles rung
+    /// reaches its RPC gate rather than the designed no-roles skip. Not used by any production path.
+    function rpcGatedSkipsForTest(string memory rolesJson) public returns (uint256 skipsOut) {
+        _reconcilePoolWithTar(address(1), address(1), address(1));
+        _checkRoles("zz-tt-rpcgaps", rolesJson, false);
+        _checkLanesOnChain("zz-tt-rpcgaps", "", "{}");
+        return s_skips;
+    }
+
+    /// @notice Test hook: seeds the outcome counters and runs `_verdict`, so the three-outcome
+    /// contract (VERIFIED / INCOMPLETE / FAILED, and that designed skips never taint the verdict) is
+    /// pinnable without the ffi/API/RPC doctor run. Not used by any production path.
+    function verdictForTest(string memory name, bool designedSkip, bool unverifiedSkip, bool failed) public {
+        if (designedSkip) _skip("test: designed absence - nothing to verify");
+        if (unverifiedSkip) _skipUnverified("test: declared but could not be checked");
+        if (failed) _fail("test: induced failure");
+        _verdict(name);
+    }
+
     /// @notice Test hook: runs ONLY the SCHEMA rung (`_checkSchema`) against `name`'s config and returns
     /// `(isEvm, fails, warns)`. Lets a UNIT test (no fork, no ffi/API) assert the clean-chain PASS
     /// (every key `ChainConfig._load` consumes is present → 0 FAIL) and the induced-FAIL-naming-the-field
@@ -1351,7 +1424,9 @@ contract VerifyChain is Script {
         _warnAnchorDrift(name, projectJson, ".roles.token.address", "token", "roles.token.address");
         _warnAnchorDrift(name, projectJson, ".roles.pool.address", "tokenPool", "roles.pool.address");
         if (!rpcOk || !s_forked) {
-            _skip("roles: authority reconciliation needs an RPC (no fork) - declared roles{} not checked against chain");
+            _skipUnverified(
+                "roles: authority reconciliation needs an RPC (no fork) - declared roles{} not checked against chain"
+            );
             return;
         }
         // Mirror every other rung in this file: a revert inside the auditor (a typo'd token.type, a
@@ -1422,7 +1497,9 @@ contract VerifyChain is Script {
         private
     {
         if (!s_forked) {
-            _skip("lanes: on-chain reconciliation needs an RPC (no fork) - declared lanes not checked against the pool");
+            _skipUnverified(
+                "lanes: on-chain reconciliation needs an RPC (no fork) - declared lanes not checked against the pool"
+            );
             return;
         }
         address pool = RegistryWriter._read(name, "tokenPool");
@@ -2031,7 +2108,9 @@ contract VerifyChain is Script {
         try s_probe.poolSupportedChains(pool) returns (uint64[] memory chains) {
             onChain = chains;
         } catch {
-            _skip(
+            // A deployed pool that does not answer is an unverified gap, not a designed absence: the
+            // reverse reconcile was claimable and did not run.
+            _skipUnverified(
                 string.concat(
                     "lanes: pool ",
                     vm.toString(pool),

@@ -603,7 +603,7 @@ print('SKELETON_OK')
         failures+=("non-EVM skeleton shape")
         echo "[FAIL] non-EVM skeleton shape: $out"
     fi
-    run_case "doctor passes the freshly add-chain'd non-EVM config (0 FAIL)" zero "check-chain $SVMO_CHAIN: 0 FAIL" -- \
+    run_case "doctor ends VERIFIED on the freshly add-chain'd non-EVM config" zero "check-chain $SVMO_CHAIN: VERIFIED" -- \
         env CCIP_API_BASE="http://127.0.0.1:$port" bash -c \
         "FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig 'run(string)' $SVMO_CHAIN"
     rm_fixture_config "$SVMO_FILE"
@@ -712,16 +712,20 @@ fi
 run_case "check-chain unknown chain FAILs with the add-chain hint" nonzero "config: no config/chains/doesnotexist" -- \
     env FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" doesnotexist
 
-# 15. non-EVM chain -> schema parse only, 0 FAIL
-run_case_live "check-chain on solana-devnet passes (non-EVM path)" zero "0 FAIL" -- \
+# 15. non-EVM chain -> schema parse only, ends VERIFIED
+run_case_live "check-chain on solana-devnet ends VERIFIED (non-EVM path)" zero "check-chain solana-devnet: VERIFIED" -- \
     env FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" solana-devnet
 
-# 16. EVM chain with rpcEnv unset -> rpc SKIP (not FAIL), overall 0 FAIL (live API for the drift rung).
+# 16. EVM chain with rpcEnv unset -> rpc SKIP (not FAIL), and the run is INCOMPLETE, not clean: the
+#     RPC-gated rungs never ran (the doctor's three-outcome contract, docs/operations/chains.md).
 #     Injected present-but-empty, NOT `env -u`: forge auto-loads the repo-root .env and re-sets a var
 #     that is absent from the environment, while dotenv never overrides a var that is present, even
 #     empty. `_checkRpc` treats empty as unset (`vm.envOr` + zero-length -> SKIP), so an empty
-#     injection proves the SKIP path on any machine, whatever the local .env defines.
-run_case_live "check-chain SKIPs rpc when the rpcEnv var is unset" zero "\[SKIP\] rpc: env MANTLE_SEPOLIA_RPC_URL unset" -- \
+#     injection proves the path on any machine, whatever the local .env defines.
+run_case_live "check-chain is INCOMPLETE (nonzero) when the rpcEnv var is unset" nonzero "check-chain INCOMPLETE for" -- \
+    env MANTLE_SEPOLIA_RPC_URL= FOUNDRY_PROFILE=sync \
+    forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" ethereum-testnet-sepolia-mantle-1
+run_case_live "check-chain tags the rpc gap UNVERIFIED when the rpcEnv var is unset" nonzero "\[SKIP\] UNVERIFIED rpc: env MANTLE_SEPOLIA_RPC_URL unset" -- \
     env MANTLE_SEPOLIA_RPC_URL= FOUNDRY_PROFILE=sync \
     forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" ethereum-testnet-sepolia-mantle-1
 
@@ -870,15 +874,18 @@ run_case "doctor FAILs a one-sided lane naming both chains" nonzero \
     "one-sided lane $TMP_CHAIN -> $TMP_CHAIN_B ($TMP_CHAIN_B has no lanes.$TMP_CHAIN entry)" -- \
     env FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN"
 
-# 28. the reciprocal entry clears it: doctor back to 0 FAIL
+# 28. the reciprocal entry clears the mesh FAIL. The INCOMPLETE marker is the proof: _verdict prints
+#     it only when s_fails == 0 (a FAILED run reverts on the fails require first), and the run stays
+#     nonzero because the scratch chain's RPC env is unset.
 make add-lane LOCAL="$TMP_CHAIN_B" REMOTE="$TMP_CHAIN" CAPACITY=1000 RATE=10 > /dev/null 2>&1
-run_case "doctor passes once the lane is reciprocated" zero "0 FAIL" -- \
+run_case "doctor mesh FAIL clears once the lane is reciprocated (INCOMPLETE, no residual FAIL)" nonzero "check-chain INCOMPLETE for" -- \
     env FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN"
 
 # 28b. the LANES rung (on-chain lane reconciliation) is RPC-gated: with TOOLING_TMP_RPC_URL unset it
-#      SKIPs cleanly instead of blocking an offline doctor run. The reconciliation logic itself needs
-#      a fork and is covered by test/config/VerifyChainLaneReconcile.t.sol.
-run_case "doctor lanes rung SKIPs cleanly without an RPC" zero \
+#      prints its SKIP line (never a FAIL) and counts into the INCOMPLETE verdict - the declared lanes
+#      were not checked against the pool, so the run must not exit clean. The reconciliation logic
+#      itself needs a fork and is covered by test/config/VerifyChainLaneReconcile.t.sol.
+run_case "doctor lanes rung prints its SKIP without an RPC (run INCOMPLETE)" nonzero \
     "lanes: on-chain reconciliation needs an RPC" -- \
     env FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN"
 
@@ -1293,14 +1300,14 @@ for name, cid, sel in [('$TMP_CHAIN','990001','9900010000000000001'),
         env FOUNDRY_PROFILE=sync PROJECT_GROUP="$GRP_X" \
         forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN"
 
-    # verdict equivalence: the SAME store content flat vs in a group yields identical FAIL/WARN
-    # tallies (the group changes only the file location, never the doctor's verdict).
+    # verdict equivalence: the SAME store content flat vs in a group yields identical
+    # FAIL/WARN/UNVERIFIED tallies (the group changes only the file location, never the verdict).
     seed_group_pair
     make add-lane LOCAL="$TMP_CHAIN" REMOTE="$TMP_CHAIN_B" CAPACITY=1000 RATE=10 BOTH=1 > /dev/null 2>&1            # flat, reciprocated
     make add-lane LOCAL="$TMP_CHAIN" REMOTE="$TMP_CHAIN_B" CAPACITY=1000 RATE=10 BOTH=1 GROUP="$GRP_X" > /dev/null 2>&1 # same, grouped
-    flat_verdict="$(FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN" 2>&1 | grep -oE "[0-9]+ FAIL, [0-9]+ WARN" | tail -1)"
+    flat_verdict="$(FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN" 2>&1 | grep -oE "[0-9]+ FAIL, [0-9]+ WARN, [0-9]+ UNVERIFIED" | tail -1)"
     grp_out="$(FOUNDRY_PROFILE=sync PROJECT_GROUP="$GRP_X" forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN" 2>&1)"
-    grp_verdict="$(echo "$grp_out" | grep -oE "[0-9]+ FAIL, [0-9]+ WARN" | tail -1)"
+    grp_verdict="$(echo "$grp_out" | grep -oE "[0-9]+ FAIL, [0-9]+ WARN, [0-9]+ UNVERIFIED" | tail -1)"
     # Non-vacuous: the grouped run must have read the GROUPED file (not silently the flat one), so the
     # tally match is between two runs that genuinely resolved different paths.
     if [ -n "$flat_verdict" ] && [ "$flat_verdict" = "$grp_verdict" ] && grep -q "project/$GRP_X/$TMP_CHAIN.json" <<< "$grp_out"; then
@@ -1320,7 +1327,9 @@ for name, cid, sel in [('$TMP_CHAIN','990001','9900010000000000001'),
     printf '{"addresses":{"active":{},"deployments":{}},"lanes":{},"roles":{},"schema":999}' > "project/$GRP_Y/$TMP_CHAIN.json"
     out="$(FOUNDRY_PROFILE=sync PROJECT_GROUP="$GRP_X" forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN" 2>&1)"
     status=$?
-    if [ $status -eq 0 ] && grep -q "0 FAIL" <<< "$out" &&
+    # 0 FAIL proves the corrupt sibling did not poison the run; the exit is INCOMPLETE (nonzero)
+    # because the scratch chain's RPC env is unset, so the run must not read as verified.
+    if grep -q "0 FAIL" <<< "$out" && grep -q "check-chain INCOMPLETE for" <<< "$out" &&
         grep -q "project/$GRP_X/$TMP_CHAIN.json" <<< "$out" &&
         ! grep -q "project/$GRP_Y/" <<< "$out"; then
         pass=$((pass + 1))
@@ -1331,7 +1340,7 @@ for name, cid, sel in [('$TMP_CHAIN','990001','9900010000000000001'),
         echo "[FAIL] doctor GROUP=$GRP_X scoping (exit=$status; read the sibling group or FAILed)"
         echo "$out" | tail -6 | sed 's/^/       | /'
     fi
-    run_case "doctor GROUP=$GRP_Y reads its OWN group file (scoping is real)" zero \
+    run_case "doctor GROUP=$GRP_Y reads its OWN group file (scoping is real)" nonzero \
         "project/$GRP_Y/$TMP_CHAIN.json" -- \
         env FOUNDRY_PROFILE=sync PROJECT_GROUP="$GRP_Y" \
         forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN"

@@ -51,6 +51,10 @@ import {ProjectStore} from "../../../src/utils/ProjectStore.sol";
 ///   INBOUND_RATE_LIMIT_RATE       - uint128, inbound token bucket refill rate
 ///   INBOUND_RATE_LIMIT_ENABLED    - true/false (defaults to true when CAPACITY or RATE are set)
 ///
+///   Per direction the rate-limit inputs are all-or-nothing (`RateLimiterUtils._establishBucket`,
+///   the same decision UpdateRateLimiters applies): a partial set is refused naming the missing
+///   variable.
+///
 /// Behaviour (rate limiter section):
 ///   * DEST_CHAIN only               -> logs current rate limits for the fast finality bucket
 ///   * DEST_CHAIN + rate limit vars  -> logs current, applies updates, logs updated state
