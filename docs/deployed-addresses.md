@@ -40,7 +40,7 @@ Two terms, kept distinct throughout these docs:
 | Run-time divergence notice             | **Warner**               | When an env override differs from `active.<role>`, a broadcasting script prints both values + the exact `make adopt-token …` to reconcile                           |
 | `make doctor` TAR rung                 | **Warner**               | Compares `active.tokenPool` against the on-chain TokenAdminRegistry and WARNs on divergence                                                                         |
 | `make doctor` registry rung            | **Warner**               | WARNs when `deployments{}` holds more than one token pool while `active.tokenPool` points at one (the multi-token ambiguity), naming a token `GROUP=<g>` as the durable fix and the `{CHAIN}_TOKEN_POOL` override as the one-off |
-| `make doctor` roles rung               | **Warner**               | WARNs when a `roles.token/pool.address` anchor diverges from `addresses.active.<role>` (a repoint after the snapshot) - re-anchor with `make snapshot-chain`        |
+| `make doctor` roles rung               | **Warner**               | WARNs when a `roles.token/pool.address` anchor diverges from `addresses.active.<role>` (a repoint after the snapshot). A plain `make snapshot-chain` REFUSES here; re-anchor with `REANCHOR=true make snapshot-chain CHAIN=<name>` |
 
 **Env overrides are READ-ONLY inputs: an env-driven run never writes the store.** An override changes only
 what a single run resolves; to make a value the durable default, adopt it (`make adopt-token`). The

@@ -184,6 +184,22 @@ flowchart TD
 non-blocking) keep surfacing the drift as a `[FAIL]`/`::warning::` until it is reconciled one way or the
 other. Reconciling means the two agree again - either the chain was fixed or the declaration was.
 
+### `REANCHOR=true` - the repoint case
+
+The runbook above reconciles the role HOLDERS. A repoint moves the SUBJECT: redeploy a token or pool
+under the same group and `roles.<x>.address` still names the replaced contract while
+`addresses.active.*` names the live one. `snapshot-chain` refuses that divergence rather than pick a
+side - following the anchor would re-declare roles for a contract nobody uses, and following `active`
+would let any redeploy silently re-point what the audit reconciles.
+
+```bash
+REANCHOR=true make snapshot-chain CHAIN=<name>   # move the anchor to addresses.active.*
+```
+
+Use it only when the repoint was deliberate; if it was not, point the store back instead. The refusal
+names both addresses, so you can tell which record is the wrong one. The anchor still outranks
+`TOKEN`/`TOKEN_POOL`, which stay the way to snapshot a contract on a chain that has no declaration yet.
+
 ### `setDynamicConfig` router-preservation footgun
 
 `rateLimitAdmin` and `feeAdmin` are both set through `setDynamicConfig(router, rateLimitAdmin,
