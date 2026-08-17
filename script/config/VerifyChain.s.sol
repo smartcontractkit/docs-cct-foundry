@@ -259,6 +259,10 @@ contract ChainProbe {
 contract VerifyChain is Script {
     uint256 private s_fails;
     uint256 private s_warns;
+    // The last WARN text, kept so a unit test can assert WHICH warning fired. Two shapes of the same
+    // rung can both emit exactly one WARN, so a count alone cannot tell them apart, and `console.log`
+    // is not capturable in-process.
+    string private s_lastWarn;
     uint256 private s_skips; // unverified-gap skips only (see _skipUnverified); designed skips do not count
     bool private s_forked;
     ChainProbe private s_probe;
@@ -274,6 +278,7 @@ contract VerifyChain is Script {
 
     function _warn(string memory msg_) private {
         s_warns++;
+        s_lastWarn = msg_;
         console.log(string.concat("[WARN] ", msg_));
     }
 
@@ -1380,15 +1385,27 @@ contract VerifyChain is Script {
     /// @notice Test hook: runs ONLY the roles anchor-drift check (`_warnAnchorDrift` for the `token` and
     /// `pool` anchors) for `name` against its project store, returning `(fails, warns)`. Lets a UNIT test
     /// (no RPC, no auditor) assert the WARN-not-FAIL contract: a declared `roles.<x>.address` anchor that
-    /// diverges from `addresses.active.<role>` emits exactly one WARN naming both + `make snapshot-chain`,
+    /// diverges from `addresses.active.<role>` emits exactly one WARN naming both + `REANCHOR=true make snapshot-chain`,
     /// while a matching anchor, an absent anchor, or a store with no active pointer stays silent. Not used
     /// by any production path - the production caller is `_checkRoles` (behind the roles-block + RPC gates).
     function warnAnchorDriftForTest(string memory name) public returns (uint256 failsOut, uint256 warnsOut) {
+        // `_warn`/`_fail` accumulate: without this reset a second call on the same instance carries the
+        // first store's tally and message, so an assertion lands on the earlier fixture, not this one.
+        s_fails = 0;
+        s_warns = 0;
+        s_lastWarn = "";
         s_probe = new ChainProbe();
         string memory projectJson = _readProject(name);
         _warnAnchorDrift(name, projectJson, ".roles.token.address", "token", "roles.token.address");
         _warnAnchorDrift(name, projectJson, ".roles.pool.address", "tokenPool", "roles.pool.address");
         return (s_fails, s_warns);
+    }
+
+    /// @notice TEST-ONLY hook: the text of the last WARN emitted. A count cannot distinguish two
+    /// warnings from the same rung - a zero anchor and a diverging anchor both emit exactly one - so a
+    /// test that only counts passes whichever branch fired.
+    function lastWarnForTest() public view returns (string memory) {
+        return s_lastWarn;
     }
 
     /// @notice TEST-ONLY hook: runs the multi-pool ambiguity check for `name` against its project
@@ -1461,6 +1478,15 @@ contract VerifyChain is Script {
 
     /// @dev WARN (never FAIL) when a declared roles anchor differs from the store's `active.<role>`.
     /// Silent when the anchor is absent or the store has no active pointer (nothing to reconcile).
+    ///
+    /// Two shapes warn with their OWN remedy rather than the drift one. A malformed anchor is read
+    /// through a try/catch because this rung runs OUTSIDE the guard that wraps the auditor, so a raw
+    /// parse abort here takes the whole doctor down - no verdict, no exit code - on a store the
+    /// snapshot half refuses cleanly. A zero anchor is not a usable declaration: `RolesAuditor` counts
+    /// a present-but-zero key as declared, gates every check behind a non-zero token, and then reports
+    /// "reconciles clean" having audited nothing, so it has to be named. Neither may quote the drift
+    /// remedy: a plain `snapshot-chain` resolves past a zero anchor rather than refusing it, and it
+    /// refuses a malformed one for a different reason than staleness.
     function _warnAnchorDrift(
         string memory name,
         string memory projectJson,
@@ -1469,8 +1495,37 @@ contract VerifyChain is Script {
         string memory label
     ) private {
         if (!vm.keyExistsJson(projectJson, anchorPath)) return;
-        address anchor = vm.parseJsonAddress(projectJson, anchorPath);
+        address anchor;
+        try vm.parseJsonAddress(projectJson, anchorPath) returns (address a) {
+            anchor = a;
+        } catch {
+            _warn(
+                string.concat(
+                    "roles: ",
+                    label,
+                    " is not an address - the audit cannot resolve what it is meant to reconcile.",
+                    " Set it to a deployed address or remove the key, then: make snapshot-chain CHAIN=",
+                    name
+                )
+            );
+            return;
+        }
         address active = RegistryWriter._read(name, role);
+        if (anchor == address(0)) {
+            _warn(
+                string.concat(
+                    "roles: ",
+                    label,
+                    " is the zero address, so every role check under it SKIPs and the roles rung reports",
+                    " clean having audited nothing. A plain snapshot-chain does not refuse a zero anchor - it",
+                    " re-resolves from addresses.active.",
+                    role,
+                    ", and errors when the store has none: make snapshot-chain CHAIN=",
+                    name
+                )
+            );
+            return;
+        }
         if (active == address(0) || active == anchor) return;
         _warn(
             string.concat(
@@ -1482,7 +1537,9 @@ contract VerifyChain is Script {
                 role,
                 " ",
                 vm.toString(active),
-                " - the audit reconciles the anchored value; re-anchor after a repoint: make snapshot-chain CHAIN=",
+                " - the audit reconciles the ANCHORED value, so it is auditing the replaced contract.",
+                " A plain snapshot-chain will NOT fix this: it refuses a stale anchor rather than guess",
+                " which record is right. Re-anchor with: REANCHOR=true make snapshot-chain CHAIN=",
                 name
             )
         );

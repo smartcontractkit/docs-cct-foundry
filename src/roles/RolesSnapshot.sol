@@ -5,7 +5,6 @@ import {Vm} from "forge-std/Vm.sol";
 import {console} from "forge-std/console.sol";
 
 import {RolesProbes} from "./RolesProbes.sol";
-import {RegistryWriter} from "../utils/RegistryWriter.sol";
 import {ProjectStore} from "../utils/ProjectStore.sol";
 
 /// @title RolesSnapshot
@@ -75,19 +74,36 @@ contract RolesSnapshot {
         return _assemble(c, projectJson);
     }
 
-    /// @dev Token/pool resolution - the declared `roles{}` wins (it IS the durable record; the
-    /// `project/<selectorName>.json` `addresses{}` store is single-valued per role and, in this repo,
-    /// gitignored), then the `TOKEN`/`TOKEN_POOL` env overrides, then the store's active pointers.
+    /// @dev Token/pool resolution: the declared `roles{}` anchor, then the `TOKEN`/`TOKEN_POOL` env,
+    /// then the store's `addresses.active.*`. The anchor deliberately wins: `roles{}` is the durable
+    /// declaration, while `TOKEN`/`TOKEN_POOL` are process-wide (the Makefile exports them for the
+    /// deploy targets), so an ambient env value that outranked the declaration would let any stray
+    /// export silently re-point what the audit reconciles.
+    ///
+    /// A stale anchor REFUSES rather than resolve. After a repoint - a redeploy under the same group -
+    /// `roles.*.address` names the replaced contract while `addresses.active.*` names the live one, and
+    /// a snapshot that followed the anchor would rewrite role holders under it, print "wrote .roles
+    /// block" and exit 0 having changed nothing the operator asked for - while `make doctor` prescribes
+    /// that very command as the remedy. Following `active` instead is no better: it would let any
+    /// redeploy silently re-point the audit's subject, which is what the declaration exists to prevent.
+    /// `REANCHOR=true` moves the anchor to `addresses.active.*`, as an explicit instruction.
+    ///
+    /// The refusal is scoped to a value that CAME FROM the anchor. `TOKEN`/`TOKEN_POOL` on a chain with
+    /// no declaration yet is the documented way to snapshot a contract other than the active one, so
+    /// policing it would kill the override in the only case it exists for - and would do it while
+    /// naming a `roles.*.address` key the file does not contain.
     function _resolveProject(string memory name, string memory json)
         private
         view
         returns (address token, address pool)
     {
-        if (VM.keyExistsJson(json, ".roles.token.address")) {
-            token = VM.parseJsonAddress(json, ".roles.token.address");
-        }
-        if (token == address(0)) token = VM.envOr("TOKEN", address(0));
-        if (token == address(0)) token = RegistryWriter._read(name, "token");
+        bool reanchor = _rsReanchor();
+
+        address activeToken = _activeFromJson(json, "token");
+        token = _anchorFromJson(json, name, "token");
+        bool tokenFromAnchor = token != address(0);
+        if (token == address(0)) token = _rsEnvOr("TOKEN");
+        if (token == address(0)) token = activeToken;
         require(
             token != address(0),
             string.concat(
@@ -96,17 +112,172 @@ contract RolesSnapshot {
                 " addresses.active.token)"
             )
         );
-        if (VM.keyExistsJson(json, ".roles.pool.address")) {
-            pool = VM.parseJsonAddress(json, ".roles.pool.address");
+        if (!tokenFromAnchor) {
+            // Nothing declared: the value came from TOKEN or from active, so there is no anchor to move
+            // or to police.
+        } else if (reanchor) {
+            token = _reanchor(name, "token", "token", token, activeToken);
+        } else {
+            _requireAnchorIsCurrent(name, "token", "token", token, activeToken);
         }
-        if (pool == address(0)) pool = VM.envOr("TOKEN_POOL", address(0));
-        if (pool == address(0)) pool = RegistryWriter._read(name, "tokenPool");
+
+        address activePool = _activeFromJson(json, "tokenPool");
+        pool = _anchorFromJson(json, name, "pool");
+        bool poolFromAnchor = pool != address(0);
+        if (pool == address(0)) pool = _rsEnvOr("TOKEN_POOL");
+        if (pool == address(0)) pool = activePool;
         require(
             pool != address(0),
             string.concat(
                 "[snapshot] no pool to snapshot: declare roles.pool.address, set TOKEN_POOL=<addr>, or deploy first (",
                 ProjectStore._display(name),
                 " addresses.active.tokenPool)"
+            )
+        );
+        if (!poolFromAnchor) {
+            // As above: no declaration, nothing to re-anchor or police.
+        } else if (reanchor) {
+            pool = _reanchor(name, "pool", "tokenPool", pool, activePool);
+        } else {
+            _requireAnchorIsCurrent(name, "pool", "tokenPool", pool, activePool);
+        }
+    }
+
+    /// @dev The declared `roles.<role>.address`, or zero when there is none. Wrapped in try/catch to
+    /// name the file and the key: a half-finished hand edit (`""`, a number, an object) otherwise
+    /// aborts with a raw `vm.parseJsonAddress` error that quotes the offending value alone. Unlike
+    /// `_activeFromJson`, a parse failure REVERTS instead of reading as zero - a mistyped anchor that
+    /// read as zero would resolve on to `active` and snapshot a contract nobody declared.
+    function _anchorFromJson(string memory json, string memory name, string memory role)
+        private
+        view
+        returns (address)
+    {
+        string memory key = string.concat(".roles.", role, ".address");
+        try VM.keyExistsJson(json, key) returns (bool exists) {
+            if (!exists) return address(0);
+        } catch {
+            revert(string.concat("[snapshot] ", ProjectStore._display(name), " is not valid JSON"));
+        }
+        try VM.parseJsonAddress(json, key) returns (address a) {
+            return a;
+        } catch {
+            revert(
+                string.concat(
+                    "[snapshot] ",
+                    ProjectStore._display(name),
+                    " has a malformed ",
+                    key,
+                    ": expected an address string, or remove the key"
+                )
+            );
+        }
+    }
+
+    /// @dev Move the anchor to `addresses.active.<activeKey>` under `REANCHOR=true`, and SAY SO: the
+    /// operator is overwriting the declared audit subject, and the caller's usual "wrote .roles block"
+    /// line would leave that re-point indistinguishable from a routine re-snapshot - including when a
+    /// stray `REANCHOR` export did it.
+    ///
+    /// A half with nothing to move to is a logged no-op, NOT a refusal. `REANCHOR` is one flag over a
+    /// store holding two anchors: refusing here would let the token half - which may have no
+    /// `addresses.active.token` at all, the shape of an adopted token under a redeployed pool - block
+    /// the pool half the operator actually came to fix, and the doctor prescribes this exact command.
+    function _reanchor(
+        string memory name,
+        string memory role,
+        string memory activeKey,
+        address anchored,
+        address active
+    ) private view returns (address) {
+        if (active == address(0)) {
+            console.log(
+                string.concat(
+                    "[snapshot] REANCHOR: no usable ",
+                    ProjectStore._display(name),
+                    " addresses.active.",
+                    activeKey,
+                    " (absent, zero, or not an address) to move roles.",
+                    role,
+                    ".address to - keeping ",
+                    VM.toString(anchored)
+                )
+            );
+            return anchored;
+        }
+        if (anchored != active) {
+            console.log(
+                string.concat(
+                    "[snapshot] REANCHOR: roles.", role, ".address ", VM.toString(anchored), " -> ", VM.toString(active)
+                )
+            );
+        }
+        return active;
+    }
+
+    /// @dev `addresses.active.<role>` read from the SAME document the anchor came from. Re-reading the
+    /// store off disk would compare an anchor from one document against an active pointer from another,
+    /// so any caller holding a project doc that is not the on-disk file - every test with an in-memory
+    /// fixture - would get a spurious STALE ANCHOR. Absent key or a non-EVM (base58) value reads as zero, which the
+    /// divergence check treats as "nothing to compare", matching `RegistryWriter._read`.
+    function _activeFromJson(string memory json, string memory role) private view returns (address) {
+        string memory key = string.concat(".addresses.active.", role);
+        if (bytes(json).length == 0) return address(0);
+        try VM.keyExistsJson(json, key) returns (bool exists) {
+            if (!exists) return address(0);
+        } catch {
+            return address(0);
+        }
+        try VM.parseJsonAddress(json, key) returns (address a) {
+            return a;
+        } catch {
+            return address(0);
+        }
+    }
+
+    /// @dev Virtual input seam (the `_dcEnvOr` / `_rlEnv*` idiom): env vars are process-wide and forge
+    ///      runs suites in parallel, so tests pin the override through a subclass, never `vm.setEnv`.
+    function _rsEnvOr(string memory name) internal view virtual returns (address) {
+        return VM.envOr(name, address(0));
+    }
+
+    /// @dev The explicit re-anchor instruction, through the same seam and for the same reason.
+    function _rsReanchor() internal view virtual returns (bool) {
+        return VM.envOr("REANCHOR", false);
+    }
+
+    /// @dev REFUSES when the declared anchor names a different contract than `addresses.active.*` and
+    /// the operator gave no explicit instruction. Both values are real records with different writers -
+    /// `roles{}` is the declared authority, `addresses{}` is what the deploy scripts last wrote - so
+    /// picking either silently is a guess: following the anchor re-declares roles for a contract that
+    /// was replaced, and following `active` would let any redeploy silently re-point the audit's
+    /// subject, which is exactly the property `roles{}` exists to deny. The failure is loud because the
+    /// alternative is a run that prints "wrote .roles block" and exits 0 having changed nothing an
+    /// operator asked for; the message names both addresses and both ways out, so the fix is a
+    /// copy-paste rather than a code read.
+    function _requireAnchorIsCurrent(
+        string memory name,
+        string memory role,
+        string memory activeKey,
+        address anchored,
+        address active
+    ) private view {
+        if (active == address(0) || anchored == active) return;
+        revert(
+            string.concat(
+                "[snapshot] STALE ANCHOR: roles.",
+                role,
+                ".address is ",
+                VM.toString(anchored),
+                " but ",
+                ProjectStore._display(name),
+                " addresses.active.",
+                activeKey,
+                " is ",
+                VM.toString(active),
+                ". Refusing to snapshot: writing role holders under the old address would leave the audit",
+                " reconciling a contract that was replaced. Re-anchor to the deployed one with REANCHOR=true,",
+                " or keep the declaration and point the store back if the repoint was a mistake."
             )
         );
     }

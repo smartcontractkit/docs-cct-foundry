@@ -75,6 +75,32 @@ command, the fix, and a self-verify. Start from the error you see.
   redeploy, rewire the `TokenAdminRegistry` with `SetPool` (the registry still points at the old pool).
 - **Verify.** `make doctor CHAIN=<name>` shows the registry pointing at the intended pool.
 
+## A setup script reverts naming an admin address you never configured
+
+`Admin of token doesn't match the expected admin address` from `ClaimAndAcceptAdmin`, or
+`OnlyAdministrator(0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38, <token>)` from `SetPool`, on a token
+whose `getCCIPAdmin()` and `owner()` both read back as your keystore account.
+
+- **Diagnosis.** The passphrase never reached Foundry, so the keystore stayed locked and the simulation
+  ran as Foundry's default sender `0x1804c8AB1F12E6bbf3894d4083f33e07309d1f38`. It is the same fallback
+  described under [the keystore password](../workflows/greenfield-deploy.md#keystore-password-non-interactive-runs),
+  seen from the other end: the revert names the token or the registry, never the signer, so the error
+  does not read like an authentication problem. Foundry prompts only when it can reach a terminal, so a
+  run with stdin closed (`</dev/null`, CI) takes the fallback silently.
+- **Fix.** Supply the passphrase - `--password ''` for a passwordless keystore, `--password-file` or
+  `ETH_PASSWORD=<file>` otherwise. `--sender` is not needed; the account resolves once the keystore
+  unlocks.
+  ```bash
+  forge script script/setup/ClaimAndAcceptAdmin.s.sol --rpc-url "$ETHEREUM_SEPOLIA_RPC_URL" \
+    --account "$KEYSTORE_NAME" --password '' --broadcast
+  ```
+  Do not take Foundry's own hint here (`You seem to be using Foundry's default sender. Be sure to set
+  your own --sender`) at face value: `--sender` fixes which account the run simulates as, but the
+  keystore is still locked, so a non-interactive broadcast then dies at signing with `Device not
+  configured (os error 6)` - the passphrase is the fix in both cases.
+- **Verify.** `cast call <TokenAdminRegistry> "getTokenConfig(address)((address,address,address))" <token>`
+  returns your account as the administrator.
+
 ## Inbound transfer reverts after removing a remote pool
 
 - **Diagnosis.** Removing a remote pool leaves the chain supported with zero pools, so inbound

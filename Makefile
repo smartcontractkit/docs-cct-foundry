@@ -57,7 +57,7 @@ GROUP_DIR := $(if $(GROUP),$(GROUP)/,)
 # still apply.
 DEPLOY_VARS := TOKEN_NAME TOKEN_SYMBOL TOKEN_DECIMALS TOKEN_MAX_SUPPLY TOKEN_PRE_MINT \
 	TOKEN_PRE_MINT_RECIPIENT CCIP_ADMIN_ADDRESS ROLES_RECIPIENT TOKEN TOKEN_POOL LOCK_BOX DECIMALS \
-	POOL_HOOKS AUTHORIZED_CALLERS FORCE_REDEPLOY
+	POOL_HOOKS AUTHORIZED_CALLERS FORCE_REDEPLOY REANCHOR
 $(foreach v,$(DEPLOY_VARS),$(if $(strip $($(v))),$(eval export $(v))))
 
 # Preflight per-call inputs, forwarded to the forge script the same conditional way as DEPLOY_VARS
@@ -327,7 +327,7 @@ deploy-new-chain: tools ## Guided deploy: add-chain -> deploy-token -> deploy-po
 # exit-remap note as sync-check: the 0/1/2 contract lives in `script/config/roles-check.sh`; CI calls
 # the script directly, `make roles-check` is pass/fail only.
 
-snapshot-chain: tools ## Backfill the declared roles{} authority block FROM chain (CHAIN= required; GROUP= scopes to one token group; opt: TOKEN= TOKEN_POOL= TAR= SCAN_FROM_BLOCK=)
+snapshot-chain: tools ## Backfill the declared roles{} authority block FROM chain (CHAIN= required; GROUP= scopes to one token group; opt: TOKEN= TOKEN_POOL= TAR= SCAN_FROM_BLOCK= REANCHOR=true)
 	$(if $(CHAIN),,$(error CHAIN is required: make snapshot-chain CHAIN=<name>))
 	$(require-chain-config)
 	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script script/config/SnapshotChain.s.sol $(call evm-version-flag,$(CHAIN)) --sig "run(string)" "$(CHAIN)"

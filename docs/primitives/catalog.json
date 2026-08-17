@@ -1123,7 +1123,7 @@
     },
     {
       "target": "snapshot-chain",
-      "help": "Backfill the declared roles{} authority block FROM chain (CHAIN= required; GROUP= scopes to one token group; opt: TOKEN= TOKEN_POOL= TAR= SCAN_FROM_BLOCK=)"
+      "help": "Backfill the declared roles{} authority block FROM chain (CHAIN= required; GROUP= scopes to one token group; opt: TOKEN= TOKEN_POOL= TAR= SCAN_FROM_BLOCK= REANCHOR=true)"
     },
     {
       "target": "roles-check",

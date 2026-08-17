@@ -615,7 +615,7 @@ engine never assumes one:
   "token": {
     "address": "0xa1f7882a...",             // the token this block describes (the snapshot/audit anchor;
                                              // make doctor WARNs when it diverges from addresses.active.token
-                                             // - re-anchor after a repoint with make snapshot-chain)
+                                             // - a plain snapshot-chain refuses; re-anchor with REANCHOR=true)
     "type": "crosschain",                    // crosschain | burnmint | factory | byo - selects the admin model
     "ccipAdmin": "0xGov...",                 // getCCIPAdmin() - the TAR registration authority (one-step, owner-gated)
     "defaultAdmin": "0xGov...",              // crosschain only: defaultAdmin() (single-holder, two-step)
