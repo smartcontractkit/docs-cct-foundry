@@ -98,10 +98,10 @@ contract SetDynamicConfig is EoaExecutor {
 
         _executeCalls(CctActions._setDynamicConfig(tokenPoolAddress, router, rateLimitAdmin, feeAdmin));
 
-        console.log(unicode"✅ Dynamic config updated successfully!");
+        _logOperationOutcome("set the dynamic config on the pool");
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Configuration Complete on ", chainName, "!"));
+        _logOperationOutcome(string.concat("set the dynamic config on ", chainName));
         console.log("========================================");
         console.log(string.concat("Token Pool:       ", vm.toString(tokenPoolAddress)));
         console.log(string.concat("Router:           ", vm.toString(router)));

@@ -86,7 +86,7 @@ contract UpdateAuthorizedCallers is EoaExecutor {
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Authorized callers updated on ", chainName, "!"));
+        _logOperationOutcome(string.concat("update the authorized callers on ", chainName));
         console.log("========================================");
         console.log(string.concat(labelHeader, vm.toString(contractAddress)));
         console.log(string.concat(labelHeader, helperConfig.getExplorerUrl(chainId, "/address/", contractAddress)));

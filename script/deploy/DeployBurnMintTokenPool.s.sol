@@ -9,6 +9,7 @@ import {IBurnMintERC20} from "@chainlink/contracts-ccip/contracts/interfaces/IBu
 import {DeploymentUtils} from "../utils/DeploymentUtils.s.sol";
 import {DeploymentRecorder} from "../utils/DeploymentRecorder.s.sol";
 import {RegistryWriter} from "../../src/utils/RegistryWriter.sol";
+import {OutcomeLog} from "../../src/base/OutcomeLog.sol";
 
 /// @notice Deploys a BurnMint token pool for a token and records it in the address registry.
 /// DECIMALS=<n> is required only when the token does not answer decimals(), and must agree with it when
@@ -88,7 +89,7 @@ contract DeployBurnMintTokenPool is Script {
             string.concat("\n[Step 2] Granting mint and burn roles to token pool: ", vm.toString(tokenPoolAddress))
         );
         try CrossChainToken(tokenAddress).grantMintAndBurnRoles(tokenPoolAddress) {
-            console.log(unicode"✅ Roles granted successfully!");
+            OutcomeLog._sending(string.concat("grant mint and burn roles to ", vm.toString(tokenPoolAddress)));
         } catch {
             console.log(unicode"⚠️  grantMintAndBurnRoles() not found on token.");
             console.log(
@@ -117,7 +118,7 @@ contract DeployBurnMintTokenPool is Script {
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Deployment Complete on ", chainName, "!"));
+        OutcomeLog._sending(string.concat("deploy the BurnMint token pool on ", chainName));
         console.log("========================================");
         console.log(string.concat("Token Pool Address: ", vm.toString(tokenPoolAddress)));
         console.log(helperConfig.getExplorerUrl(chainId, "/address/", tokenPoolAddress));

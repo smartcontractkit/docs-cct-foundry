@@ -69,10 +69,10 @@ contract UpdateAllowList is EoaExecutor {
         address allowListTarget = hooksAddress != address(0) ? hooksAddress : tokenPoolAddress;
         _executeCalls(CctActions._applyAllowListUpdates(allowListTarget, removes, adds));
 
-        console.log(unicode"✅ AllowList updated successfully!");
+        _logOperationOutcome(string.concat("apply the allowlist updates to ", vm.toString(allowListTarget)));
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Allowlist updated on ", chainName, "!"));
+        _logOperationOutcome(string.concat("update the allowlist on ", chainName));
         console.log("========================================");
         console.log(
             string.concat("Token Pool:   ", helperConfig.getExplorerUrl(chainId, "/address/", tokenPoolAddress))

@@ -9,6 +9,7 @@ import {AuthorizedCallers} from "@chainlink/contracts/src/v0.8/shared/access/Aut
 import {DeploymentUtils} from "../utils/DeploymentUtils.s.sol";
 import {DeploymentRecorder} from "../utils/DeploymentRecorder.s.sol";
 import {RegistryWriter} from "../../src/utils/RegistryWriter.sol";
+import {OutcomeLog} from "../../src/base/OutcomeLog.sol";
 
 /**
  * @title DeployERC20LockBox
@@ -77,7 +78,7 @@ contract DeployERC20LockBox is Script {
         address lockBoxAddress = address(lockBox);
         console.log(string.concat("ERC20LockBox deployed at: ", vm.toString(lockBoxAddress)));
         console.log(helperConfig.getExplorerUrl(chainId, "/address/", lockBoxAddress));
-        console.log(unicode"✅ ERC20LockBox deployed successfully!");
+        OutcomeLog._sending("deploy the ERC20LockBox");
 
         if (authorizedCallers.length > 0) {
             console.log("\n[Step 2] Authorizing callers...");
@@ -86,14 +87,14 @@ contract DeployERC20LockBox is Script {
                     addedCallers: authorizedCallers, removedCallers: new address[](0)
                 })
             );
-            console.log(unicode"✅ Authorized callers set successfully!");
+            OutcomeLog._sending("set the authorized callers on the ERC20LockBox");
         }
 
         vm.stopBroadcast();
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Deployment Complete on ", chainName, "!"));
+        OutcomeLog._sending(string.concat("deploy the ERC20LockBox on ", chainName));
         console.log("========================================");
         console.log(string.concat("ERC20LockBox Address: ", vm.toString(lockBoxAddress)));
         console.log(helperConfig.getExplorerUrl(chainId, "/address/", lockBoxAddress));

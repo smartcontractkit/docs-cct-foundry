@@ -121,6 +121,13 @@ to a non-zero address. If it does, the script **refuses to run** and prints the 
 **stays in the append-only `history/` ledger**. It does **not** stay in git history when the template
 gitignores `project/` (see [Tracking rule](#tracking-rule-template-vs-fork)).
 
+The guard has a second refusal: the recorded address holds no code on the chain this run reads. The
+store is written during forge's simulation pass, so a `--broadcast` that fails afterwards records an
+address that never came into existence. Absent code reads the same for that phantom as for a wrong or
+lagging RPC, so the guard refuses rather than dropping the entry itself. Verify the address, then
+either set `FORCE_REDEPLOY=true` (genuinely absent) or fix the RPC (it exists). `make doctor` reports
+the same condition across every `deployments{}` entry, as a FAIL.
+
 ## Resolution ladder (per role)
 
 `HelperConfig.getDeployed{Token,TokenPool,LockBox,PoolHooks}` resolves each EVM role in this order:

@@ -108,11 +108,11 @@ contract AcceptOwnership is EoaExecutor {
         console.log(string.concat("\n[Step 1] Accepting ownership on ", chainName));
         // acceptOwnership reverts on-chain if the signer is not the pending owner
         _executeCalls(CctActions._acceptOwnership(entityAddress));
-        console.log(unicode"✅ Ownership accepted successfully!");
+        _logOperationOutcome(string.concat("accept ownership of ", vm.toString(entityAddress)));
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Ownership Accepted on ", chainName, "!"));
+        _logOperationOutcome(string.concat("accept ownership on ", chainName));
         console.log("========================================");
         console.log(
             string.concat(

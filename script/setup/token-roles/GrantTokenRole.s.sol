@@ -75,11 +75,11 @@ contract GrantTokenRole is TokenRoleScript {
         } else {
             _executeCalls(CctActions._grantRole(token, RolesProbes._tokenRoleId(token, role), holder));
         }
-        console.log(unicode"✅ Role granted successfully!");
+        _logOperationOutcome(string.concat("grant ", RolesProbes._tokenRoleName(role), " to ", vm.toString(holder)));
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Token Role Granted on ", chainName, "!"));
+        _logOperationOutcome(string.concat("grant the token role on ", chainName));
         console.log("========================================");
         console.log(string.concat("Token:  ", helperConfig.getExplorerUrl(chainId, "/address/", token)));
         console.log(string.concat("Role:   ", RolesProbes._tokenRoleName(role)));

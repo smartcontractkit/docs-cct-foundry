@@ -44,6 +44,7 @@ Multi-step flows with a machine-readable manifest each, under [`docs/workflows/`
 - [Config and project-store schema](config-schema.md) - every field of `config/chains` and `project/`.
 - [Config architecture](config-architecture.md) - the layering, sync data-flow, and writers.
 - [Deployed addresses](deployed-addresses.md) - the project store, resolution ladder, and redeploy guard.
+- [Reading a write script's outcome line](reference/script-output.md) - what `SENDING` and the two `NOT SENT` lines mean, and what actually confirms the state.
 
 ## Concepts (understand why)
 

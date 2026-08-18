@@ -94,7 +94,9 @@ contract WithdrawFromLockBox is EoaExecutor {
 
         console.log(string.concat("[Step 1] Withdrawing ", vm.toString(amount), " tokens from LockBox"));
         _executeCalls(CctActions._lockboxWithdraw(lockBoxAddress, tokenAddress, amount, recipient));
-        console.log(unicode"✅ Withdrawal successful!");
+        _logOperationOutcome(
+            string.concat("withdraw ", vm.toString(amount), " tokens from the LockBox to ", vm.toString(recipient))
+        );
 
         uint256 lockBoxBalanceAfter = token.balanceOf(lockBoxAddress);
         uint256 recipientBalanceAfter = token.balanceOf(recipient);
@@ -102,7 +104,7 @@ contract WithdrawFromLockBox is EoaExecutor {
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Withdrawal Complete on ", chainName, "!"));
+        _logOperationOutcome(string.concat("withdraw from the LockBox on ", chainName));
         console.log("========================================");
         console.log(string.concat("Amount Withdrawn: ", vm.toString(actualWithdrawn)));
         console.log(string.concat("LockBox Balance Before: ", vm.toString(lockBoxBalance)));

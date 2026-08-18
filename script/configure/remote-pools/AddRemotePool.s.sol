@@ -145,10 +145,10 @@ contract AddRemotePool is EoaExecutor {
 
         _executeCalls(CctActions._addRemotePool(tokenPoolAddress, remoteChainSelector, remotePoolAddressEncoded));
 
-        console.log(unicode"✅ Remote pool added successfully!");
+        _logOperationOutcome(string.concat("add remote pool ", remotePoolAddressRaw, " for ", remoteChainDisplayName));
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Complete on ", sourceChainName, "!"));
+        _logOperationOutcome(string.concat("add the remote pool on ", sourceChainName));
         console.log("========================================");
         console.log(string.concat("Token Pool:      ", vm.toString(tokenPoolAddress)));
         console.log(string.concat("Remote Chain:    ", remoteChainDisplayName));

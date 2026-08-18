@@ -67,11 +67,11 @@ contract SetPool is EoaExecutor {
 
         console.log(string.concat("\n[Step 1] Setting pool for token on ", chainName));
         _executeCalls(CctActions._setPool(config.tokenAdminRegistry, tokenAddress, poolAddress));
-        console.log(unicode"✅ Pool set successfully!");
+        _logOperationOutcome("set the pool on the TokenAdminRegistry");
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Pool Set Complete on ", chainName, "!"));
+        _logOperationOutcome(string.concat("set the pool on ", chainName));
         console.log("========================================");
         console.log(string.concat("Token Address: ", vm.toString(tokenAddress)));
         console.log(string.concat("Token Address: ", helperConfig.getExplorerUrl(chainId, "/address/", tokenAddress)));

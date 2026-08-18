@@ -65,6 +65,9 @@ doctor` end to end. Every make target documents the raw `forge script` it wraps 
   `project/[<group>/]*.json` (deploy addresses, lanes, roles) vs `history/` (append-only, never tracked).
 - **Token groups:** thread `GROUP=<g>` (`PROJECT_GROUP` for raw `forge script`) to manage several tokens
   in one clone; unset is the flat default.
+- **Script output:** a write run reports itself with `SENDING (unconfirmed)`, `NOT SENT (simulation
+  only ...)`, or `NOT SENT (Safe batch to sign)`. None of the three reports a landed transaction; read
+  the state back to confirm. See [reading a write script's outcome line](docs/reference/script-output.md).
 - **Redeploy guard:** a deployed artifact is not redeployed unless `FORCE_REDEPLOY=true` (which then
   leaves the `TokenAdminRegistry` pointing at the old pool until rewired).
 - **Test scratch discipline:** test write targets use `zz-scratch-*` / `zz-tt-*` / `local-*` names only,

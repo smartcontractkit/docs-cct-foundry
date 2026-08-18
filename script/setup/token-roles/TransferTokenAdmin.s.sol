@@ -85,20 +85,21 @@ contract TransferTokenAdmin is TokenRoleScript {
 
         console.log("");
         console.log("========================================");
-        // The banner reflects the exact success path taken. The burnmint grant-only path leaves the old
-        // holder's DEFAULT_ADMIN_ROLE in place (revoked later by the ceremony's batch), while
-        // crosschain/factory begin a native two-step transfer that the new admin completes with ACCEPT=1.
+        // The banner names the exact path taken. The burnmint grant-only path leaves the old holder's
+        // DEFAULT_ADMIN_ROLE in place (revoked later by the ceremony's batch), while crosschain/factory
+        // begin a native two-step transfer that the new admin completes with ACCEPT=1.
         bool twoStepInitiated;
         string memory outcome;
         if (acceptLeg) {
-            outcome = "Accepted";
+            outcome = "accept the token admin role";
         } else if (template == RolesProbes.TokenTemplate.BurnMintERC20) {
-            outcome = "Granted (the old holder retains DEFAULT_ADMIN_ROLE; the revoke is the ceremony's later batch)";
+            outcome =
+                "grant the token admin role (the old holder retains DEFAULT_ADMIN_ROLE; the revoke is the ceremony's later batch)";
         } else {
-            outcome = "Transfer Initiated";
+            outcome = "begin the two-step token admin transfer";
             twoStepInitiated = true;
         }
-        console.log(string.concat(unicode"✅ Token Admin ", outcome, "!"));
+        _logOperationOutcome(outcome);
         console.log("========================================");
         console.log(string.concat("Token: ", helperConfig.getExplorerUrl(chainId, "/address/", token)));
         if (twoStepInitiated) {
@@ -140,7 +141,7 @@ contract TransferTokenAdmin is TokenRoleScript {
             );
             console.log(string.concat("\n[Step 1] beginDefaultAdminTransfer (two-step) on ", chainName));
             _executeCalls(CctActions._beginDefaultAdminTransfer(token, newAdmin));
-            console.log(unicode"✅ Transfer initiated! The new admin must run this script with ACCEPT=1.");
+            _logOperationOutcome("begin the two-step defaultAdmin transfer");
             return;
         }
         if (template == RolesProbes.TokenTemplate.BurnMintERC20) {
@@ -155,9 +156,7 @@ contract TransferTokenAdmin is TokenRoleScript {
             );
             console.log(string.concat("\n[Step 1] grantRole(DEFAULT_ADMIN_ROLE) - GRANT ONLY - on ", chainName));
             _executeCalls(CctActions._grantRole(token, RolesProbes.DEFAULT_ADMIN_ROLE, newAdmin));
-            console.log(
-                unicode"✅ Granted! The old holder keeps DEFAULT_ADMIN_ROLE until the ceremony's revoke batch (after the completion gate)."
-            );
+            _logOperationOutcome("grant DEFAULT_ADMIN_ROLE to the new admin");
             return;
         }
         // factory (Ownable2Step)
@@ -171,7 +170,7 @@ contract TransferTokenAdmin is TokenRoleScript {
         );
         console.log(string.concat("\n[Step 1] transferOwnership (two-step) on ", chainName));
         _executeCalls(CctActions._transferOwnership(token, newAdmin));
-        console.log(unicode"✅ Transfer initiated! The new owner must run this script with ACCEPT=1.");
+        _logOperationOutcome("begin the two-step ownership transfer");
     }
 
     function _accept(string memory chainName, address token, RolesProbes.TokenTemplate template, address actor)
@@ -194,7 +193,7 @@ contract TransferTokenAdmin is TokenRoleScript {
             );
             console.log(string.concat("\n[Step 1] acceptDefaultAdminTransfer on ", chainName));
             _executeCalls(CctActions._acceptDefaultAdminTransfer(token));
-            console.log(unicode"✅ Default admin accepted!");
+            _logOperationOutcome("accept the defaultAdmin transfer");
             return;
         }
         require(
@@ -217,6 +216,6 @@ contract TransferTokenAdmin is TokenRoleScript {
         }
         console.log(string.concat("\n[Step 1] acceptOwnership on ", chainName));
         _executeCalls(CctActions._acceptOwnership(token));
-        console.log(unicode"✅ Ownership accepted!");
+        _logOperationOutcome("accept the ownership transfer");
     }
 }

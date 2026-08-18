@@ -75,11 +75,11 @@ contract SetCCIPAdmin is TokenRoleScript {
 
         console.log(string.concat("\n[Step 1] Setting CCIP admin on ", chainName));
         _executeCalls(CctActions._setCCIPAdmin(token, newAdmin));
-        console.log(unicode"✅ CCIP admin set successfully!");
+        _logOperationOutcome(string.concat("set the CCIP admin to ", vm.toString(newAdmin)));
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ CCIP Admin Set on ", chainName, "!"));
+        _logOperationOutcome(string.concat("set the CCIP admin on ", chainName));
         console.log("========================================");
         console.log(string.concat("Token:      ", helperConfig.getExplorerUrl(chainId, "/address/", token)));
         console.log(string.concat("CCIP Admin: ", vm.toString(newAdmin)));

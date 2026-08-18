@@ -244,7 +244,7 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
         console.log(string.concat("[Step 1] Setting finality config on ", chainName));
 
         _executeCalls(CctActions._setAllowedFinalityConfig(tokenPoolAddress, s_newFinalityConfig));
-        console.log(unicode"✅ Finality config set successfully!");
+        _logOperationOutcome("set the finality config on the pool");
 
         // ── Step 2: Apply rate limit update (if requested) ─────────────────
         if (hasRateLimitUpdate) {
@@ -274,7 +274,7 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
         // ── Footer ─────────────────────────────────────────────────────────
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Configuration Complete on ", chainName, "!"));
+        _logOperationOutcome(string.concat("set the finality config on ", chainName));
         console.log("========================================");
         console.log(string.concat("Token Pool:      ", vm.toString(tokenPoolAddress)));
         console.log(string.concat("Finality Config: ", vm.toString(abi.encodePacked(s_newFinalityConfig))));
@@ -429,7 +429,7 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
             CctActions._setRateLimits(address(tokenPool), poolVersion, remoteChainSelector, true, outbound, inbound)
         );
 
-        console.log(unicode"✅ Rate limits updated successfully!");
+        _logOperationOutcome("update the fast-finality rate limits");
 
         // Reconcile the applied (env-override) fast-finality buckets against the declared
         // lanes{}.v2.fastFinality policy: print the divergence notice inline, store the closing hint.

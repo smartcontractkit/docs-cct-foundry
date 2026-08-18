@@ -138,10 +138,10 @@ contract RemoveChain is EoaExecutor {
 
         _executeCalls(_buildChainRemovalCalls(poolVersion, tokenPoolAddress, remoteChainSelector));
 
-        console.log(unicode"✅ Remote chain removed successfully!");
+        _logOperationOutcome(string.concat("remove remote chain ", destChainDisplayName, " from the pool"));
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Complete on ", sourceChainName, "!"));
+        _logOperationOutcome(string.concat("remove the remote chain on ", sourceChainName));
         console.log("========================================");
         console.log(string.concat("Token Pool:      ", vm.toString(tokenPoolAddress)));
         console.log(string.concat("Removed Chain:   ", destChainDisplayName));

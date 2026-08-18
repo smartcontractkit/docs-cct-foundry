@@ -202,9 +202,7 @@ contract UpdateRateLimiters is EoaExecutor, LanePolicySource {
         // ── Footer ─────────────────────────────────────────────────────────
         console.log("");
         console.log("========================================");
-        console.log(
-            string.concat(unicode"✅ Rate limiter update complete on ", helperConfig.getChainName(s_chainId), "!")
-        );
+        _logOperationOutcome(string.concat("update the rate limiters on ", helperConfig.getChainName(s_chainId)));
         console.log("========================================");
         console.log(string.concat("Token Pool:   ", vm.toString(s_poolAddress)));
         console.log(string.concat("Token Pool:   ", helperConfig.getExplorerUrl(s_chainId, "/address/", s_poolAddress)));

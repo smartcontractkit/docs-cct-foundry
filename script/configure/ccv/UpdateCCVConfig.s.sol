@@ -185,7 +185,7 @@ contract UpdateCCVConfig is EoaExecutor, LanePolicySource {
             console.log(
                 unicode"ℹ️  Nothing to apply: no CCV arrays or threshold declared (env or lanes{}) for this run."
             );
-            _footer(chainId, tokenPoolAddress, res);
+            _footer(chainId, tokenPoolAddress, res, false);
             return;
         }
 
@@ -194,16 +194,13 @@ contract UpdateCCVConfig is EoaExecutor, LanePolicySource {
         );
         console.log(
             string.concat(
-                "[apply] Broadcasting ",
-                vm.toString(calls.length),
-                " call(s) as the hooks owner ",
-                vm.toString(hooksOwner)
+                "[apply] Queueing ", vm.toString(calls.length), " call(s) as the hooks owner ", vm.toString(hooksOwner)
             )
         );
         _executeCalls(calls);
-        console.log(unicode"✅ CCV config applied successfully!");
+        _logOperationOutcome("apply the CCV config to the pool hooks");
 
-        _footer(chainId, tokenPoolAddress, res);
+        _footer(chainId, tokenPoolAddress, res, true);
     }
 
     // ── Version fence + hooks resolution ────────────────────────────────────
@@ -252,10 +249,14 @@ contract UpdateCCVConfig is EoaExecutor, LanePolicySource {
         console.log("");
     }
 
-    function _footer(uint256 chainId, address pool, CCVConfigResolution memory res) private view {
+    /// @dev `ran` is false on the nothing-to-apply path, which returns before `_executeCalls`. An
+    /// outcome line there would report a send for a run that built zero calls - the defect this
+    /// reporting exists to prevent, reached through an early return rather than a broadcast.
+    function _footer(uint256 chainId, address pool, CCVConfigResolution memory res, bool ran) private view {
         console.log("");
         console.log("========================================");
-        console.log(unicode"✅ Operation Complete!");
+        if (ran) _logOperationOutcome("update the CCV config");
+        else console.log("Nothing to apply - the pool's CCV config is unchanged.");
         console.log("========================================");
         console.log(string.concat("Token Pool: ", helperConfig.getExplorerUrl(chainId, "/address/", pool)));
         console.log("========================================");

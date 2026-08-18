@@ -3,6 +3,7 @@ pragma solidity 0.8.24;
 
 import {Vm} from "forge-std/Vm.sol";
 import {console} from "forge-std/console.sol";
+import {OutcomeLog} from "./OutcomeLog.sol";
 import {CctActions} from "../actions/CctActions.sol";
 import {ISafe, IMultiSendCallOnly, SafeCanonical} from "./ISafe.sol";
 import {SafeBatchEmitter} from "./SafeBatchEmitter.sol";
@@ -27,6 +28,11 @@ import {SafeTxHash} from "./SafeTxHash.sol";
 ///      EIP-712 `safeTxHash` recompute must equal the Safe's on-chain `getTransactionHash` - both are
 ///      enforced here, in that order.
 library SafeMode {
+    /// @dev The env var selecting the direct-submit path. Named once: `_run` reads it to decide what
+    ///      to do and to build its error, `_execsDirect` reads it to decide what the run may claim,
+    ///      and a wrong name in either silently means "not direct".
+    string internal constant SAFE_EXEC_ENV = "SAFE_EXEC";
+
     Vm private constant VM = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     /// @notice Emit the Transaction Builder batch for `calls` (and execute it when `SAFE_EXEC=direct`).
@@ -37,14 +43,48 @@ library SafeMode {
 
         path = _emitBatch(batchName, safe, calls);
 
-        string memory execMode = VM.envOr("SAFE_EXEC", string(""));
+        string memory execMode = VM.envOr(SAFE_EXEC_ENV, string(""));
         if (bytes(execMode).length == 0) {
             console.log("  Next: import into the Safe{Wallet} Transaction Builder, or propose via safe-cli.");
-        } else if (_eq(execMode, "direct")) {
+        } else if (_isDirect(execMode)) {
             _execDirect(ISafe(safe), calls);
         } else {
-            revert(string.concat("SafeMode: unknown SAFE_EXEC '", execMode, "' (use 'direct' or leave unset)."));
+            revert(
+                string.concat("SafeMode: unknown ", SAFE_EXEC_ENV, " '", execMode, "' (use 'direct' or leave unset).")
+            );
         }
+    }
+
+    /// @notice Whether `MODE` selects the Safe executor. One comparison, because three callers act on
+    ///         it: `_executeCalls` decides what runs, `_executingAccount` decides whose authority is
+    ///         checked, and `_callsWereApplied` decides what the run may claim. Written out three times
+    ///         they can disagree, and the third one deciding wrongly is a script reporting an outcome
+    ///         that did not happen.
+    function _isSafeMode(string memory mode) internal pure returns (bool) {
+        return _eq(mode, "safe");
+    }
+
+    /// @notice Whether `MODE` selects the default EOA executor. Paired with `_isSafeMode` so both
+    ///         spellings are compared in one place; written out at the call site, a typo turns
+    ///         `MODE=eoa` into the unknown-mode revert.
+    function _isEoaMode(string memory mode) internal pure returns (bool) {
+        return _eq(mode, "eoa");
+    }
+
+    /// @notice Whether `SAFE_EXEC` selects the direct-submit path rather than emitting a batch for the
+    ///         owners to sign. One parse, because two callers act on it: `_run` decides what to DO and
+    ///         the outcome reporting decides what to SAY. Read separately they can drift into a run
+    ///         that submits a transaction while announcing a batch.
+    function _execsDirect() internal view returns (bool) {
+        return _isDirect(VM.envOr(SAFE_EXEC_ENV, string("")));
+    }
+
+    /// @notice The `SAFE_EXEC` vocabulary over an explicit value. Split from the env read so a test can
+    ///         pin the comparison without `vm.setEnv`, which is process-wide and races the suites forge
+    ///         runs in parallel. Asserting the two callers against each other would be vacuous - they
+    ///         share this function, so a mutation moves both sides together.
+    function _isDirect(string memory execMode) internal pure returns (bool) {
+        return _eq(execMode, "direct");
     }
 
     /// @notice Logs every call for review and writes the Safe Transaction Builder JSON batch.
@@ -146,7 +186,9 @@ library SafeMode {
         // With safeTxGas == 0 and gasPrice == 0 the Safe reverts (GS013) when the inner call fails, so
         // reaching a `true` return means the Safe emitted ExecutionSuccess.
         require(success, "SafeMode: execTransaction returned false");
-        console.log(unicode"  ✅ Safe execTransaction succeeded (ExecutionSuccess).");
+        // The `success` above is the SIMULATION's return value: forge dispatches after the body
+        // returns, so no ExecutionSuccess event exists yet to claim.
+        OutcomeLog._sending("execute the batch on the Safe");
     }
 
     /// @dev Signs `hash` with every key in `SAFE_SIGNER_KEYS`, validates each signer is a Safe owner and

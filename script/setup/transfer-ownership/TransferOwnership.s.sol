@@ -129,11 +129,11 @@ contract TransferOwnership is EoaExecutor {
 
         console.log(string.concat("\n[Step 1] Transferring ownership on ", chainName));
         _executeCalls(CctActions._transferOwnership(entityAddress, newOwner));
-        console.log(unicode"✅ Ownership transfer initiated successfully!");
+        _logOperationOutcome(string.concat("begin the ownership transfer to ", vm.toString(newOwner)));
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Ownership Transfer Initiated on ", chainName, "!"));
+        _logOperationOutcome(string.concat("begin the ownership transfer on ", chainName));
         console.log("========================================");
         console.log(
             string.concat(

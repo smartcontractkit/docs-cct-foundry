@@ -3,6 +3,7 @@ pragma solidity 0.8.24;
 
 import {Script, console} from "forge-std/Script.sol";
 import {ISafe, ISafeProxyFactory, SafeCanonical} from "../../src/base/ISafe.sol";
+import {OutcomeLog} from "../../src/base/OutcomeLog.sol";
 
 /// @notice Deploys a Safe from the canonical Safe v1.4.1 stack:
 ///         `SafeProxyFactory.createProxyWithNonce(SafeL2, setup(...), saltNonce)`.
@@ -71,7 +72,7 @@ contract DeploySafe is Script {
         vm.stopBroadcast();
 
         require(safe == predicted, "Deployed Safe address != CREATE2 prediction");
-        console.log(unicode"✅ Safe deployed.");
+        OutcomeLog._sending("deploy the Safe");
         console.log(string.concat("Safe address:      ", vm.toString(safe)));
         console.log("Same owners + threshold + salt nonce reproduce this address on every chain");
         console.log("with the canonical v1.4.1 stack (CREATE2 same-address property).");

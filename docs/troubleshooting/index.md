@@ -101,6 +101,37 @@ whose `getCCIPAdmin()` and `owner()` both read back as your keystore account.
 - **Verify.** `cast call <TokenAdminRegistry> "getTokenConfig(address)((address,address,address))" <token>`
   returns your account as the administrator.
 
+## A deploy refuses naming an address that has no code on the chain
+
+`RegistryWriter: '<name>' is recorded at 0x... (.../project/<chain>.json), but this run reads no code there on chain <id>.`
+
+- **Diagnosis.** Three causes read identically, which is why the guard refuses rather than choosing. The
+  broadcast that recorded the address never landed - the store is written from the simulation pass,
+  before forge sends, so a stale nonce leaves the address recorded anyway; or the transaction is still
+  pending; or this run is not reading the chain that holds it (a lagging RPC, the wrong endpoint, or
+  none).
+- **Fix.** Look the address up on an explorer first. If it is genuinely absent, `FORCE_REDEPLOY=true`
+  drops the entry and deploys. If it exists, or the deploy is still mining, the record is fine and the
+  RPC is not: fix the endpoint, or wait. Do not force past this without checking - forcing on a lagging
+  RPC or a pending deploy drops the record of a live contract and deploys a duplicate; for a pool it
+  also leaves the `TokenAdminRegistry` pointing at the first one. `forge script --resume` is the usual
+  recovery for a broadcast that failed part-way; the guard refuses that path too, so clear the entry
+  only once the address is confirmed empty.
+- **Verify.** `make doctor CHAIN=<name>` reports no codeless artifacts.
+
+## `make doctor` FAILs that a recorded artifact has no code
+
+`[FAIL] registry: deployments.<key> is recorded at 0x... but this run reads no code there on <chain>`
+
+- **Diagnosis.** The same phantom record, seen from the audit side. The doctor code-checks every entry
+  in `addresses.deployments{}`, not only the `active.token` and `active.tokenPool` pointers (those two
+  keep their own FAIL line, so nothing is counted twice), so a lock box, a hooks contract, or a
+  superseded pool that never landed is named here.
+- **Fix.** As above: confirm the address is absent, then redeploy that artifact with
+  `FORCE_REDEPLOY=true`. A run with no RPC checks nothing rather than reporting absence, so a FAIL here
+  means the chain was actually asked.
+- **Verify.** `make doctor CHAIN=<name>` no longer names the entry.
+
 ## Inbound transfer reverts after removing a remote pool
 
 - **Diagnosis.** Removing a remote pool leaves the chain supported with zero pools, so inbound

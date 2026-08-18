@@ -184,8 +184,8 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
             // On v1 pools, fee configuration is handled by FeeQuoter and requires
             // a direct request to the Chainlink team - it cannot be modified here.
             _executeCalls(CctActions._applyTokenTransferFeeConfigUpdates(tokenPoolAddress, emptyArgs, toDisable));
-            console.log(unicode"✅ Fee config disabled for this lane.");
-            console.log("   The OnRamp will now use FeeQuoter defaults for this destination.");
+            _logOperationOutcome(string.concat("disable the fee config for the lane to ", destChainDisplayName));
+            console.log("   With no per-lane override, the OnRamp charges the FeeQuoter defaults for this destination.");
         } else {
             // ── Read current on-chain config as defaults ───────────────────
             IPoolV2.TokenTransferFeeConfig memory currentConfig;
@@ -236,13 +236,13 @@ contract UpdateTokenTransferFeeConfig is EoaExecutor, LanePolicySource {
             // On v1 pools, fee configuration is handled by FeeQuoter and requires
             // a direct request to the Chainlink team - it cannot be modified here.
             _executeCalls(CctActions._applyTokenTransferFeeConfigUpdates(tokenPoolAddress, args, emptyDisable));
-            console.log(unicode"✅ Fee config applied successfully!");
+            _logOperationOutcome(string.concat("apply the fee config for the lane to ", destChainDisplayName));
         }
 
         // ── Footer ─────────────────────────────────────────────────────────
         console.log("");
         console.log("========================================");
-        console.log(unicode"✅ Operation Complete!");
+        _logOperationOutcome("update the token transfer fee config");
         console.log("========================================");
         console.log(string.concat("Token Pool: ", vm.toString(tokenPoolAddress)));
         console.log(string.concat("Token Pool: ", helperConfig.getExplorerUrl(chainId, "/address/", tokenPoolAddress)));

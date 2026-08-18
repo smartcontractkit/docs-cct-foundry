@@ -8,6 +8,7 @@ import {DeploymentRecorder} from "../utils/DeploymentRecorder.s.sol";
 import {RegistryWriter} from "../../src/utils/RegistryWriter.sol";
 import {BaseERC20} from "@chainlink/contracts-ccip/contracts/tokens/BaseERC20.sol";
 import {CrossChainToken} from "@chainlink/contracts-ccip/contracts/tokens/CrossChainToken.sol";
+import {OutcomeLog} from "../../src/base/OutcomeLog.sol";
 
 /// @notice Deploys a cross-chain ERC20 token (CrossChainToken) and records it in the address registry.
 contract DeployToken is Script {
@@ -89,7 +90,7 @@ contract DeployToken is Script {
         address rolesRecipient = vm.envOr("ROLES_RECIPIENT", broadcaster); // Default to deployer if not set
         console.log(string.concat("\n[Step 2] Granting mint and burn roles to: ", vm.toString(rolesRecipient)));
         token.grantMintAndBurnRoles(rolesRecipient);
-        console.log(unicode"✅ Roles granted successfully!");
+        OutcomeLog._sending(string.concat("grant mint and burn roles to ", vm.toString(rolesRecipient)));
 
         vm.stopBroadcast();
 
@@ -97,7 +98,7 @@ contract DeployToken is Script {
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Deployment Complete on ", chainName, "!"));
+        OutcomeLog._sending(string.concat("deploy the token on ", chainName));
         console.log("========================================");
         console.log(string.concat("Token Address: ", vm.toString(tokenAddress)));
         console.log(helperConfig.getExplorerUrl(chainId, "/address/", tokenAddress));

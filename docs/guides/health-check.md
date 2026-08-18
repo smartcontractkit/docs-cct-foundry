@@ -10,8 +10,8 @@ the complete gate.
 
 ## The checks
 
-1. **Config and wiring.** `make doctor CHAIN=<name>` on every chain: it verifies on-chain code at the
-   recorded token and pool addresses, the `TokenAdminRegistry` reconciliation, and the lane wiring.
+1. **Config and wiring.** `make doctor CHAIN=<name>` on every chain: it verifies on-chain code at every
+   recorded artifact address, the `TokenAdminRegistry` reconciliation, and the lane wiring.
 2. **Roles.** `make roles-check CHAIN=<name>` (or `make roles-check-all`): a read-only reconcile of the
    declared `roles{}` authority against the live chain. Expect exit 0. See [roles](../roles.md).
 3. **Verification.** Confirm each deployed contract is source-verified on its explorer (`make verify`

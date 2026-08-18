@@ -155,10 +155,12 @@ contract RemoveRemotePool is EoaExecutor {
 
         _executeCalls(CctActions._removeRemotePool(tokenPoolAddress, remoteChainSelector, remotePoolAddressEncoded));
 
-        console.log(unicode"✅ Remote pool removed successfully!");
+        _logOperationOutcome(
+            string.concat("remove remote pool ", remotePoolAddressRaw, " for ", remoteChainDisplayName)
+        );
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Complete on ", sourceChainName, "!"));
+        _logOperationOutcome(string.concat("remove the remote pool on ", sourceChainName));
         console.log("========================================");
         console.log(string.concat("Token Pool:      ", vm.toString(tokenPoolAddress)));
         console.log(string.concat("Remote Chain:    ", remoteChainDisplayName));

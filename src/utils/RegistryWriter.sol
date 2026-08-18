@@ -4,6 +4,7 @@ pragma solidity 0.8.24;
 import {Vm, VmSafe} from "forge-std/Vm.sol";
 import {console} from "forge-std/console.sol";
 
+import {ForgeContext} from "../base/ForgeContext.sol";
 import {ProjectStore} from "./ProjectStore.sol";
 import {ChainHandlers} from "../../script/utils/ChainHandlers.s.sol";
 
@@ -77,9 +78,7 @@ library RegistryWriter {
     function _record(string memory selectorName, string memory role, string memory deploymentName, address addr)
         internal
     {
-        if (!VM.isContext(VmSafe.ForgeContext.ScriptBroadcast) && !VM.isContext(VmSafe.ForgeContext.ScriptResume)) {
-            return;
-        }
+        if (ForgeContext._sendsNothing()) return;
         _recordDeterministic(selectorName, role, deploymentName, addr);
     }
 
@@ -91,17 +90,59 @@ library RegistryWriter {
     /// registers the replacement. First-time flows (no project file / no entry for `deploymentName`) are
     /// complete no-ops.
     function _guardRedeploy(string memory selectorName, string memory deploymentName) internal {
-        _guardRedeploy(selectorName, deploymentName, VM.envOr("FORCE_REDEPLOY", false));
+        _guardRedeployAgainstChain(selectorName, deploymentName, VM.envOr("FORCE_REDEPLOY", false));
     }
 
-    /// @dev Deterministic core (the env read is split out so tests can exercise both the refuse and
-    /// the force branches without toggling `FORCE_REDEPLOY` - `vm.setEnv` is process-wide and would
-    /// race parallel test suites).
-    function _guardRedeploy(string memory selectorName, string memory deploymentName, bool forced) internal {
-        address existing = _readDeployment(selectorName, deploymentName);
+    /// @dev Reads the chain for the recorded address and hands the answer to the core. The
+    /// `FORCE_REDEPLOY` read stays in the caller so a test can drive the chain branch without
+    /// `vm.setEnv`, which is process-wide and races the suites forge runs in parallel.
+    function _guardRedeployAgainstChain(string memory selectorName, string memory deploymentName, bool forced)
+        internal
+    {
+        address recorded = _readDeployment(selectorName, deploymentName);
+        _guardRedeploy(selectorName, deploymentName, forced, recorded, recorded.code.length != 0);
+    }
+
+    /// @dev As above, plus what the chain says about the recorded address. `recordedHasCode` false means
+    /// the store names an address holding no contract on the network this run is pointed at - the
+    /// signature of a `--broadcast` whose transaction never landed. `record` runs in the script body,
+    /// which forge executes as the SIMULATION pass before it dispatches any transaction, so a broadcast
+    /// that then fails (a stale nonce is enough) leaves the address recorded. That entry blocks the
+    /// retry, and the plain refusal above sends the operator looking for a contract that was never
+    /// deployed.
+    ///
+    /// It still REFUSES rather than dropping the entry itself: absent code reads the same for a phantom
+    /// as for a misconfigured RPC, and guessing wrong deletes the durable record of a deployment that
+    /// does exist. `FORCE_REDEPLOY=true` stays the operator's call.
+    function _guardRedeploy(
+        string memory selectorName,
+        string memory deploymentName,
+        bool forced,
+        address existing,
+        bool recordedHasCode
+    ) internal {
         if (existing == address(0)) return; // first-time flow: nothing registered under this name
 
         string memory path = ProjectStore._path(selectorName);
+        if (!forced && !recordedHasCode) {
+            revert(
+                string.concat(
+                    "RegistryWriter: '",
+                    deploymentName,
+                    "' is recorded at ",
+                    VM.toString(existing),
+                    " (",
+                    path,
+                    "), but this run reads no code there on chain ",
+                    VM.toString(block.chainid),
+                    ". Three causes read alike here: the broadcast never landed (the store is written from",
+                    " the simulation, before forge sends), it is still pending, or this run is not reading the",
+                    " chain that holds it (stale block, wrong or missing RPC). Verify the address before",
+                    " acting: if it is genuinely absent, FORCE_REDEPLOY=true drops the entry and deploys; if",
+                    " it exists or is still mining, fix the RPC or wait - forcing leaves two contracts."
+                )
+            );
+        }
         if (!forced) {
             revert(
                 string.concat(
@@ -143,15 +184,7 @@ library RegistryWriter {
     /// the file or the key is absent. Never reverts (see `read`). This is the non-EVM resolution path
     /// the frozen EVM getter surface (`read`) cannot serve.
     function _readString(string memory selectorName, string memory role) internal view returns (string memory) {
-        string memory json = _readProjectJson(selectorName);
-        if (bytes(json).length == 0) return "";
-        string memory activeKey = string.concat(".addresses.active.", role);
-        try VM.keyExistsJson(json, activeKey) returns (bool exists) {
-            if (exists) return VM.parseJsonString(json, activeKey);
-        } catch {
-            return "";
-        }
-        return "";
+        return _readStringAtKey(selectorName, string.concat(".addresses.active.", role));
     }
 
     /// @notice Resolves a uniquely-named `deployments` entry (e.g. a specific pool type + version) as
@@ -173,17 +206,29 @@ library RegistryWriter {
         view
         returns (string memory)
     {
-        string memory json = _readProjectJson(selectorName);
-        if (bytes(json).length == 0) return "";
         // Bracket notation: version keys (e.g. `..._2.0.0`) contain dots, which dot-path notation would
         // mis-split. `["<key>"]` treats the whole name as one literal key.
-        string memory key = string.concat(".addresses.deployments[\"", deploymentName, "\"]");
+        return _readStringAtKey(selectorName, string.concat(".addresses.deployments[\"", deploymentName, "\"]"));
+    }
+
+    /// @dev The raw string at one JSON path of a chain's store, or "" - the single tolerant read both
+    /// public readers above are built from. Each cheatcode gets its OWN try: a revert inside the
+    /// success block of the first is NOT routed to that block's catch, so a value that is not a string
+    /// (an object or array from a hand edit) would escape a reader documented as never reverting and
+    /// take its callers down with it.
+    function _readStringAtKey(string memory selectorName, string memory key) private view returns (string memory) {
+        string memory json = _readProjectJson(selectorName);
+        if (bytes(json).length == 0) return "";
         try VM.keyExistsJson(json, key) returns (bool exists) {
-            if (exists) return VM.parseJsonString(json, key);
+            if (!exists) return "";
         } catch {
             return "";
         }
-        return "";
+        try VM.parseJsonString(json, key) returns (string memory value) {
+            return value;
+        } catch {
+            return "";
+        }
     }
 
     /// @dev TOCTOU-safe optional read of `project/<selectorName>.json` - a parallel test suite can

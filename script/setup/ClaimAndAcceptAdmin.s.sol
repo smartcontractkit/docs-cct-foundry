@@ -99,11 +99,11 @@ contract ClaimAndAcceptAdmin is EoaExecutor {
             );
         }
         _executeCalls(calls);
-        console.log(unicode"✅ Registration pair executed!");
+        _logOperationOutcome("claim and accept the admin role for the token");
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Claim + Accept Complete on ", chainName, "!"));
+        _logOperationOutcome(string.concat("claim and accept the admin role on ", chainName));
         console.log("========================================");
         console.log(string.concat("Token Address: ", vm.toString(tokenAddress)));
         console.log(string.concat("Token Address: ", helperConfig.getExplorerUrl(chainId, "/address/", tokenAddress)));
