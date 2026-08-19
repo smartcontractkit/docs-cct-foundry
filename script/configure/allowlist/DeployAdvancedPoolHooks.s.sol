@@ -165,6 +165,12 @@ contract DeployAdvancedPoolHooks is Script {
             string.concat("  Authorized Callers:           ", authorizedCallers.length > 0 ? "Enabled" : "Disabled")
         );
         console.log("");
+        if (!DeploymentRecorder._recorded()) {
+            DeploymentRecorder._logNothingRecorded();
+            console.log("========================================");
+            console.log("");
+            return;
+        }
         console.log("Next Steps:");
         console.log("  1. When deploying a TokenPool, pass this hooks address as the 'poolHooks' parameter");
         console.log(

@@ -57,9 +57,12 @@ library RegistryWriter {
     //   - `forge test`                → both are no-ops (test fixtures rerun the deploy
     //                                   scripts constantly; simulations must not mutate
     //                                   or be blocked by the durable store)
-    //   - `forge script` (dry run)   → `guard` is active (the dry run previews exactly
-    //                                   what the broadcast would do) but `record` does
-    //                                   not write (a simulation is not a deployment)
+    //   - `forge script` (dry run)   → `guard` is active, so the dry run still PREVIEWS
+    //                                   the refusal, but it writes nothing: `FORCE_REDEPLOY`
+    //                                   reports what it would replace instead of dropping
+    //                                   the entry, because `record` will not write the
+    //                                   replacement (a simulation is not a deployment) and
+    //                                   a drop without it loses the record outright
     //   - `forge script --broadcast` → both are active
     // The deterministic cores below (`guardRedeploy`/`recordDeterministic`/`set*`/`read*`) never look
     // at the context, so tests can drive every branch directly.
@@ -85,22 +88,29 @@ library RegistryWriter {
     /// @notice Deploy idempotency guard (deterministic core entry). If `deploymentName` already
     /// resolves to a non-zero address in the store's `deployments`, REFUSE (revert naming the existing
     /// address and the exact override) unless env `FORCE_REDEPLOY=true`. When forced, the stale entry is
-    /// dropped from `deployments` (the replaced address stays in the append-only ledger under `history/`;
-    /// the project store itself is gitignored, so it is NOT in git history) so the post-deploy `record`
-    /// registers the replacement. First-time flows (no project file / no entry for `deploymentName`) are
+    /// dropped from `deployments` (if it was ever broadcast it is also in the append-only ledger under
+    /// `history/`; the project store itself is gitignored, so it is NOT in git history) so the post-deploy
+    /// `record` registers the replacement. First-time flows (no project file / no entry for `deploymentName`) are
     /// complete no-ops.
+    /// @dev Reads BOTH ambient answers here - the override flag and whether this run will send anything -
+    /// and hands them down, so the branching below stays deterministic and drivable from a test.
     function _guardRedeploy(string memory selectorName, string memory deploymentName) internal {
-        _guardRedeployAgainstChain(selectorName, deploymentName, VM.envOr("FORCE_REDEPLOY", false));
+        _guardRedeployAgainstChain(
+            selectorName, deploymentName, VM.envOr("FORCE_REDEPLOY", false), !ForgeContext._sendsNothing()
+        );
     }
 
     /// @dev Reads the chain for the recorded address and hands the answer to the core. The
     /// `FORCE_REDEPLOY` read stays in the caller so a test can drive the chain branch without
     /// `vm.setEnv`, which is process-wide and races the suites forge runs in parallel.
-    function _guardRedeployAgainstChain(string memory selectorName, string memory deploymentName, bool forced)
-        internal
-    {
+    function _guardRedeployAgainstChain(
+        string memory selectorName,
+        string memory deploymentName,
+        bool forced,
+        bool mayDrop
+    ) internal {
         address recorded = _readDeployment(selectorName, deploymentName);
-        _guardRedeploy(selectorName, deploymentName, forced, recorded, recorded.code.length != 0);
+        _guardRedeploy(selectorName, deploymentName, forced, recorded, recorded.code.length != 0, mayDrop);
     }
 
     /// @dev As above, plus what the chain says about the recorded address. `recordedHasCode` false means
@@ -119,7 +129,8 @@ library RegistryWriter {
         string memory deploymentName,
         bool forced,
         address existing,
-        bool recordedHasCode
+        bool recordedHasCode,
+        bool mayDrop
     ) internal {
         if (existing == address(0)) return; // first-time flow: nothing registered under this name
 
@@ -156,8 +167,17 @@ library RegistryWriter {
                 )
             );
         }
+        // Dropping is only half of a replacement: `record` writes the new address afterwards, and it
+        // writes nothing when the run sends nothing. Dropping anyway would delete the `deployments`
+        // entry AND the `active` pointer that names the same address, leaving the operator with neither
+        // the old record nor a new one - data loss from a command run to preview, not to act.
+        if (!mayDrop) {
+            console.log("FORCE_REDEPLOY=true:", deploymentName, "WOULD be replaced; the store is unchanged.");
+            console.log("  ", existing, "is still recorded. Re-run with --broadcast to replace it.");
+            return;
+        }
         console.log("FORCE_REDEPLOY=true:", deploymentName, "will be replaced in the store; old address:");
-        console.log("  ", existing, "(stays in the append-only ledger: history/)");
+        console.log("  ", existing, "- dropped from the store; check history/ if it was ever broadcast.");
         _dropDeployment(selectorName, deploymentName); // drop the stale entry so record() registers the replacement
     }
 

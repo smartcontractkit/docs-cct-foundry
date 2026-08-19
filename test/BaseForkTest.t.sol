@@ -18,7 +18,9 @@ import {CctActions} from "../src/actions/CctActions.sol";
 /// Fixture: `deployTokenFixture` / `deployTokenAndPoolFixture` deploy the repo's own
 /// `CrossChainToken` + `BurnMintTokenPool` by running the actual deploy scripts
 /// (`DeployToken`, `DeployBurnMintTokenPool`), so tests exercise the same code paths
-/// users run, including the deployment-file output written by `DeploymentUtils`.
+/// users run. The recorder's writes are inert here: under `forge test` nothing is sent, so neither the
+/// `history/` ledger nor the project store is touched, and the fixtures resolve the deployed address
+/// from the broadcaster's nonce instead (`vm.computeCreateAddress`).
 abstract contract BaseForkTest is Test {
     string internal constant TOKEN_JSON_PATH = "script/input/token.json";
 
@@ -62,9 +64,8 @@ abstract contract BaseForkTest is Test {
     }
 
     /// @dev Deploys the token by running the repo's DeployToken script. The deployed address
-    /// is resolved deterministically from the broadcaster's nonce (CREATE address) rather
-    /// than from the deployment file the script writes: test suites run in parallel and can
-    /// write the same deployment file path concurrently, so reading it back is racy.
+    /// is resolved deterministically from the broadcaster's nonce (CREATE address) rather than by
+    /// reading a file back: under `forge test` the script records nothing, so there is no file to read.
     function deployTokenFixture() internal returns (address token) {
         address broadcaster = _scriptBroadcaster();
         uint256 nonceBefore = vm.getNonce(broadcaster);

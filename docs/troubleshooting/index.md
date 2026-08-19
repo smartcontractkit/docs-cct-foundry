@@ -101,6 +101,21 @@ whose `getCCIPAdmin()` and `owner()` both read back as your keystore account.
 - **Verify.** `cast call <TokenAdminRegistry> "getTokenConfig(address)((address,address,address))" <token>`
   returns your account as the administrator.
 
+## An address vanished from the project store after a run that sent nothing
+
+`project/<chain>.json` lost a `deployments` entry (and the `active` pointer naming the same address)
+after a `forge script` run, with no `--broadcast`.
+
+- **Diagnosis.** `FORCE_REDEPLOY=true` on a run that sends nothing. Dropping the stale entry is only the
+  first half of a replacement - the second half is the post-deploy record, which writes nothing when
+  nothing was sent. Older versions dropped anyway, so the entry and its `active` pointer went and nothing
+  replaced them. `project/` is gitignored, so `git status` shows nothing missing.
+- **Fix.** Re-record the address with `make adopt-token CHAIN=<name> TOKEN=<addr> TOKEN_POOL=<addr>`
+  (add `GROUP=<g>` if the token lives in a group); the address itself is unaffected on chain. If the
+  artifact was ever deployed with `--broadcast`, its address is also in the `history/` ledger under
+  `history/<category>/<chain>/`.
+- **Verify.** `make doctor CHAIN=<name>` resolves the token and pool again.
+
 ## A deploy refuses naming an address that has no code on the chain
 
 `RegistryWriter: '<name>' is recorded at 0x... (.../project/<chain>.json), but this run reads no code there on chain <id>.`

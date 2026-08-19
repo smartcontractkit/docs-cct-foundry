@@ -129,9 +129,9 @@ contract DeployBurnMintTokenPool is Script {
             vm, selectorName, config.chainNameIdentifier, tokenPoolAddress, tokenAddress, "BurnMint"
         );
         console.log("");
-        console.log("The address is registered in the address registry; later scripts resolve it automatically.");
-        console.log("To override it for a session, set the environment variable:");
-        console.log(string.concat("export ", config.chainNameIdentifier, "_TOKEN_POOL=", vm.toString(tokenPoolAddress)));
+        DeploymentRecorder._logResolution(
+            vm, string.concat(config.chainNameIdentifier, "_TOKEN_POOL"), tokenPoolAddress
+        );
         console.log("========================================");
         console.log("");
     }

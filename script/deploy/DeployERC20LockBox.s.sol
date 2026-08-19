@@ -103,10 +103,16 @@ contract DeployERC20LockBox is Script {
         // registry (deployments[{symbol}_LockBox] + active.lockBox).
         DeploymentRecorder._recordLockBox(vm, selectorName, chainNameId, lockBoxAddress, tokenAddress);
         console.log("");
-        console.log("The address is registered in the address registry; later scripts resolve it automatically.");
-        console.log("Copy this address to use in the next commands:");
-        console.log(string.concat("  LOCK_BOX=", vm.toString(lockBoxAddress)));
-        if (authorizedCallers.length == 0) {
+        if (!DeploymentRecorder._recorded()) {
+            DeploymentRecorder._logNothingRecorded();
+        } else {
+            console.log("The address is registered in the address registry; later scripts resolve it automatically.");
+            console.log("Copy this address to use in the next commands:");
+            console.log(string.concat("  LOCK_BOX=", vm.toString(lockBoxAddress)));
+        }
+        // The next-step commands below paste this address into a real `--broadcast` run, so they print
+        // only when it is an address that exists.
+        if (DeploymentRecorder._recorded() && authorizedCallers.length == 0) {
             console.log("");
             console.log("Next Steps:");
             console.log(string.concat("  1. Deploy a LockReleaseTokenPool with LOCK_BOX=", vm.toString(lockBoxAddress)));

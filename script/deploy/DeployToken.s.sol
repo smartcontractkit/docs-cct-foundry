@@ -107,9 +107,7 @@ contract DeployToken is Script {
         // registry (deployments[{symbol}_Token] + active.token).
         DeploymentRecorder._recordToken(vm, selectorName, chainNameIdentifier, tokenConfig.symbol, tokenAddress);
         console.log("");
-        console.log("The address is registered in the address registry; later scripts resolve it automatically.");
-        console.log("To override it for a session, set the environment variable:");
-        console.log(string.concat("export ", chainNameIdentifier, "_TOKEN=", vm.toString(tokenAddress)));
+        DeploymentRecorder._logResolution(vm, string.concat(chainNameIdentifier, "_TOKEN"), tokenAddress);
         console.log("========================================");
         console.log("");
     }
