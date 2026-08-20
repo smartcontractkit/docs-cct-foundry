@@ -6,7 +6,7 @@ import {HelperConfig} from "../../HelperConfig.s.sol";
 import {CctActions} from "../../../src/actions/CctActions.sol";
 import {EoaExecutor} from "../../../src/base/EoaExecutor.s.sol";
 import {IOwnable} from "@chainlink/contracts/src/v0.8/shared/interfaces/IOwnable.sol";
-import {ITypeAndVersion} from "@chainlink/contracts/src/v0.8/shared/interfaces/ITypeAndVersion.sol";
+import {TolerantCall} from "../../../src/utils/TolerantCall.sol";
 
 /**
  * @notice Completes a two-step ownership transfer initiated by TransferOwnership for any Ownable
@@ -33,13 +33,11 @@ contract AcceptOwnership is EoaExecutor {
     HelperConfig public helperConfig;
 
     /// @dev Labels console output from the contract's typeAndVersion() when it exposes one; a plain
-    ///      "Contract" otherwise. Purely cosmetic.
-    function _entityLabel(address entityAddress) internal pure returns (string memory) {
-        try ITypeAndVersion(entityAddress).typeAndVersion() returns (string memory tv) {
-            return tv;
-        } catch {
-            return "Contract";
-        }
+    ///      "Contract" otherwise. Cosmetic, so it uses `TolerantCall` rather than a `try`: a label must
+    ///      not end the run, and this one runs before the authority checks.
+    function _entityLabel(address entityAddress) internal view returns (string memory) {
+        (bool ok, string memory tv) = TolerantCall._tryString(entityAddress, "typeAndVersion()");
+        return ok ? tv : "Contract";
     }
 
     /// @dev Reads owner(), turning the absence of an owner() (a crosschain or burnmint token) into a

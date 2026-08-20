@@ -68,6 +68,10 @@ doctor` end to end. Every make target documents the raw `forge script` it wraps 
 - **Script output:** a write run reports itself with `SENDING (unconfirmed)`, `NOT SENT (simulation
   only ...)`, or `NOT SENT (Safe batch to sign)`. None of the three reports a landed transaction; read
   the state back to confirm. See [reading a write script's outcome line](docs/reference/script-output.md).
+- **Tolerant reads:** a `try` around a call to an address you do not control does NOT make it safe when
+  the return type is dynamic (`string`, `bytes`, arrays, structs containing them). The decode runs in
+  YOUR frame after the call succeeded, so a successful-but-undecodable answer reverts past the catch
+  with no reason string. See [the gotchas registry](docs/gotchas/index.md#a-successful-call-can-still-revert-your-frame).
 - **Redeploy guard:** a deployed artifact is not redeployed unless `FORCE_REDEPLOY=true` (which then
   leaves the `TokenAdminRegistry` pointing at the old pool until rewired).
 - **Test scratch discipline:** test write targets use `zz-scratch-*` / `zz-tt-*` / `local-*` names only,

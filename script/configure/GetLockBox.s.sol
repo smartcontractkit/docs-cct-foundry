@@ -6,7 +6,7 @@ import {HelperConfig} from "../HelperConfig.s.sol";
 import {LockReleaseTokenPool} from "@chainlink/contracts-ccip/contracts/pools/LockReleaseTokenPool.sol";
 import {ERC20LockBox} from "@chainlink/contracts-ccip/contracts/pools/ERC20LockBox.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {DeploymentUtils} from "../utils/DeploymentUtils.s.sol";
 
 /// @notice Reads and displays the ERC20LockBox contract address currently attached to a LockReleaseTokenPool.
 ///
@@ -59,10 +59,7 @@ contract GetLockBox is Script {
                     address tokenAddress = address(token);
                     uint256 balance = token.balanceOf(lockBox);
 
-                    string memory symbol = "";
-                    try IERC20Metadata(tokenAddress).symbol() returns (string memory s) {
-                        symbol = string.concat(" (", s, ")");
-                    } catch {}
+                    string memory symbol = _symbolLabel(tokenAddress);
 
                     console.log(string.concat("   Token:   ", vm.toString(tokenAddress), symbol));
                     console.log(string.concat("   Balance: ", vm.toString(balance)));
@@ -91,5 +88,18 @@ contract GetLockBox is Script {
         );
         console.log("========================================");
         console.log("");
+    }
+
+    /// @dev The parenthesised symbol suffix, or nothing. Uses the repo's tolerant symbol reader rather
+    /// than a second one here; that reader reports "did not answer" and "answered empty" alike, which
+    /// suits a label - both print bare rather than as an empty "()".
+    function _symbolLabel(address tokenAddress) internal view returns (string memory) {
+        string memory s = DeploymentUtils._readSymbol(tokenAddress);
+        return bytes(s).length > 0 ? string.concat(" (", s, ")") : "";
+    }
+
+    /// @dev Test seam: `run()` reaches this only after resolving a lock box on-chain.
+    function symbolLabelForTest(address tokenAddress) external view returns (string memory) {
+        return _symbolLabel(tokenAddress);
     }
 }

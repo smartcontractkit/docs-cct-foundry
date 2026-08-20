@@ -1670,8 +1670,11 @@ contract VerifyChain is Script {
 
     /// @dev The reconciliation core (fork + store resolution already done). Both the per-lane
     /// `lanes{}` policy and the pool-scoped `poolPolicy{}` block (ccvThreshold + finality) come from
-    /// the project store. Every pool read goes through the probe so a weird pool degrades to a
-    /// WARN/SKIP, never a hard revert of the doctor.
+    /// the project store. The on-chain reads go through the probe, and the `typeAndVersion` read below
+    /// goes through `TolerantCall` - the version resolver is a library with no probe instance to reach
+    /// for. A pool answering with undecodable data used to end the run here with a bare
+    /// `EvmError: Revert`, before any verdict. Still uncovered: with `POOL_VERSION_OVERRIDE` naming
+    /// this pool, `_crossCheckOverride` decodes a struct in this frame and can revert the same way.
     function _reconcileLanesWithPool(string memory name, string memory projectJson, address pool) private {
         if (pool == address(0)) {
             _skip(

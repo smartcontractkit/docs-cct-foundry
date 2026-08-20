@@ -2002,6 +2002,22 @@ fi
 # that CI and the migration runbook gate on. _run_case only distinguishes zero from nonzero, so the
 # offline cases pin the guards and the live cases pin the two states that matter operationally.
 
+# ---------------------------------------------------------------- preflight-transfer (ccip-cli wrapper)
+# Offline cases only: the live GO/NO-GO needs two RPCs and a funded lane. What is checkable without a
+# network is the contract this script owns - argument validation, unknown chains, and the exit code 2
+# that means "I could not ask", which callers must not read as a verdict.
+run_case "preflight without args prints usage" nonzero "usage: preflight-transfer.sh" -- \
+    ./script/config/preflight-transfer.sh
+
+run_case "preflight with a partial arg list prints usage" nonzero "usage: preflight-transfer.sh" -- \
+    ./script/config/preflight-transfer.sh ethereum-testnet-sepolia
+
+run_case "preflight names an unknown source chain" nonzero "unknown chain 'zz-scratch-nope'" -- \
+    ./script/config/preflight-transfer.sh zz-scratch-nope ethereum-testnet-sepolia 1 0x1111111111111111111111111111111111111111
+
+run_case "preflight names an unknown dest chain" nonzero "unknown chain 'zz-scratch-nope'" -- \
+    ./script/config/preflight-transfer.sh ethereum-testnet-sepolia zz-scratch-nope 1 0x1111111111111111111111111111111111111111
+
 run_case "verify-execution without args prints usage" nonzero "usage: verify-execution.sh" -- \
     ./script/config/verify-execution.sh
 

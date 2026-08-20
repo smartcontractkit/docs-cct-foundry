@@ -275,11 +275,13 @@ and exits nonzero once at the end, so one run names every drifted field and a ba
 it to green. Forward-intent states (declared-but-not-applied), undeclared on-chain lanes, an
 **uncataloged** pool version (the buckets and `poolPolicy.finality` read best-effort; the `v2{}` gate
 and `poolPolicy.ccvThreshold` WARN without a read), and any unanswered read stay **WARN** - pending
-work or degraded visibility, never proven drift. The rung never hard-reverts on a non-standard pool - every
-read goes through the doctor's probe and degrades to a WARN or SKIP. Coverage:
+work or degraded visibility, never proven drift. The rung does not hard-revert on a pool it cannot read: the
+on-chain reads go through the doctor's probe, and the pool's `typeAndVersion` read goes through
+`src/utils/TolerantCall.sol`, so an unreadable pool degrades to a WARN or SKIP. Coverage:
 `test/config/VerifyChainLaneReconcile.t.sol` (fork + offline mock tests, including the 1.5.0
 version-dispatch path and the multi-drift aggregation contract),
-`test/config/VerifyChainCCVReconcile.t.sol`, `test/config/VerifyChainFinalityReconcile.t.sol`, and the
+`test/config/VerifyChainCCVReconcile.t.sol`, `test/config/VerifyChainFinalityReconcile.t.sol`,
+`test/config/DoctorSurvivesWeirdPool.t.sol` (a pool that answers undecodably), and the
 RPC-gated SKIP case in `script/config/test-tooling.sh`.
 
 The declaration is not just verified - it is **consumed**, by five scripts sharing one input ladder

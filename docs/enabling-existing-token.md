@@ -124,7 +124,8 @@ in [deployed-addresses.md](deployed-addresses.md).
 
 An adopted pool goes through the same version resolver every dispatched operation uses, so an
 adoption can be refused with any of the resolver's named errors: `NotACcipTokenPool` (the address
-has no `typeAndVersion()`, for example the token address passed as `TOKEN_POOL`),
+has no `typeAndVersion()` or does not answer it - a token address, an EOA, or a Safe address passed
+as `TOKEN_POOL`),
 `UnsupportedPoolType` (a specialized pool outside the standard TokenPool lineage),
 `DevBuildRefused` (a `-dev` build with no stable ABI), or `UnsupportedPoolVersion` (a version the
 catalog does not know). Each message explains the failure and links the matching section of

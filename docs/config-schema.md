@@ -197,9 +197,8 @@ default read back from `forge config`, so there is no second copy of the default
 target scoped to a chain forwards the result as `--evm-version`: the deploy targets, `add-chain`,
 `sync`, `sync-preview`, `sync-all`, `add-lane`, `remove-lane`, `adopt-token`, `doctor`,
 `snapshot-chain`, and the `roles-check` / `verify` shell tooling.
-`make preflight` spans two chains in one process and takes the LATER of the two, which is sound because
-it only simulates: an interpreter always runs bytecode built for an earlier EVM, and a chain that
-rejects an opcode cannot be hosting contracts that contain it.
+`make preflight` is not in that list: it runs `ccip-cli`, not `forge`, so there is no `--evm-version`
+to forward - the simulation is an `eth_call` executed by each chain's own node.
 
 Three consequences worth knowing:
 
@@ -220,9 +219,9 @@ part deliberately:
   chain that pinned another version.
 - **Diagnose paths keep running** on the repo default, printing the same `[evm-version]` diagnostic.
   That is what lets `make doctor` reach its schema rung and FAIL the key by name with the fix, instead
-  of dying on a forge CLI error about a flag the operator never typed. `make preflight` is the
-  exception: it resolves two chains and aborts if either declaration is unreadable, because a
-  simulation run against the wrong EVM would answer the question it was asked to settle.
+  of dying on a forge CLI error about a flag the operator never typed. `make preflight` sidesteps the
+  question entirely now that it runs `ccip-cli`: each leg is an `eth_call` on its own chain, so the
+  node decides the EVM version, not this repo.
 
 The `lanes.<remote>` field rows (`remoteSelector`, `capacity`, `rate`, `inbound`, the `v2` blocks) live
 with the subtree in the project store - see

@@ -240,23 +240,12 @@ doctor: tools ## Layered verification of one chain's config (CHAIN= required; GR
 # interpreter always executes bytecode built for an earlier EVM, and a chain that rejects the later
 # version's opcodes cannot be hosting contracts that contain them in the first place. An unrecognized
 # value (a version newer than this list) ranks highest, so an explicit declaration always wins.
-preflight: tools ## Preflight a token transfer before sending: simulate source lockOrBurn + dest releaseOrMint against live state, GO/NO-GO (SOURCE_CHAIN= DEST_CHAIN= AMOUNT= RECEIVER= required; opt SOURCE_POOL= DEST_POOL= ORIGINAL_SENDER= REQUESTED_FINALITY=; read-only, no keystore)
+preflight: ## Preflight a token transfer before sending: GO/NO-GO via ccip-cli, nothing sent (SOURCE_CHAIN= DEST_CHAIN= AMOUNT= RECEIVER= required; opt TOKEN= ORIGINAL_SENDER= WALLET=; needs ccip-cli)
 	$(if $(SOURCE_CHAIN),,$(error SOURCE_CHAIN is required: make preflight SOURCE_CHAIN=<name> DEST_CHAIN=<name> AMOUNT=<wei> RECEIVER=<addr>))
 	$(if $(DEST_CHAIN),,$(error DEST_CHAIN is required: make preflight SOURCE_CHAIN=<name> DEST_CHAIN=<name> AMOUNT=<wei> RECEIVER=<addr>))
 	$(if $(AMOUNT),,$(error AMOUNT is required in wei: make preflight SOURCE_CHAIN=<name> DEST_CHAIN=<name> AMOUNT=<wei> RECEIVER=<addr>))
 	$(if $(RECEIVER),,$(error RECEIVER is required: make preflight SOURCE_CHAIN=<name> DEST_CHAIN=<name> AMOUNT=<wei> RECEIVER=<addr>))
-	@test -f "$(CONFIG_DIR)/$(SOURCE_CHAIN).json" || { echo "unknown SOURCE_CHAIN '$(SOURCE_CHAIN)' - known chains: $(KNOWN_CHAINS)"; exit 1; }; \
-	test -f "$(CONFIG_DIR)/$(DEST_CHAIN).json" || { echo "unknown DEST_CHAIN '$(DEST_CHAIN)' - known chains: $(KNOWN_CHAINS)"; exit 1; }; \
-	src_rpc_env="$$(jq -r '.rpcEnv // empty' "$(CONFIG_DIR)/$(SOURCE_CHAIN).json")"; \
-	dst_rpc_env="$$(jq -r '.rpcEnv // empty' "$(CONFIG_DIR)/$(DEST_CHAIN).json")"; \
-	src_evm="$$(bash script/config/evm-version.sh "$(SOURCE_CHAIN)")" || exit 1; \
-	dst_evm="$$(bash script/config/evm-version.sh "$(DEST_CHAIN)")" || exit 1; \
-	src_rpc="$$(printenv "$$src_rpc_env" || true)"; dst_rpc="$$(printenv "$$dst_rpc_env" || true)"; \
-	test -n "$$src_rpc" || { echo "source RPC not set - export $$src_rpc_env=<url> (the rpcEnv field in $(CONFIG_DIR)/$(SOURCE_CHAIN).json)"; exit 1; }; \
-	test -n "$$dst_rpc" || { echo "dest RPC not set - export $$dst_rpc_env=<url> (the rpcEnv field in $(CONFIG_DIR)/$(DEST_CHAIN).json)"; exit 1; }; \
-	evm_version="$$(printf '%s\n%s\n' "$$src_evm" "$$dst_evm" | awk '{r["london"]=1;r["paris"]=2;r["shanghai"]=3;r["cancun"]=4;r["prague"]=5;r["osaka"]=6} {v=r[$$0]; if (v==0) v=99; if (v>best) {best=v; pick=$$0}} END {print pick}')"; \
-	SOURCE_CHAIN="$(SOURCE_CHAIN)" DEST_CHAIN="$(DEST_CHAIN)" SOURCE_RPC_URL="$$src_rpc" DEST_RPC_URL="$$dst_rpc" \
-	  forge script script/diagnostics/PreflightTransfer.s.sol --evm-version "$$evm_version" --tc PreflightTransfer
+	@bash script/config/preflight-transfer.sh "$(SOURCE_CHAIN)" "$(DEST_CHAIN)" "$(AMOUNT)" "$(RECEIVER)"
 
 # No `tools:` prereq (unlike the sibling targets): this needs ccip-cli + jq, not the forge/curl that
 # `tools` checks, and the script self-checks its own dependencies.

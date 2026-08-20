@@ -47,10 +47,6 @@ at [`catalog.json`](catalog.json). These pages are generated from the scripts an
 - [DeployLockReleaseTokenPool](deploy/DeployLockReleaseTokenPool.md) - Deploys a LockRelease token pool (paired with an ERC20 LockBox) and records it in the registry. _(write)_
 - [DeployToken](deploy/DeployToken.md) - Deploys a cross-chain ERC20 token (CrossChainToken) and records it in the address registry. _(write)_
 
-## diagnostics
-
-- [PreflightTransfer](diagnostics/PreflightTransfer.md) - Preflights a token transfer before any real send by simulating both pool legs against live chain state: the source pool's `lockOrBurn`, then the destination pool's `releaseOrMint` fed the exact `destPoolData` the source leg produced. _(read-only)_
-
 ## dynamic-config
 
 - [GetDynamicConfig](dynamic-config/GetDynamicConfig.md) - Reads and displays the dynamic configuration of a TokenPool. _(read-only)_

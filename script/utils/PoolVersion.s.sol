@@ -3,8 +3,8 @@ pragma solidity 0.8.24;
 
 import {console} from "forge-std/Script.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {ITypeAndVersion} from "@chainlink/contracts/src/v0.8/shared/interfaces/ITypeAndVersion.sol";
 import {RateLimiter} from "@chainlink/contracts-ccip/contracts/libraries/RateLimiter.sol";
+import {TolerantCall} from "../../src/utils/TolerantCall.sol";
 import {PoolVersions} from "../../src/PoolVersions.sol";
 
 /// @dev The v2 rate-limit getter, present from pool version 2.0.0. Used by the override cross-check
@@ -131,12 +131,11 @@ library PoolVersion {
         view
         returns (bool ok, PoolVersions.Version version, string memory full)
     {
-        if (pool.code.length == 0) return (false, PoolVersions.Version.UNKNOWN, "");
-        try ITypeAndVersion(pool).typeAndVersion() returns (string memory t) {
-            full = t;
-        } catch {
-            return (false, PoolVersions.Version.UNKNOWN, "");
-        }
+        // `TolerantCall`, not a `try` - see that library's header. The `code.length` guard it replaces
+        // covered only the codeless half.
+        bool readable;
+        (readable, full) = TolerantCall._tryString(pool, "typeAndVersion()");
+        if (!readable) return (false, PoolVersions.Version.UNKNOWN, "");
 
         (string memory typePrefix, string memory token) = _splitTypeAndVersion(full);
 
@@ -228,6 +227,11 @@ library PoolVersion {
     ///         version: the singular `getRemotePool` on 1.5.0 (wrapped into a one-element array),
     ///         the plural `getRemotePools` from 1.5.1. On `UNKNOWN` (read paths only) it degrades
     ///         to best effort: plural getter first, singular as fallback.
+    /// @dev The best-effort path is for a FORK - a pool that answers `typeAndVersion()` with a string
+    /// this repo does not catalog. That is worth supporting: the surface is standard even when the
+    /// name is not. An address that does not answer `typeAndVersion()` at all is a different thing,
+    /// and gets no guessing - `UNKNOWN` alone cannot tell the two apart, because the resolver returns
+    /// it for both, so the answer is re-read here rather than inferred.
     function _remotePools(address pool, PoolVersions.Version version, uint64 remoteChainSelector)
         internal
         view
@@ -237,6 +241,8 @@ library PoolVersion {
         if (version != PoolVersions.Version.UNKNOWN) {
             return IRemotePoolReader(pool).getRemotePools(remoteChainSelector);
         }
+        (bool answered,) = TolerantCall._tryString(pool, "typeAndVersion()");
+        if (!answered) revert(_unreadable(pool));
         try IRemotePoolReader(pool).getRemotePools(remoteChainSelector) returns (bytes[] memory p) {
             return p;
         } catch {
@@ -254,16 +260,12 @@ library PoolVersion {
     // ─────────────────────────────────────────────────────────────────────────
 
     function _readTypeAndVersion(address pool) private view returns (string memory full) {
-        // The code check must come first: a call to a codeless address succeeds with empty return
-        // data, and the decode failure that follows is not catchable by the try below.
-        if (pool.code.length > 0) {
-            try ITypeAndVersion(pool).typeAndVersion() returns (string memory t) {
-                return t;
-            } catch {
-                revert(_unreadable(pool));
-            }
-        }
-        revert(_noCode(pool));
+        // The `try` this replaces caught a REVERTING address fine; what escaped it was an address that
+        // ANSWERED undecodably, which reverted here with no reason instead of refusing by name.
+        if (pool.code.length == 0) revert(_noCode(pool));
+        (bool readable, string memory answer) = TolerantCall._tryString(pool, "typeAndVersion()");
+        if (!readable) revert(_unreadable(pool));
+        return answer;
     }
 
     /// @dev Nothing is deployed here, which is definite, and passing a token address is the usual cause.

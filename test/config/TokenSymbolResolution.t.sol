@@ -3,6 +3,7 @@ pragma solidity 0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {DeploymentUtils} from "../../script/utils/DeploymentUtils.s.sol";
+import {EmptyReturn, WildOffset} from "../fixtures/ReturnDataShells.sol";
 
 /// @dev A token whose `symbol()` answers, but with the empty string. ERC20 marks the function optional,
 ///      and "optional" covers this shape as well as the missing one.
@@ -38,6 +39,15 @@ contract TokenSymbolResolutionTest is Test {
         assertEq(DeploymentUtils._readSymbol(address(new NoSymbolToken())), "", "a reverting symbol() reads empty");
         assertEq(DeploymentUtils._readSymbol(address(new EmptySymbolToken())), "", "an empty answer reads empty");
         assertEq(DeploymentUtils._readSymbol(address(new NamedToken())), "WIDGET");
+    }
+
+    /// @dev `_readSymbol` is documented as never reverting; against an address that ANSWERS
+    ///      undecodably it did, because the decode escapes the `try`. It names the ledger file and the
+    ///      registry key, so it runs on every deploy.
+    function test_ReadSymbol_UndecodableAnswerAndNoCodeBothReadEmpty() public {
+        assertEq(DeploymentUtils._readSymbol(address(new EmptyReturn())), "", "success with no data reads empty");
+        assertEq(DeploymentUtils._readSymbol(address(new WildOffset())), "", "an undecodable answer reads empty");
+        assertEq(DeploymentUtils._readSymbol(address(0xdead)), "", "a codeless address reads empty");
     }
 
     function test_EstablishSymbol_TokenAnswerWinsOverFallback() public pure {
