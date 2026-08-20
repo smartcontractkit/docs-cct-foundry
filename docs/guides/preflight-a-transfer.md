@@ -14,7 +14,7 @@ counterpart to the static [health check](health-check.md).
 1. **Audit the config with the scripts.** On BOTH chains:
 
    ```bash
-   make doctor CHAIN=<chain>        # on-chain code at the recorded token and pool, TAR reconcile, lane wiring
+   make doctor CHAIN=<chain>        # on-chain code at every recorded artifact, TAR reconcile, lane wiring
    make roles-check CHAIN=<chain>   # the privileged roles match the declared authority (exit 0)
    ```
 

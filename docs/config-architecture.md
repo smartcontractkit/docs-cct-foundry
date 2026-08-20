@@ -164,7 +164,9 @@ The `addresses{}` subtree's anti-drift integrity comes from a **single writer**:
 call to `script/utils/DeploymentRecorder.s.sol` per artifact, and that one call writes **both** views it
 touches - the `history/<category>/<selectorName>/**` ledger (via `DeploymentUtils.save*`, per-file format
 unchanged) **and** the registry (`deployments[name]` + `active[role]`, via `RegistryWriter`, `writeJson` on
-`.addresses` only). Because one writer owns both, the ledger and the registry cannot drift. The registry is
+`.addresses` only). Because one writer owns both, the ledger and the registry cannot drift. Both halves
+write only when the run actually sends (`--broadcast`/`--resume`): a simulation deploys nothing, so it
+records nothing. The registry is
 the only address store read back (by `HelperConfig` resolution and the redeploy guard); the ledger is
 write-only history. `active.<role>` records the most-recently-deployed address, while the on-chain
 **TokenAdminRegistry** stays the authority for the wired pool - `make doctor` reports any divergence as a

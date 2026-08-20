@@ -63,11 +63,11 @@ contract WithdrawLiquidity is LiquidityBase {
 
         console.log(string.concat("[Step 1] Withdrawing ", vm.toString(amount), " tokens of liquidity"));
         _executeCalls(CctActions._withdrawLiquidity(tokenPoolAddress, amount));
-        console.log(unicode"✅ Liquidity withdrawn successfully!");
+        _logOperationOutcome(string.concat("withdraw ", vm.toString(amount), " tokens of liquidity"));
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Complete on ", chainName, "!"));
+        _logOperationOutcome(string.concat("withdraw liquidity on ", chainName));
         console.log("========================================");
         console.log(string.concat("Pool Liquidity: ", vm.toString(IERC20(tokenAddress).balanceOf(tokenPoolAddress))));
         console.log(string.concat("Rebalancer Balance: ", vm.toString(IERC20(tokenAddress).balanceOf(broadcasterAddr))));

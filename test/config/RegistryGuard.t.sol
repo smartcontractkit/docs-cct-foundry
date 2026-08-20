@@ -13,12 +13,33 @@ import {ProjectScratch} from "../utils/ProjectScratch.sol";
 /// directly (the context-aware `guard`/`record` no-op under `forge test`, which is exactly the
 /// inertness `BaseForkTest` relies on - see `test_ContextAware_NoRegistryMutationUnderForgeTest`).
 contract GuardHarness {
+    /// @dev The plain refusal path, with the has-code evidence supplied as true rather than read, and
+    /// dropping allowed - the sending run's behaviour.
     function guardForced(string memory sel, string memory name, bool forced) external {
-        RegistryWriter._guardRedeploy(sel, name, forced);
+        RegistryWriter._guardRedeploy(sel, name, forced, RegistryWriter._readDeployment(sel, name), true, true);
+    }
+
+    /// @dev The same core with dropping WITHHELD, the answer a run that sends nothing supplies. Its own
+    /// seam because no in-process test can reach it any other way: under `forge test` the context is
+    /// identical to a dry run, so the wrapper that reads the context cannot be made to differ here.
+    function guardForcedNoDrop(string memory sel, string memory name, bool forced) external {
+        RegistryWriter._guardRedeploy(sel, name, forced, RegistryWriter._readDeployment(sel, name), true, false);
     }
 
     function guardEnv(string memory sel, string memory name) external {
         RegistryWriter._guardRedeploy(sel, name);
+    }
+
+    /// @dev The core with chain evidence supplied, so a test picks the branch outright.
+    function guardWithChainEvidence(string memory sel, string memory name, bool forced, bool recordedHasCode) external {
+        RegistryWriter._guardRedeploy(
+            sel, name, forced, RegistryWriter._readDeployment(sel, name), recordedHasCode, true
+        );
+    }
+
+    /// @dev The wrapper that reads code presence itself - the only way to test that read.
+    function guardAgainstChain(string memory sel, string memory name, bool forced) external {
+        RegistryWriter._guardRedeployAgainstChain(sel, name, forced, true);
     }
 
     function recordDeterministic(string memory sel, string memory role, string memory name, address addr) external {
@@ -59,6 +80,7 @@ contract RegistryGuardTest is Test {
     // A BurnMint and a LockRelease pool for the same token, and two versions of the BurnMint pool.
     string internal constant SYMBOL = "BnM-T";
     address internal constant TOKEN = address(0x1111111111111111111111111111111111111111);
+    address internal constant PHANTOM = address(0x9999999999999999999999999999999999999999);
     address internal constant POOL_BURNMINT = address(0x2222222222222222222222222222222222222222);
     address internal constant POOL_LOCKRELEASE = address(0x3333333333333333333333333333333333333333);
     address internal constant POOL_V161 = address(0x4444444444444444444444444444444444444444);
@@ -75,6 +97,12 @@ contract RegistryGuardTest is Test {
     string internal constant SEL_CTXA = "zz-scratch-registryguard-ctxa";
     string internal constant SEL_CTXB = "zz-scratch-registryguard-ctxb";
     string internal constant SEL_ENVFORCE = "zz-scratch-registryguard-envforce";
+    string internal constant SEL_PHANTOM = "zz-scratch-registryguard-phantom";
+    string internal constant SEL_NODROP = "zz-scratch-registryguard-nodrop";
+    string internal constant SEL_REAL = "zz-scratch-registryguard-real";
+    string internal constant SEL_PHANTOMFORCE = "zz-scratch-registryguard-phantomforce";
+    string internal constant SEL_FIRSTRUN = "zz-scratch-registryguard-firstrun";
+    string internal constant SEL_WIRING = "zz-scratch-registryguard-wiring";
 
     GuardHarness internal harness;
 
@@ -88,8 +116,22 @@ contract RegistryGuardTest is Test {
     /// ONLY the fixtures it owns at the end of its body (suite siblings run in parallel), so a green
     /// run leaves no residue.
     function _clean() private {
-        string[8] memory sels =
-            [SEL_CROSSPOOL, SEL_TWOVER, SEL_REDEPLOY, SEL_HOOKS, SEL_ONECALL, SEL_CTXA, SEL_CTXB, SEL_ENVFORCE];
+        string[14] memory sels = [
+            SEL_CROSSPOOL,
+            SEL_TWOVER,
+            SEL_REDEPLOY,
+            SEL_HOOKS,
+            SEL_ONECALL,
+            SEL_CTXA,
+            SEL_CTXB,
+            SEL_ENVFORCE,
+            SEL_PHANTOM,
+            SEL_REAL,
+            SEL_PHANTOMFORCE,
+            SEL_FIRSTRUN,
+            SEL_WIRING,
+            SEL_NODROP
+        ];
         for (uint256 i = 0; i < sels.length; i++) {
             ProjectScratch.clean(sels[i]);
         }
@@ -161,9 +203,38 @@ contract RegistryGuardTest is Test {
         ProjectScratch.clean(SEL_REDEPLOY);
     }
 
-    // (4) Hooks replacement: new hooks for the same pool are guarded; FORCE_REDEPLOY replaces; the old
-    //     address is still in the append-only ledger under history/ (the project store itself is
-    //     gitignored, so NOT in git history) - the registry drops it, per the guard's force path.
+    // A run that sends nothing must not drop, because it cannot replace. `record` writes the new address
+    // and no-ops when nothing is sent, so dropping anyway deletes the `deployments` entry AND the
+    // `active` pointer naming the same address and puts nothing back - the operator loses the record by
+    // running a preview. Forcing on such a run reports what it WOULD replace and leaves the store alone.
+    //
+    // `mayDrop` is supplied rather than read here for a reason worth stating: `_sendsNothing()` answers
+    // the same under `forge test` as on a dry-run script, so no in-process test can make the wrapper
+    // that reads it produce `true`. The end-to-end proof is the dry-run case in
+    // `script/config/test-tooling.sh`; this pins the branch that wrapper selects.
+    function test_ForcedOnANonSendingRun_KeepsTheRecord() public {
+        string memory sel = SEL_NODROP;
+        string memory name = DeploymentRecorder._poolName(SYMBOL, "BurnMint");
+
+        harness.recordDeterministic(sel, "tokenPool", name, POOL_BURNMINT);
+        assertEq(harness.readDeployment(sel, name), POOL_BURNMINT, "precondition: the entry is recorded");
+        assertEq(harness.read(sel, "tokenPool"), POOL_BURNMINT, "precondition: the active pointer is set");
+
+        harness.guardForcedNoDrop(sel, name, true);
+
+        assertEq(harness.readDeployment(sel, name), POOL_BURNMINT, "a run that sends nothing must not drop");
+        assertEq(harness.read(sel, "tokenPool"), POOL_BURNMINT, "and must not clear the active pointer");
+
+        // The sending run still drops, so the guard has not simply been disabled.
+        harness.guardForced(sel, name, true);
+        assertEq(harness.readDeployment(sel, name), address(0), "a sending run still replaces the entry");
+        ProjectScratch.clean(SEL_NODROP);
+    }
+
+    // (4) Hooks replacement: new hooks for the same pool are guarded; FORCE_REDEPLOY replaces. The
+    //     registry drops the old address per the guard's force path; whether it survives in the
+    //     append-only history/ ledger depends on its deploy having been broadcast (this suite drives
+    //     the core directly and writes no ledger).
     function test_HooksReplacement_GuardedThenForced() public {
         string memory sel = SEL_HOOKS;
         string memory name = DeploymentRecorder._hooksName(SYMBOL, "BurnMint");
@@ -220,15 +291,26 @@ contract RegistryGuardTest is Test {
         ProjectScratch.clean(SEL_CTXB);
     }
 
-    // The env wrapper honors FORCE_REDEPLOY=true (the exact path the deploy scripts call).
+    // The env wrapper reads FORCE_REDEPLOY (the exact path the deploy scripts call): unset it refuses,
+    // set it does not. Asserted through the REFUSAL rather than through the drop, because the drop is
+    // unreachable in-process - the wrapper also supplies `mayDrop`, which `_sendsNothing()` pins to
+    // false under `forge test`. Asserting the post-drop state here would pass on the following
+    // `recordDeterministic` alone and prove nothing about the flag.
     function test_EnvWrapperHonorsForceRedeploy() public {
         string memory sel = SEL_ENVFORCE;
         string memory name = DeploymentRecorder._poolName(SYMBOL, "BurnMint");
         harness.recordDeterministic(sel, "tokenPool", name, POOL_BURNMINT);
+
+        vm.setEnv("FORCE_REDEPLOY", "false");
+        // The env wrapper reads the chain, and this fixture address holds no code, so the refusal is
+        // the codeless one - which is still a refusal, which is what the flag is being tested against.
+        vm.expectRevert(bytes(_recordedNoCode(sel, name, POOL_BURNMINT)));
+        harness.guardEnv(sel, name);
+
         vm.setEnv("FORCE_REDEPLOY", "true");
-        harness.guardEnv(sel, name); // must not revert
-        harness.recordDeterministic(sel, "tokenPool", name, POOL_V200);
-        assertEq(harness.readDeployment(sel, name), POOL_V200, "replacement registered");
+        harness.guardEnv(sel, name); // the flag is read: the same call no longer refuses
+        assertEq(harness.readDeployment(sel, name), POOL_BURNMINT, "a non-sending run keeps the entry");
+
         vm.setEnv("FORCE_REDEPLOY", "false");
         ProjectScratch.clean(SEL_ENVFORCE);
     }
@@ -268,5 +350,93 @@ contract RegistryGuardTest is Test {
             ProjectStore._path(sel),
             "). Refusing to redeploy - set FORCE_REDEPLOY=true to deploy a replacement."
         );
+    }
+
+    /// A `--broadcast` writes the store during forge's SIMULATION pass, so a transaction that then
+    /// fails leaves the address recorded with nothing behind it. The plain refusal sent the operator
+    /// looking for that contract; this one reports what the chain said and how to clear it.
+    function test_RecordedButNoCodeOnChain_RefusesWithTheAbsenceNamed() public {
+        string memory sel = SEL_PHANTOM;
+        GuardHarness h = new GuardHarness();
+        h.setDeployment(sel, "BnM-T_Token", PHANTOM);
+
+        vm.expectRevert(bytes(_recordedNoCode(sel, "BnM-T_Token", PHANTOM)));
+        h.guardWithChainEvidence(sel, "BnM-T_Token", false, false);
+        ProjectScratch.clean(sel);
+    }
+
+    /// The absence branch must not swallow the ordinary case: when the chain confirms code, the original
+    /// message stands, because "already deployed" is then true.
+    function test_RecordedWithCode_KeepsThePlainRefusal() public {
+        string memory sel = SEL_REAL;
+        GuardHarness h = new GuardHarness();
+        h.setDeployment(sel, "BnM-T_Token", PHANTOM);
+
+        vm.expectRevert(bytes(_alreadyDeployed(sel, "BnM-T_Token", PHANTOM)));
+        h.guardWithChainEvidence(sel, "BnM-T_Token", false, true);
+        ProjectScratch.clean(sel);
+    }
+
+    /// `FORCE_REDEPLOY=true` is the one command both messages name, so it must clear a phantom entry too:
+    /// the `deployments` key and any `active` pointer that resolved to it.
+    function test_Phantom_ForceDropsTheStaleEntry() public {
+        string memory sel = SEL_PHANTOMFORCE;
+        GuardHarness h = new GuardHarness();
+        h.recordDeterministic(sel, "token", "BnM-T_Token", PHANTOM);
+        assertEq(h.readDeployment(sel, "BnM-T_Token"), PHANTOM, "seeded");
+        assertEq(h.read(sel, "token"), PHANTOM, "active pointer seeded");
+
+        h.guardWithChainEvidence(sel, "BnM-T_Token", true, false);
+
+        assertEq(h.readDeployment(sel, "BnM-T_Token"), address(0), "stale entry dropped");
+        assertEq(h.read(sel, "token"), address(0), "active pointer that resolved to it dropped too");
+        ProjectScratch.clean(sel);
+    }
+
+    /// No entry under this name is a first-time flow whatever the chain says - never a revert.
+    function test_NoEntry_IsANoOpRegardlessOfChainEvidence() public {
+        string memory sel = SEL_FIRSTRUN;
+        GuardHarness h = new GuardHarness();
+        h.guardWithChainEvidence(sel, "BnM-T_Token", false, false);
+        h.guardWithChainEvidence(sel, "BnM-T_Token", false, true);
+        assertEq(h.readDeployment(sel, "BnM-T_Token"), address(0), "still nothing recorded");
+        ProjectScratch.clean(sel);
+    }
+
+    /// @dev The absence message, assembled the way the library assembles it: reword one and this suite
+    /// fails until both match again.
+    function _recordedNoCode(string memory sel, string memory name, address addr) private view returns (string memory) {
+        return string.concat(
+            "RegistryWriter: '",
+            name,
+            "' is recorded at ",
+            vm.toString(addr),
+            " (",
+            ProjectStore._path(sel),
+            "), but this run reads no code there on chain ",
+            vm.toString(block.chainid),
+            ". Three causes read alike here: the broadcast never landed (the store is written from",
+            " the simulation, before forge sends), it is still pending, or this run is not reading the",
+            " chain that holds it (stale block, wrong or missing RPC). Verify the address before",
+            " acting: if it is genuinely absent, FORCE_REDEPLOY=true drops the entry and deploys; if",
+            " it exists or is still mining, fix the RPC or wait - forcing leaves two contracts."
+        );
+    }
+
+    /// The chain read lives in the wrapper, not the core, so the tests above cannot see it: a mutation
+    /// making the wrapper pass `true` unconditionally left every one of them green. `vm.etch` supplies
+    /// the code, so the branch flips with no fork and no env var.
+    function test_GuardAgainstChain_ReadsCodePresence() public {
+        string memory sel = SEL_WIRING;
+        GuardHarness h = new GuardHarness();
+        h.setDeployment(sel, "BnM-T_Token", PHANTOM);
+
+        vm.expectRevert(bytes(_recordedNoCode(sel, "BnM-T_Token", PHANTOM)));
+        h.guardAgainstChain(sel, "BnM-T_Token", false);
+
+        vm.etch(PHANTOM, hex"600160005260206000f3");
+        vm.expectRevert(bytes(_alreadyDeployed(sel, "BnM-T_Token", PHANTOM)));
+        h.guardAgainstChain(sel, "BnM-T_Token", false);
+        ProjectScratch.clean(sel);
     }
 }

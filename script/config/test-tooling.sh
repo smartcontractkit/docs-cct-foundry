@@ -59,6 +59,12 @@ CLEANX_GRPDIR="project/zz-scratch-cleanx-grp"
 CLEANX_HISTDIR="history/tokens/zz-scratch-cleanx"
 # Manual config plane (configSource: "manual") fixtures (section 31): a hand-maintained chain and an
 # API-sourced chain, both gitignored zz-scratch configs; in cleanup()'s rm-list.
+DRYRUN_CHAIN="zz-scratch-dryrun"
+DRYRUN_CONFIG="config/chains/${DRYRUN_CHAIN}.json"
+DRYRUN_PROJECT="project/${DRYRUN_CHAIN}.json"
+DRYRUN_HIST="history/tokens/${DRYRUN_CHAIN}"
+DRYRUN_PORT=8599
+anvil_pid=""
 MANUAL_CHAIN="zz-scratch-manual-plane"
 MANUAL_FILE="config/chains/${MANUAL_CHAIN}.json"
 MANUAL_PROJECT="project/${MANUAL_CHAIN}.json"
@@ -147,6 +153,8 @@ cleanup() {
     rm -rf project/zz-scratch-*/ project/zz-tt-*/ "project/$GRP_X" "project/$GRP_Y" "project/$SVM_CHAIN.json"
     # Onboarding-guard scratch configs (section 12e): glob every zz-scratch config + project file.
     rm -f config/chains/zz-scratch-*.json project/zz-scratch-*.json
+    [ -n "$anvil_pid" ] && kill "$anvil_pid" 2> /dev/null
+    rm -rf "$DRYRUN_HIST"
     [ -n "$server_pid" ] && kill "$server_pid" 2> /dev/null
     [ -n "$server_dir" ] && rm -rf "$server_dir"
 }
@@ -2031,6 +2039,96 @@ else
     run_case_live "verify-execution rejects a message destined for a different chain" nonzero "destined for selector" -- \
         bash script/config/verify-execution.sh \
         0x7747c1ae938d217e50e73d2de8286c78dde11bd48ce9ef25c193bb673464fc31 avalanche-testnet-fuji
+fi
+
+
+# ---------------------------------------------------------------- deploy dry run leaves no trace
+# A `forge script` with no --broadcast SENDS NOTHING, so it must RECORD nothing: no history/ ledger
+# file, and no mutation of the project store - including under FORCE_REDEPLOY=true, where dropping the
+# stale entry without recording a replacement deletes the record outright.
+#
+# This runs a real deploy script against a local anvil because nothing else can prove it:
+# `ForgeContext._sendsNothing()` answers the same under `forge test` as on a dry run, so an in-process
+# test cannot reach the sending branch. Both defects this pins shipped BECAUSE the suite had no case
+# that ran a deploy script as a dry run.
+if offline_enabled; then
+    if ! command -v anvil > /dev/null 2>&1; then
+        skip=$((skip + 1))
+        echo "[SKIP] deploy dry-run cases (anvil not found - install foundry's anvil to enable)"
+    else
+        anvil --port "$DRYRUN_PORT" --chain-id 31337 --silent &
+        anvil_pid=$!
+        for _ in $(seq 1 50); do
+            cast block-number --rpc-url "http://127.0.0.1:$DRYRUN_PORT" > /dev/null 2>&1 && break
+            sleep 0.2
+        done
+
+        # chainId 31337 so the script's getSelectorName(block.chainid) lookup resolves to this fixture.
+        python3 -c "
+import json
+d = json.load(open('config/chains/ethereum-testnet-sepolia.json'))
+d['name'] = '$DRYRUN_CHAIN'; d['chainId'] = '31337'
+d['chainSelector'] = '9910040000000000004'
+d['chainNameIdentifier'] = 'ZZ_SCRATCH_DRYRUN'
+d['rpcEnv'] = 'ZZ_SCRATCH_DRYRUN_RPC_URL'
+d['configSource'] = 'manual'
+json.dump(d, open('$DRYRUN_CONFIG','w'), indent=2, sort_keys=True)
+"
+        # A store with a recorded token, and the active pointer naming the same address.
+        RECORDED="0x00000000000000000000000000000000000000AA"
+        cat > "$DRYRUN_PROJECT" <<JSON
+{
+  "addresses": {
+    "active": { "token": "$RECORDED" },
+    "deployments": { "ZZD_Token": "$RECORDED" }
+  },
+  "lanes": {},
+  "roles": {},
+  "schema": 3
+}
+JSON
+        rm -rf "$DRYRUN_HIST"
+
+        dry_out="$(ZZ_SCRATCH_DRYRUN_RPC_URL="http://127.0.0.1:$DRYRUN_PORT" \
+            FORCE_REDEPLOY=true TOKEN_NAME="ZZ Dry" TOKEN_SYMBOL=ZZD TOKEN_DECIMALS=18 \
+            TOKEN_MAX_SUPPLY=0 TOKEN_PRE_MINT=0 \
+            forge script script/deploy/DeployToken.s.sol \
+            --rpc-url "http://127.0.0.1:$DRYRUN_PORT" \
+            --private-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 2>&1)"
+
+        # (a) the ledger records deployments, and nothing was deployed
+        if [ ! -d "$DRYRUN_HIST" ]; then
+            pass=$((pass + 1)); echo "[PASS] dry run writes no history/ ledger file"
+        else
+            fail=$((fail + 1)); failures+=("dry run history ledger")
+            echo "[FAIL] dry run history ledger (found: $(ls "$DRYRUN_HIST"))"
+        fi
+
+        # (b) FORCE_REDEPLOY must not drop what the run cannot replace
+        still_recorded="$(jq -r '.addresses.deployments["ZZD_Token"] // "GONE"' "$DRYRUN_PROJECT")"
+        still_active="$(jq -r '.addresses.active.token // "GONE"' "$DRYRUN_PROJECT")"
+        if [ "$still_recorded" = "$RECORDED" ] && [ "$still_active" = "$RECORDED" ]; then
+            pass=$((pass + 1)); echo "[PASS] dry run with FORCE_REDEPLOY keeps the recorded entry and its pointer"
+        else
+            fail=$((fail + 1)); failures+=("dry run FORCE_REDEPLOY drop")
+            echo "[FAIL] dry run FORCE_REDEPLOY drop (deployments=$still_recorded active=$still_active)"
+        fi
+
+        # (c) and it must not CLAIM to have registered anything
+        if ! grep -q "is registered in the address registry" <<< "$dry_out" &&
+            grep -q "Nothing was recorded" <<< "$dry_out"; then
+            pass=$((pass + 1)); echo "[PASS] dry run reports that nothing was recorded"
+        else
+            fail=$((fail + 1)); failures+=("dry run registry claim")
+            echo "[FAIL] dry run registry claim"
+            echo "$dry_out" | tail -12 | sed 's/^/       | /'
+        fi
+
+        kill "$anvil_pid" 2> /dev/null
+        anvil_pid=""
+        rm -f "$DRYRUN_CONFIG" "$DRYRUN_PROJECT"
+        rm -rf "$DRYRUN_HIST"
+    fi
 fi
 
 assert_configs_intact

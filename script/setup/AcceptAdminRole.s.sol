@@ -62,11 +62,11 @@ contract AcceptAdminRole is EoaExecutor {
 
         console.log(string.concat("\n[Step 1] Accepting admin role for token on ", chainName));
         _executeCalls(CctActions._acceptAdminRole(config.tokenAdminRegistry, tokenAddress));
-        console.log(unicode"✅ Admin role accepted successfully!");
+        _logOperationOutcome("accept the admin role for the token");
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Admin Role Accepted on ", chainName, "!"));
+        _logOperationOutcome(string.concat("accept the admin role on ", chainName));
         console.log("========================================");
         console.log(string.concat("Token Address: ", vm.toString(tokenAddress)));
         console.log(string.concat("Token Address: ", helperConfig.getExplorerUrl(chainId, "/address/", tokenAddress)));

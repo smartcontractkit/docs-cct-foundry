@@ -229,13 +229,11 @@ contract ApplyChainUpdates is EoaExecutor {
         _executeCalls(
             _buildLaneUpdateCalls(poolVersion, poolAddress, chainSelectorRemovals, chainUpdates, shouldRemove)
         );
-        console.log(unicode"✅ Chain updates applied successfully!");
+        _logOperationOutcome("apply the chain updates to the pool");
 
         console.log("");
         console.log("========================================");
-        console.log(
-            string.concat(unicode"✅ Chain Updates Complete on ", helperConfig.getChainName(sourceChainId), "!")
-        );
+        _logOperationOutcome(string.concat("apply the chain updates on ", helperConfig.getChainName(sourceChainId)));
         console.log("========================================");
         console.log(string.concat("Token Pool:               ", vm.toString(poolAddress)));
         console.log(string.concat("Remote chains configured: ", vm.toString(numChains)));
@@ -632,9 +630,7 @@ contract ApplyChainUpdates is EoaExecutor {
 
         console.log("");
         console.log("========================================");
-        console.log(
-            string.concat(unicode"✅ Chain Updates Complete on ", helperConfig.getChainName(sourceChainId), "!")
-        );
+        _logOperationOutcome(string.concat("apply the chain updates on ", helperConfig.getChainName(sourceChainId)));
         console.log("========================================");
         console.log(string.concat("Token Pool:   ", vm.toString(poolAddress)));
         console.log(
@@ -789,7 +785,7 @@ contract ApplyChainUpdates is EoaExecutor {
         _executeCalls(
             _buildLaneUpdateCalls(poolVersion, poolAddress, chainSelectorRemovals, chainUpdates, replaceExisting)
         );
-        console.log(unicode"✅ Chain updates applied successfully!");
+        _logOperationOutcome("apply the chain updates to the pool");
     }
 
     /// @dev The exhaustive version switch of the lane-update dispatch: 1.5.0 takes the

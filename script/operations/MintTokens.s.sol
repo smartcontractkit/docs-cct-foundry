@@ -64,13 +64,15 @@ contract MintTokens is EoaExecutor {
             )
         );
         _executeCalls(CctActions._mint(tokenAddress, receiverAddress, amount));
-        console.log(unicode"✅ Tokens minted successfully!");
+        _logOperationOutcome(
+            string.concat("mint ", vm.toString(amount), " ", token.symbol(), " to ", vm.toString(receiverAddress))
+        );
 
         uint256 newBalance = token.balanceOf(receiverAddress);
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Minting Complete on ", chainName, "!"));
+        _logOperationOutcome(string.concat("mint tokens on ", chainName));
         console.log("========================================");
         console.log(string.concat("Receiver Address: ", vm.toString(receiverAddress)));
         console.log(

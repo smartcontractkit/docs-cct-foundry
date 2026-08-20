@@ -50,11 +50,11 @@ contract SetRebalancer is LiquidityBase {
 
         console.log(string.concat("[Step 1] Setting rebalancer on ", chainName));
         _executeCalls(CctActions._setRebalancer(tokenPoolAddress, rebalancer));
-        console.log(unicode"✅ Rebalancer set successfully!");
+        _logOperationOutcome(string.concat("set the rebalancer to ", vm.toString(rebalancer)));
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Configuration Complete on ", chainName, "!"));
+        _logOperationOutcome(string.concat("set the rebalancer on ", chainName));
         console.log("========================================");
         console.log(string.concat("Token Pool:   ", vm.toString(tokenPoolAddress)));
         console.log(string.concat("Rebalancer:   ", vm.toString(rebalancer)));

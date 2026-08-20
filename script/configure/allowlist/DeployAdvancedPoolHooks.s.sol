@@ -8,6 +8,7 @@ import {DeploymentUtils} from "../../utils/DeploymentUtils.s.sol";
 import {DeploymentRecorder} from "../../utils/DeploymentRecorder.s.sol";
 import {RegistryWriter} from "../../../src/utils/RegistryWriter.sol";
 import {AdvancedPoolHooks} from "@chainlink/contracts-ccip/contracts/pools/AdvancedPoolHooks.sol";
+import {OutcomeLog} from "../../../src/base/OutcomeLog.sol";
 
 /**
  * @title DeployAdvancedPoolHooks
@@ -113,7 +114,7 @@ contract DeployAdvancedPoolHooks is Script {
         address hooksAddress = address(hooks);
         console.log(string.concat("AdvancedPoolHooks deployed at: ", vm.toString(hooksAddress)));
         console.log(helperConfig.getExplorerUrl(chainId, "/address/", hooksAddress));
-        console.log(unicode"✅ AdvancedPoolHooks deployed successfully!");
+        OutcomeLog._sending("deploy the AdvancedPoolHooks");
 
         vm.stopBroadcast();
 
@@ -133,7 +134,7 @@ contract DeployAdvancedPoolHooks is Script {
     ) private {
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Deployment Complete on ", chainName, "!"));
+        OutcomeLog._sending(string.concat("deploy the AdvancedPoolHooks on ", chainName));
         console.log("========================================");
         console.log(string.concat("AdvancedPoolHooks Address: ", vm.toString(hooksAddress)));
         console.log(helperConfig.getExplorerUrl(chainId, "/address/", hooksAddress));
@@ -164,6 +165,12 @@ contract DeployAdvancedPoolHooks is Script {
             string.concat("  Authorized Callers:           ", authorizedCallers.length > 0 ? "Enabled" : "Disabled")
         );
         console.log("");
+        if (!DeploymentRecorder._recorded()) {
+            DeploymentRecorder._logNothingRecorded();
+            console.log("========================================");
+            console.log("");
+            return;
+        }
         console.log("Next Steps:");
         console.log("  1. When deploying a TokenPool, pass this hooks address as the 'poolHooks' parameter");
         console.log(

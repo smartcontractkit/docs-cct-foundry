@@ -114,12 +114,12 @@ contract WithdrawFeeTokens is EoaExecutor {
         // On v1 pools, fee configuration is handled by FeeQuoter and there is no
         // pool-level fee withdrawal mechanism - fees are not accrued by the pool contract.
         _executeCalls(CctActions._withdrawFeeTokens(tokenPoolAddress, tokensToWithdraw, recipient));
-        console.log(unicode"✅ Fee tokens withdrawn successfully!");
+        _logOperationOutcome(string.concat("withdraw the fee tokens to ", vm.toString(recipient)));
 
         // ── Footer ─────────────────────────────────────────────────────────
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Withdrawal complete on ", chainName, "!"));
+        _logOperationOutcome(string.concat("withdraw fee tokens on ", chainName));
         console.log("========================================");
         console.log(string.concat("Token Pool:   ", vm.toString(tokenPoolAddress)));
         console.log(string.concat("Recipient:    ", vm.toString(recipient)));

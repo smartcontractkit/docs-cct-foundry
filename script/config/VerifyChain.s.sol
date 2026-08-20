@@ -74,6 +74,12 @@ contract ChainProbe {
         return ChainConfig._load(name);
     }
 
+    /// @dev `parseJsonKeys`, external for the same reason as `hasKey`: a store whose `deployments` is
+    /// an array or a string aborts the cheatcode, and the rung must degrade rather than kill the run.
+    function keysOf(string memory json, string memory key) external pure returns (string[] memory) {
+        return VM.parseJsonKeys(json, key);
+    }
+
     function parseQuotedDecimals(string memory json) external pure returns (string memory, string memory) {
         return (VM.parseJsonString(json, ".chainId"), VM.parseJsonString(json, ".chainSelector"));
     }
@@ -927,6 +933,7 @@ contract VerifyChain is Script {
             );
         }
         _warnMultiPoolAmbiguity(name);
+        _failCodelessDeployments(name);
 
         // Reconcile the registry's pool against the ON-CHAIN TokenAdminRegistry. `active.tokenPool` is
         // "what this repo deployed most recently"; the TAR is "the pool CCIP actually routes through".
@@ -957,21 +964,93 @@ contract VerifyChain is Script {
         }
     }
 
+    /// @dev The `deployments{}` keys of a chain's project store, read tolerantly. `readable` is false
+    /// ONLY when the store exists but could not be understood; a chain with no store yet, or a store
+    /// with no `deployments` key, reads clean with no keys (bootstrap is not a gap). Every step is a
+    /// separate try because each aborts on a store one hand edit from valid - an array or a string
+    /// where the object belongs, or a file caught mid-write by a parallel suite. The readers were
+    /// hardened for exactly that; a rung must not undo it by dying before the verdict. Shared by the
+    /// two rungs that walk `deployments{}`, which differ only in what they do when it cannot be read.
+    function _deploymentKeys(string memory name) private view returns (string[] memory keys, bool readable) {
+        string memory p = ProjectStore._path(name);
+        if (!vm.exists(p)) return (new string[](0), true);
+        string memory json;
+        try s_probe.readFileFor(p) returns (string memory data) {
+            json = data;
+        } catch {
+            return (new string[](0), false);
+        }
+        try s_probe.hasKey(json, ".addresses.deployments") returns (bool exists) {
+            if (!exists) return (new string[](0), true); // nothing recorded yet
+        } catch {
+            return (new string[](0), false);
+        }
+        try s_probe.keysOf(json, ".addresses.deployments") returns (string[] memory k) {
+            return (k, true);
+        } catch {
+            return (new string[](0), false);
+        }
+    }
+
+    /// @dev The store could not be read, so nothing was checked. Reported rather than skipped in
+    /// silence: a rung that vanishes on a malformed file turns "could not look" into "looks fine",
+    /// which is the distinction the roles engine already draws between unread and clean.
+    function _unreadableStore(string memory name) private view returns (string memory) {
+        return string.concat(
+            "registry: recorded artifacts not code-checked (", ProjectStore._display(name), " is not readable JSON)"
+        );
+    }
+
+    /// @dev Code-checks EVERY recorded artifact, not only the `active.token`/`active.tokenPool` pair
+    /// checked above: a phantom lock box, hooks contract, or any `deployments` entry that is not the
+    /// current active pointer used to pass the doctor clean. A deploy writes `project/<name>.json`
+    /// during forge's SIMULATION pass, so a `--broadcast` that fails afterwards leaves exactly that
+    /// state. FAIL, not WARN: this is not two records disagreeing (unlike the TAR reconcile above), it
+    /// is a record of something that does not exist. Unforked runs check nothing - with no chain to
+    /// read, "has no code" and "was never asked" are the same silence.
+    function _failCodelessDeployments(string memory name) private {
+        if (!s_forked) {
+            _skipUnverified("registry: recorded artifacts not code-checked (no fork)");
+            return;
+        }
+        (string[] memory keys, bool readable) = _deploymentKeys(name);
+        if (!readable) {
+            _skipUnverified(_unreadableStore(name));
+            return;
+        }
+        // The active pair is already FAILed above by address, so skipping them here keeps one absent
+        // artifact from being counted twice.
+        address activeToken = RegistryWriter._read(name, "token");
+        address activePool = RegistryWriter._read(name, "tokenPool");
+        for (uint256 i = 0; i < keys.length; i++) {
+            address recorded = RegistryWriter._readDeployment(name, keys[i]);
+            if (recorded == address(0) || recorded.code.length != 0) continue;
+            if (recorded == activeToken || recorded == activePool) continue;
+            _fail(
+                string.concat(
+                    "registry: deployments.",
+                    keys[i],
+                    " is recorded at ",
+                    vm.toString(recorded),
+                    " but this run reads no code there on ",
+                    name,
+                    " - either that broadcast never landed (the store is written from the simulation, before",
+                    " forge sends) or this run is not reading the chain that holds it. Verify the address:",
+                    " if absent, redeploy with FORCE_REDEPLOY=true; if it exists, fix the RPC."
+                )
+            );
+        }
+    }
+
     /// @dev WARN (never FAIL) when `deployments{}` holds more than one token pool while
     /// `active.tokenPool` can only point at one of them: on a multi-token chain the zero-export
     /// resolution serves that ONE pool for every token. Names a token group as the durable fix (each
     /// token gets its own store) and the targeted env override as the one-off.
     function _warnMultiPoolAmbiguity(string memory name) private {
-        string memory p = ProjectStore._path(name);
-        if (!vm.exists(p)) return;
-        string memory json;
-        try s_probe.readFileFor(p) returns (string memory data) {
-            json = data;
-        } catch {
-            return;
-        }
-        if (!vm.keyExistsJson(json, ".addresses.deployments")) return;
-        string[] memory keys = vm.parseJsonKeys(json, ".addresses.deployments");
+        // An unreadable store yields no keys and so no warning. Silent on purpose: this rung reports
+        // an ambiguity between recorded pools, and it has no evidence of one. Whether the store was
+        // readable at all is the codeless-artifact rung's verdict to give.
+        (string[] memory keys,) = _deploymentKeys(name);
         uint256 pools = 0;
         for (uint256 i = 0; i < keys.length; i++) {
             if (_contains(keys[i], "TokenPool_")) pools++;
@@ -1312,6 +1391,32 @@ contract VerifyChain is Script {
             out[i] = b[start + i];
         }
         return string(out);
+    }
+
+    /// @notice TEST-ONLY hook: runs the WHOLE registry rung, so a test can prove the codeless-artifact
+    /// check is wired into it. Driving `_failCodelessDeployments` directly leaves the call site
+    /// untested: deleting the call kept every targeted test green. Not used by any production path.
+    function checkRegistryAndExtrasForTest(string memory name, string memory configJson, bool forked)
+        public
+        returns (uint256 failsOut, uint256 warnsOut)
+    {
+        s_probe = new ChainProbe();
+        s_forked = forked;
+        _checkRegistryAndExtras(name, configJson);
+        return (s_fails, s_warns);
+    }
+
+    /// @notice TEST-ONLY hook: runs the codeless-artifact rung for `name`. `forked` is a parameter
+    /// because the rung must stay silent with no chain to read, and a test has to assert that silence
+    /// as well as the FAILs. Not used by any production path.
+    function failCodelessDeploymentsForTest(string memory name, bool forked)
+        public
+        returns (uint256 failsOut, uint256 warnsOut)
+    {
+        s_probe = new ChainProbe();
+        s_forked = forked;
+        _failCodelessDeployments(name);
+        return (s_fails, s_warns);
     }
 
     /// @notice Test hook: runs ONLY the mesh rung (lane resolution + reciprocity) for `name` and

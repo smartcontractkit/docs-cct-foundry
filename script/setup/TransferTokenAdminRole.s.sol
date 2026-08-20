@@ -97,11 +97,11 @@ contract TransferTokenAdminRole is EoaExecutor {
 
         console.log(string.concat("\n[Step 1] Transferring admin role for token on ", chainName));
         _executeCalls(CctActions._transferAdminRole(config.tokenAdminRegistry, tokenAddress, newAdmin));
-        console.log(unicode"✅ Admin role transfer initiated successfully!");
+        _logOperationOutcome(string.concat("begin the admin role transfer to ", vm.toString(newAdmin)));
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Admin Role Transfer Initiated on ", chainName, "!"));
+        _logOperationOutcome(string.concat("begin the admin role transfer on ", chainName));
         console.log("========================================");
         console.log(string.concat("Token:       ", helperConfig.getExplorerUrl(chainId, "/address/", tokenAddress)));
         console.log(string.concat("New Admin:   ", vm.toString(newAdmin)));

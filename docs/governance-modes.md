@@ -17,6 +17,9 @@ A user who never sets `MODE` sees no change and needs no new environment variabl
 same flags, same broadcast behavior, same output. The Safe-mode variables below are read only when
 `MODE=safe`.
 
+An emit-only Safe run sends nothing, so its scripts report `NOT SENT (Safe batch to sign)` rather
+than `SENDING`. See [reading a write script's outcome line](reference/script-output.md).
+
 A [Safe](https://docs.safe.global/) is an on-chain multisig: `threshold`-of-owners signatures
 authorize each Safe transaction, and the Safe serializes its transactions with its own nonce,
 distinct from any account nonce.

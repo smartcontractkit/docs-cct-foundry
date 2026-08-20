@@ -23,10 +23,10 @@ contract SymToken {
 /// burn-mint-pool `history/` bodies, and the `Registry*` suites pin the `project/` store, but NOTHING
 /// asserted the two halves TOGETHER for all five artifact roles, nor the LockRelease / lockBox / poolHooks
 /// history bodies, nor history append-only ACROSS DIFFERENT artifacts. This suite drives the same two
-/// writes `DeploymentRecorder.record*` performs - `DeploymentUtils.save*` (the `history/` half, always
-/// writes) + `RegistryWriter._recordDeterministic(sel, role, DeploymentRecorder.<name>(...), addr)` (the
-/// `project/` store half; the deterministic core is used because `RegistryWriter._record` no-ops under
-/// `forge test` context by design) - using the recorder's OWN key helpers, so a drift between the store key
+/// writes `DeploymentRecorder.record*` performs - `DeploymentUtils.save*` (the `history/` half) +
+/// `RegistryWriter._recordDeterministic(sel, role, DeploymentRecorder.<name>(...), addr)` (the
+/// `project/` store half). Both are driven at the level BELOW the recorder's context check, which
+/// no-ops under `forge test` by design, so this suite can assert what each write produces - using the recorder's OWN key helpers, so a drift between the store key
 /// and the history filename symbol would fail here.
 ///
 /// For EACH of token / burn-mint pool / lock-release pool (incl. the `LOCK_BOX` body key) / lockBox /

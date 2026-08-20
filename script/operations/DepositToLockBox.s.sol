@@ -96,14 +96,14 @@ contract DepositToLockBox is EoaExecutor {
         console.log(string.concat("[Step 1] Approving ", vm.toString(amount), " tokens to LockBox"));
         console.log(string.concat("[Step 2] Depositing ", vm.toString(amount), " tokens into LockBox"));
         _executeCalls(CctActions._lockboxDeposit(lockBoxAddress, tokenAddress, amount));
-        console.log(unicode"✅ Deposit successful!");
+        _logOperationOutcome(string.concat("approve and deposit ", vm.toString(amount), " tokens into the LockBox"));
 
         uint256 balanceAfter = token.balanceOf(depositor);
         uint256 lockBoxBalance = token.balanceOf(lockBoxAddress);
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Deposit Complete on ", chainName, "!"));
+        _logOperationOutcome(string.concat("deposit into the LockBox on ", chainName));
         console.log("========================================");
         console.log(string.concat("Depositor Balance Before: ", vm.toString(balanceBefore)));
         console.log(string.concat("Depositor Balance After: ", vm.toString(balanceAfter)));

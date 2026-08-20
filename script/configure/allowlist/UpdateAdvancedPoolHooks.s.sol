@@ -47,10 +47,10 @@ contract UpdateAdvancedPoolHooks is EoaExecutor {
         console.log("");
 
         _executeCalls(CctActions._updateAdvancedPoolHooks(tokenPoolAddress, newHookAddress));
-        console.log(unicode"✅ AdvancedPoolHooks updated successfully!");
+        _logOperationOutcome(string.concat("point the pool at hooks ", vm.toString(newHookAddress)));
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Pool hooks updated on ", chainName, "!"));
+        _logOperationOutcome(string.concat("update the pool hooks on ", chainName));
         console.log("========================================");
         console.log(string.concat("Token Pool:     ", vm.toString(tokenPoolAddress)));
         console.log(string.concat("New Pool Hooks: ", vm.toString(newHookAddress)));

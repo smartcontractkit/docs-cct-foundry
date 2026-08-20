@@ -79,11 +79,11 @@ contract ClaimAdmin is EoaExecutor {
             calls = CctActions._registerAccessControlDefaultAdmin(registryModuleOwnerCustom, tokenAddress);
         }
         _executeCalls(calls);
-        console.log(unicode"✅ Admin claimed successfully!");
+        _logOperationOutcome("claim the admin role for the token");
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Admin Claim Complete on ", chainName, "!"));
+        _logOperationOutcome(string.concat("claim the admin role on ", chainName));
         console.log("========================================");
         console.log(string.concat("Token Address: ", vm.toString(tokenAddress)));
         console.log(string.concat("Token Address: ", helperConfig.getExplorerUrl(chainId, "/address/", tokenAddress)));

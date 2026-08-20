@@ -83,11 +83,11 @@ contract RevokeTokenRole is TokenRoleScript {
         } else {
             _executeCalls(CctActions._revokeRole(token, RolesProbes._tokenRoleId(token, role), holder));
         }
-        console.log(unicode"✅ Role revoked successfully!");
+        _logOperationOutcome(string.concat("revoke ", RolesProbes._tokenRoleName(role), " from ", vm.toString(holder)));
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Token Role Revoked on ", chainName, "!"));
+        _logOperationOutcome(string.concat("revoke the token role on ", chainName));
         console.log("========================================");
         console.log(string.concat("Token:  ", helperConfig.getExplorerUrl(chainId, "/address/", token)));
         console.log(string.concat("Role:   ", RolesProbes._tokenRoleName(role)));

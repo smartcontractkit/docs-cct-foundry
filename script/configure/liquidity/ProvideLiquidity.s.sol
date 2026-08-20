@@ -79,11 +79,11 @@ contract ProvideLiquidity is LiquidityBase {
                 CctActions._provideLiquidity(tokenPoolAddress, amount)
             )
         );
-        console.log(unicode"✅ Liquidity provided successfully!");
+        _logOperationOutcome(string.concat("approve and provide ", vm.toString(amount), " tokens of liquidity"));
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Complete on ", chainName, "!"));
+        _logOperationOutcome(string.concat("provide liquidity on ", chainName));
         console.log("========================================");
         console.log(string.concat("Pool Liquidity: ", vm.toString(IERC20(tokenAddress).balanceOf(tokenPoolAddress))));
         console.log(

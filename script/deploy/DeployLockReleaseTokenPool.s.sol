@@ -8,6 +8,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {DeploymentUtils} from "../utils/DeploymentUtils.s.sol";
 import {DeploymentRecorder} from "../utils/DeploymentRecorder.s.sol";
 import {RegistryWriter} from "../../src/utils/RegistryWriter.sol";
+import {OutcomeLog} from "../../src/base/OutcomeLog.sol";
 
 /// @notice Deploys a LockRelease token pool (paired with an ERC20 LockBox) and records it in the registry.
 /// DECIMALS=<n> is required only when the token does not answer decimals(), and must agree with it when
@@ -89,7 +90,7 @@ contract DeployLockReleaseTokenPool is Script {
         address tokenPoolAddress = address(tokenPool);
         console.log(string.concat("Token Pool deployed at: ", vm.toString(tokenPoolAddress)));
         console.log(helperConfig.getExplorerUrl(chainId, "/address/", tokenPoolAddress));
-        console.log(unicode"✅ LockReleaseTokenPool deployed successfully!");
+        OutcomeLog._sending("deploy the LockRelease token pool");
 
         vm.stopBroadcast();
 
@@ -109,7 +110,7 @@ contract DeployLockReleaseTokenPool is Script {
 
         console.log("");
         console.log("========================================");
-        console.log(string.concat(unicode"✅ Deployment Complete on ", chainName, "!"));
+        OutcomeLog._sending(string.concat("deploy the LockRelease token pool on ", chainName));
         console.log("========================================");
         console.log(string.concat("Token Pool Address: ", vm.toString(tokenPoolAddress)));
         console.log(helperConfig.getExplorerUrl(chainId, "/address/", tokenPoolAddress));
@@ -120,9 +121,9 @@ contract DeployLockReleaseTokenPool is Script {
             vm, selectorName, config.chainNameIdentifier, tokenPoolAddress, tokenAddress, lockBox, "LockRelease"
         );
         console.log("");
-        console.log("The address is registered in the address registry; later scripts resolve it automatically.");
-        console.log("To override it for a session, set the environment variable:");
-        console.log(string.concat("export ", config.chainNameIdentifier, "_TOKEN_POOL=", vm.toString(tokenPoolAddress)));
+        DeploymentRecorder._logResolution(
+            vm, string.concat(config.chainNameIdentifier, "_TOKEN_POOL"), tokenPoolAddress
+        );
         console.log("========================================");
         console.log("");
     }
