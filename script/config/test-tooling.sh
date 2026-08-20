@@ -59,6 +59,7 @@ CLEANX_GRPDIR="project/zz-scratch-cleanx-grp"
 CLEANX_HISTDIR="history/tokens/zz-scratch-cleanx"
 # Manual config plane (configSource: "manual") fixtures (section 31): a hand-maintained chain and an
 # API-sourced chain, both gitignored zz-scratch configs; in cleanup()'s rm-list.
+SL_PROBE="zz-scratch-ignore-probe"
 DRYRUN_CHAIN="zz-scratch-dryrun"
 DRYRUN_CONFIG="config/chains/${DRYRUN_CHAIN}.json"
 DRYRUN_PROJECT="project/${DRYRUN_CHAIN}.json"
@@ -155,6 +156,7 @@ cleanup() {
     rm -f config/chains/zz-scratch-*.json project/zz-scratch-*.json
     [ -n "$anvil_pid" ] && kill "$anvil_pid" 2> /dev/null
     rm -rf "$DRYRUN_HIST"
+    rm -rf "$SL_PROBE"
     [ -n "$server_pid" ] && kill "$server_pid" 2> /dev/null
     [ -n "$server_dir" ] && rm -rf "$server_dir"
 }
@@ -2099,6 +2101,22 @@ if offline_enabled; then
         ci_ok=0
         echo "       | the committed example must NOT be ignored (it is the one trackable project file)"
     fi
+    # A SYMLINK of these names must be ignored too - see the .gitignore preamble for why those rules
+    # carry no trailing slash. Real symlinks, not bare paths: check-ignore can only tell a directory
+    # from a symlink when the entry exists on disk.
+    # Probed inside a scratch directory, not at the repo root: node_modules/, out/ and cache/ usually
+    # EXIST there, and skipping the names that do would leave the check covering whichever ones happen
+    # to be absent. Only unanchored rules can be checked this way - `docs/src`/`docs/book` carry a slash
+    # and so match at the root only, which is why they are not in the list.
+    mkdir -p "$SL_PROBE/target"
+    for name in node_modules cache out lib history broadcast; do
+        ln -sfn target "$SL_PROBE/$name"
+        git check-ignore -q "$SL_PROBE/$name" || {
+            ci_ok=0
+            echo "       | a symlink named $name is NOT ignored (did a trailing slash come back?)"
+        }
+    done
+    rm -rf "$SL_PROBE"
     if [ $ci_ok -eq 1 ]; then
         pass=$((pass + 1))
         echo "[PASS] gitignore contract: scratch/local/real project + history ignored, example trackable"

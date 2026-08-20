@@ -6,6 +6,7 @@ import {HelperConfig} from "../script/HelperConfig.s.sol";
 import {DeployToken} from "../script/deploy/DeployToken.s.sol";
 import {DeployBurnMintTokenPool} from "../script/deploy/DeployBurnMintTokenPool.s.sol";
 import {CctActions} from "../src/actions/CctActions.sol";
+import {RolesProbes} from "../src/roles/RolesProbes.sol";
 
 /// @title BaseForkTest
 /// @notice Shared base for Ethereum Sepolia fork tests.
@@ -79,14 +80,33 @@ abstract contract BaseForkTest is Test {
     /// (same interface users drive on the command line). Note vm.setEnv is process-wide;
     /// this stays safe under parallel suites because the fixture is deterministic, so
     /// every suite sets the same value.
+    ///
+    /// POOL_HOOKS is pinned for a different reason: to make the fixture INDEPENDENT of the developer's
+    /// own deploy state. Unset, `DeployBurnMintTokenPool` defaults it from `HelperConfig`, which reads
+    /// `addresses.active.poolHooks` in `project/<chain>.json` - correct for a real deploy, wrong for a
+    /// fixture. Setting the variable at all suppresses that default (`envOr` prefers any set value), and
+    /// zero is what the script treats as "no hooks". Unlike the `TOKEN` pin above, which is safe because
+    /// every suite computes the same address, this one is safe because zero is indistinguishable from
+    /// unset to every other reader - so pinning it process-wide changes no other suite's resolution.
+    ///
+    /// Without the pin, a store recording a `poolHooks` address builds the fixture pool around it and
+    /// the roles tests fail against the roles engine instead. Whether it has CODE is irrelevant - a
+    /// deployed contract that answers none of the five hooks getters fails identically to a codeless
+    /// one; what matters is how much of that surface answers.
     function deployTokenAndPoolFixture() internal returns (address token, address pool) {
         token = deployTokenFixture();
         vm.setEnv("TOKEN", vm.toString(token));
+        vm.setEnv("POOL_HOOKS", vm.toString(address(0)));
         address broadcaster = _scriptBroadcaster();
         uint256 nonceBefore = vm.getNonce(broadcaster);
         new DeployBurnMintTokenPool().run();
         pool = vm.computeCreateAddress(broadcaster, nonceBefore);
         assertGt(pool.code.length, 0, "pool fixture not deployed at computed address");
+        // Catches a dropped pin. It fires for any recorded hooks address, but only a developer with one
+        // in their store would ever see it - CI's store is empty, so the pin is otherwise uncovered.
+        (bool okHooks, address hooks) = RolesProbes._tryAddress(pool, "getAdvancedPoolHooks()");
+        assertTrue(okHooks, "the fixture pool must expose getAdvancedPoolHooks() for the check below to mean anything");
+        assertEq(hooks, address(0), "fixture pool must not inherit hooks from a real store");
     }
 
     /// @dev Returns the sender the deploy scripts will broadcast (prank) with in tests,
