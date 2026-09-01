@@ -2,6 +2,7 @@
 pragma solidity 0.8.24;
 
 import {Vm} from "forge-std/Vm.sol";
+import {TolerantCall} from "../utils/TolerantCall.sol";
 
 /// @title RolesProbes
 /// @notice Capability probes for the AUTHORITY surface - every read is a tolerant `staticcall`, so the
@@ -78,8 +79,10 @@ library RolesProbes {
         returns (bool ok, address[] memory val)
     {
         (bool s, bytes memory ret) = target.staticcall(callData);
-        // a dynamic array return is at least offset + length words
-        if (s && ret.length >= 64) return (true, abi.decode(ret, (address[])));
+        // A length check alone is not enough for a dynamic type: a 64-byte answer claiming a thousand
+        // entries passes it, and the decode then reverts in THIS frame (see `TolerantCall`). Bounds
+        // only - a dirty address word still trips solc's own validator.
+        if (s && TolerantCall._decodesAsDynamic(ret, 32)) return (true, abi.decode(ret, (address[])));
         return (false, new address[](0));
     }
 

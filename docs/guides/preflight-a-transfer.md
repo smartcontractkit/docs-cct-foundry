@@ -21,11 +21,13 @@ counterpart to the static [health check](health-check.md).
    `doctor` confirms the pools are deployed, registered, and wired for the lane; `roles-check` confirms the
    authority is where you expect. This is the static half: it proves the configuration without moving tokens.
 
-2. **Simulate the transfer with `make preflight` (no send).** This forks both chains and simulates the
-   source pool's `lockOrBurn`, then the destination pool's `releaseOrMint` fed the exact data the source leg
-   produced, pranking the OnRamp and OffRamp the way production does. It prints GO with the amount the
-   destination would receive, or NO-GO with the decoded reason, so a misconfigured lane fails here instead of
-   stranding a real message.
+2. **Simulate the transfer with `make preflight` (no send).** This runs `ccip-cli send --only-estimate`,
+   which simulates the source pool's `lockOrBurn` and then the destination pool's `releaseOrMint`, fed the
+   exact `destPoolData` the source leg produced. Both legs are reachable because they gate only on
+   `msg.sender` being a registered ramp, which an `eth_call` satisfies with a spoofed `from`; the full
+   `ccipSend` and destination `execute()` cannot be simulated pre-send, because they are proof-gated. It
+   prints GO, or NO-GO with the decoded reason, so a misconfigured lane fails here instead of stranding a
+   real message.
 
    ```bash
    make preflight \
@@ -33,20 +35,45 @@ counterpart to the static [health check](health-check.md).
      AMOUNT=<wei> RECEIVER=<your-EOA>
    ```
 
-   You pass two chain names (the `config/chains/` selectorNames) plus the amount and receiver, exactly like
-   the other targets: it resolves each chain's RPC, router, and selector from its chain config and the pools
-   from the project store. Override a not-yet-stored pool with `SOURCE_POOL=` / `DEST_POOL=`. The raw
-   `forge script` under it (the escape hatch) is
-   `SOURCE_CHAIN=<src> DEST_CHAIN=<dst> SOURCE_RPC_URL=<src-rpc> DEST_RPC_URL=<dst-rpc> AMOUNT=<wei> RECEIVER=<you> forge script script/diagnostics/PreflightTransfer.s.sol`.
+   You pass two chain names (the `config/chains/` selectorNames) plus the amount in wei and the receiver,
+   exactly like the other targets: it resolves each chain's RPC and the source router from the chain
+   configs, and the token from the project store (`TOKEN=` overrides). `AMOUNT` is in wei here and the CLI
+   takes human units, so the wrapper converts using the token's `decimals()`. The escape hatch is
+   `bash script/config/preflight-transfer.sh <src> <dst> <amountWei> <receiver>`, and under that the raw
+   `ccip-cli send --only-estimate --estimate-gas-limit 0`.
 
-   It proves the whole pool path in one command: on the source, the burn or lock authority and outbound rate
-   limit; on the destination, the source-pool wiring (`InvalidSourcePoolAddress`), the inbound rate limit
-   (`TokenMaxCapacityExceeded`), the mint or release authority (the classic pool-not-a-minter), the RMN
-   curse, and liquidity. It works for every pool version (v1.5.0 through v2.0), dispatching each pool by its
-   own ERC165 answer the same way the ramps do, and it is read-only: a fork simulation, never a broadcast. A
-   NO-GO names the exact fix (plus the pool and token it ran against; re-run with `-vvvv` for the exact
-   reverting frame), so make the fix and re-run until GO. Because the pools come from the project store,
-   which tracks the active pool, you preflight what is wired, not a decommissioned one.
+   **What it is.** `--only-estimate` is a *destination-side* simulation. It resolves the lane (the source
+   Router's OnRamp for the destination, then the matching OffRamp) and then checks the destination: the
+   OffRamp lane gates (source chain enabled, the sending OnRamp among its allowed OnRamps), the source-pool
+   wiring (`InvalidSourcePoolAddress`), the inbound rate limit (`TokenMaxCapacityExceeded`), the mint or
+   release authority, liquidity, and on v2 lanes that the CCV and finality resolve. Destinations that are
+   not EVM are covered too. Nothing is sent.
+
+   **What it does not check.** Nothing on this path evaluates the source `ccipSend`, so the source pool's
+   allowlist, its outbound rate limit, and its burn or lock authority are all outside the verdict - a clean
+   GO can still be followed by a live `SenderNotAllowed`. Use `make doctor` and `make roles-check` for that
+   configuration, and note that your own token balance, the Router allowance, and the fee are not checked
+   either.
+
+   **Three exit codes, not two.** 0 is GO, 1 is NO-GO, and 2 is UNRESOLVED - the run reached no verdict at
+   all (a bad flag, an unreachable RPC, a destination the CLI could not simulate). UNRESOLVED is not a
+   quiet NO-GO: it says nothing about the transfer, so fix the tooling and run it again.
+
+   **The sender is what the destination sees** - a receiver that gates on it, and the destination pool's
+   `releaseOrMint` - not the source allowlist. `ccip-cli` resolves it in one order: `--wallet`, else
+   `PRIVATE_KEY`/`USER_KEY`/`OWNER_KEY` from the environment, else those same names read out of `./.env`.
+   So a project that already keeps a key in `.env` gets a sender-scoped estimate with no extra flag. To
+   scope it to a keystore account instead, set `WALLET=foundry:<account>` together with
+   `FOUNDRY_KEYSTORE_PASSWORD` (the wrapper requires the password up front, because `--no-interactive`
+   makes `ccip-cli` swallow the failure and quietly estimate with no sender at all). With none of them the
+   estimate still runs, unscoped, and the wrapper says so. There is no way to scope it to an address you
+   hold no key for: `--wallet` takes a wallet, not an address.
+
+   **The token must expose `symbol()`, `decimals()` and `name()`.** `ccip-cli` reads all three to resolve
+   a token amount and does not tolerate a missing one, so a token that omits any of them cannot be
+   preflighted this way - it fails inside the CLI rather than reporting a verdict. All three are optional
+   in ERC20, so such a token may still be perfectly good to deploy and transfer; only this check is
+   unavailable. Pending guards in `ccip-cli`/`ccip-sdk`.
 
 3. **Confirm with a tiny token-only transfer in BOTH directions.** Once preflight is GO, send a small amount
    to your own EOA, A to B and B to A, and confirm each reaches `SUCCESS`:

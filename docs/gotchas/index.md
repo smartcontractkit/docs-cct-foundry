@@ -73,4 +73,18 @@ link to.
   must return `0x` (otherwise the endpoint is not running `eth_call` at all). Check `eth_chainId`
   matches the chain you meant, because public RPC directories carry chainId collisions.
 
+<a id="a-successful-call-can-still-revert-your-frame"></a>
+- **A successful call can still revert your frame.** `try C(a).f() returns (string memory)` routes a
+  REVERT to its catch, but the return data is decoded in the CALLER's frame after the call already
+  succeeded. An address that answers successfully with bytes that are not a valid ABI encoding
+  therefore reverts outside the catch, with no reason string - the operator sees `EvmError: Revert` and
+  the message names no read. A codeless address is the easy half (it answers with empty data); an
+  address WITH code can answer just as undecodably - a Safe with no fallback handler, an EIP-1167 clone
+  over a codeless implementation, a proxy whose catch-all fallback returns rather than reverts - so a
+  `code.length` guard covers only half of it. Applies to any dynamic return type: `string`, `bytes`,
+  arrays, structs containing them. Use `src/utils/TolerantCall.sol`, which validates offset, length and
+  bounds before decoding. `src/roles/RolesProbes.sol` covers value types, but only `_tryUint` and
+  `_tryBytes32` are fully safe: `address` and `bool` carry decoder validators that reject a dirty word
+  the same way. Known remaining instances are listed in the PR that introduced the helper.
+
 _The registry grows as findings graduate from the internal vault under the publication gate._

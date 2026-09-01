@@ -4,6 +4,7 @@ pragma solidity 0.8.24;
 import {Vm} from "forge-std/Vm.sol";
 import {console} from "forge-std/console.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
+import {TolerantCall} from "../../src/utils/TolerantCall.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 
 /// @title DeploymentUtils
@@ -232,12 +233,11 @@ library DeploymentUtils {
         return _establishSymbol(_readSymbol(tokenAddress), vm.envOr("TOKEN_SYMBOL", string("unknown")));
     }
 
-    /// @dev The raw on-chain read: a `symbol()` that reverts and one that is absent both come back as
-    ///      the empty string, the same shape as a token answering "".
+    /// @dev The raw on-chain read: a `symbol()` that reverts, one that is absent, and one that answers
+    ///      with undecodable data all come back as the empty string, the same shape as a token
+    ///      answering "". The last of those is why this is not a `try` - see `TolerantCall`.
     function _readSymbol(address tokenAddress) internal view returns (string memory symbol) {
-        try IERC20Metadata(tokenAddress).symbol() returns (string memory s) {
-            symbol = s;
-        } catch {}
+        (, symbol) = TolerantCall._tryString(tokenAddress, "symbol()");
     }
 
     /// @dev The decision, separated from the reads so it can be pinned without `vm.setEnv` (which is

@@ -60,11 +60,6 @@ DEPLOY_VARS := TOKEN_NAME TOKEN_SYMBOL TOKEN_DECIMALS TOKEN_MAX_SUPPLY TOKEN_PRE
 	POOL_HOOKS AUTHORIZED_CALLERS FORCE_REDEPLOY REANCHOR
 $(foreach v,$(DEPLOY_VARS),$(if $(strip $($(v))),$(eval export $(v))))
 
-# Preflight per-call inputs, forwarded to the forge script the same conditional way as DEPLOY_VARS
-# (SOURCE_CHAIN / DEST_CHAIN and the two resolved RPC URLs are passed inline by the preflight recipe).
-PREFLIGHT_VARS := AMOUNT RECEIVER ORIGINAL_SENDER SOURCE_POOL DEST_POOL REQUESTED_FINALITY TOKEN_ARGS
-$(foreach v,$(PREFLIGHT_VARS),$(if $(strip $($(v))),$(eval export $(v))))
-
 # Recipe-time guard: the CHAIN's config file must exist (helpful list + add-chain hint on a miss).
 define require-chain-config
 	@test -f "$(CONFIG_DIR)/$(CHAIN).json" || { \
@@ -240,23 +235,12 @@ doctor: tools ## Layered verification of one chain's config (CHAIN= required; GR
 # interpreter always executes bytecode built for an earlier EVM, and a chain that rejects the later
 # version's opcodes cannot be hosting contracts that contain them in the first place. An unrecognized
 # value (a version newer than this list) ranks highest, so an explicit declaration always wins.
-preflight: tools ## Preflight a token transfer before sending: simulate source lockOrBurn + dest releaseOrMint against live state, GO/NO-GO (SOURCE_CHAIN= DEST_CHAIN= AMOUNT= RECEIVER= required; opt SOURCE_POOL= DEST_POOL= ORIGINAL_SENDER= REQUESTED_FINALITY=; read-only, no keystore)
+preflight: ## Preflight a token transfer before sending: destination-side simulation via ccip-cli, nothing sent (SOURCE_CHAIN= DEST_CHAIN= AMOUNT= RECEIVER= required; opt TOKEN= WALLET=; needs ccip-cli; GO/NO-GO/UNRESOLVED - CI uses the script for 0/1/2)
 	$(if $(SOURCE_CHAIN),,$(error SOURCE_CHAIN is required: make preflight SOURCE_CHAIN=<name> DEST_CHAIN=<name> AMOUNT=<wei> RECEIVER=<addr>))
 	$(if $(DEST_CHAIN),,$(error DEST_CHAIN is required: make preflight SOURCE_CHAIN=<name> DEST_CHAIN=<name> AMOUNT=<wei> RECEIVER=<addr>))
 	$(if $(AMOUNT),,$(error AMOUNT is required in wei: make preflight SOURCE_CHAIN=<name> DEST_CHAIN=<name> AMOUNT=<wei> RECEIVER=<addr>))
 	$(if $(RECEIVER),,$(error RECEIVER is required: make preflight SOURCE_CHAIN=<name> DEST_CHAIN=<name> AMOUNT=<wei> RECEIVER=<addr>))
-	@test -f "$(CONFIG_DIR)/$(SOURCE_CHAIN).json" || { echo "unknown SOURCE_CHAIN '$(SOURCE_CHAIN)' - known chains: $(KNOWN_CHAINS)"; exit 1; }; \
-	test -f "$(CONFIG_DIR)/$(DEST_CHAIN).json" || { echo "unknown DEST_CHAIN '$(DEST_CHAIN)' - known chains: $(KNOWN_CHAINS)"; exit 1; }; \
-	src_rpc_env="$$(jq -r '.rpcEnv // empty' "$(CONFIG_DIR)/$(SOURCE_CHAIN).json")"; \
-	dst_rpc_env="$$(jq -r '.rpcEnv // empty' "$(CONFIG_DIR)/$(DEST_CHAIN).json")"; \
-	src_evm="$$(bash script/config/evm-version.sh "$(SOURCE_CHAIN)")" || exit 1; \
-	dst_evm="$$(bash script/config/evm-version.sh "$(DEST_CHAIN)")" || exit 1; \
-	src_rpc="$$(printenv "$$src_rpc_env" || true)"; dst_rpc="$$(printenv "$$dst_rpc_env" || true)"; \
-	test -n "$$src_rpc" || { echo "source RPC not set - export $$src_rpc_env=<url> (the rpcEnv field in $(CONFIG_DIR)/$(SOURCE_CHAIN).json)"; exit 1; }; \
-	test -n "$$dst_rpc" || { echo "dest RPC not set - export $$dst_rpc_env=<url> (the rpcEnv field in $(CONFIG_DIR)/$(DEST_CHAIN).json)"; exit 1; }; \
-	evm_version="$$(printf '%s\n%s\n' "$$src_evm" "$$dst_evm" | awk '{r["london"]=1;r["paris"]=2;r["shanghai"]=3;r["cancun"]=4;r["prague"]=5;r["osaka"]=6} {v=r[$$0]; if (v==0) v=99; if (v>best) {best=v; pick=$$0}} END {print pick}')"; \
-	SOURCE_CHAIN="$(SOURCE_CHAIN)" DEST_CHAIN="$(DEST_CHAIN)" SOURCE_RPC_URL="$$src_rpc" DEST_RPC_URL="$$dst_rpc" \
-	  forge script script/diagnostics/PreflightTransfer.s.sol --evm-version "$$evm_version" --tc PreflightTransfer
+	@bash script/config/preflight-transfer.sh "$(SOURCE_CHAIN)" "$(DEST_CHAIN)" "$(AMOUNT)" "$(RECEIVER)"
 
 # No `tools:` prereq (unlike the sibling targets): this needs ccip-cli + jq, not the forge/curl that
 # `tools` checks, and the script self-checks its own dependencies.
@@ -284,13 +268,15 @@ define run-deploy
 	rpc_env="$$(jq -r '.rpcEnv // empty' "$(CONFIG_DIR)/$(CHAIN).json")"; \
 	test -n "$$rpc_env" || { echo "chain '$(CHAIN)' declares no rpcEnv - run: make sync CHAIN=$(CHAIN)"; exit 1; }; \
 	evm_version="$$(bash script/config/evm-version.sh "$(CHAIN)")" || exit 1; \
-	rpc_url="$$(printenv "$$rpc_env" || true)"; \
-	test -n "$$rpc_url" || { echo "RPC URL not set - export $$rpc_env=<url> (the rpcEnv field named in $(CONFIG_DIR)/$(CHAIN).json)"; exit 1; }; \
-	test -n "$(KEYSTORE_NAME)" || { echo "KEYSTORE_NAME is required - export KEYSTORE_NAME=<forge keystore account> (create one with: cast wallet import)"; exit 1; }; \
+	rpc_url="$$(bash script/config/dotenv-get.sh "$$rpc_env")"; \
+	test -n "$$rpc_url" || { echo "RPC URL not set - set $$rpc_env=<url> in ./.env, or export it (the rpcEnv field named in $(CONFIG_DIR)/$(CHAIN).json)"; exit 1; }; \
+	keystore="$(KEYSTORE_NAME)"; \
+	test -n "$$keystore" || keystore="$$(bash script/config/dotenv-get.sh KEYSTORE_NAME)"; \
+	test -n "$$keystore" || { echo "KEYSTORE_NAME is required - set it in ./.env, or export it (create an account with: cast wallet import)"; exit 1; }; \
 	verify=""; \
 	if [ -n "$(VERIFY)" ]; then verify="--verify $$(bash script/config/verify-args.sh "$(CHAIN)")" || { echo "could not compose verifier flags for $(CHAIN)"; exit 1; }; fi; \
-	echo ">> deploy $(1) on $(CHAIN) (rpc: $$rpc_env, account: $(KEYSTORE_NAME), evm: $$evm_version)"; \
-	PROJECT_GROUP="$(GROUP)" forge script $(1) --rpc-url "$$rpc_url" --evm-version "$$evm_version" --account "$(KEYSTORE_NAME)" --broadcast $$verify
+	echo ">> deploy $(1) on $(CHAIN) (rpc: $$rpc_env, account: $$keystore, evm: $$evm_version)"; \
+	PROJECT_GROUP="$(GROUP)" forge script $(1) --rpc-url "$$rpc_url" --evm-version "$$evm_version" --account "$$keystore" --broadcast $$verify
 endef
 
 deploy-token: tools ## Deploy a cross-chain token on <CHAIN> (CHAIN= + KEYSTORE_NAME= required; token params via env TOKEN_NAME= TOKEN_SYMBOL= ...; VERIFY=1 source-verifies; FORCE_REDEPLOY=1 overrides the redeploy guard; GROUP= scopes to a token group)

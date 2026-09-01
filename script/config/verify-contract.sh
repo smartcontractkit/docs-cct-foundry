@@ -27,7 +27,7 @@ flags="$(bash script/config/verify-args.sh "$name")" || exit 1
 file="config/chains/${name}.json"
 chain_id="$(jq -r '.chainId' "$file")"
 rpc_env="$(jq -r '.rpcEnv' "$file")"
-rpc_url="${!rpc_env:-}"
+rpc_url="$(bash script/config/dotenv-get.sh "$rpc_env")"
 
 # Every input check happens before anything external is invoked, so a run that cannot succeed says why
 # without having called out first.

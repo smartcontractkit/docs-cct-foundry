@@ -23,7 +23,10 @@ catalog. It is never inferred from:
   getter's presence never proves a setter's shape.
 
 An address with no `typeAndVersion()` at all (a token passed where a pool was expected, an EOA, an
-undeployed address) is refused with `NotACcipTokenPool` before any version reasoning starts.
+undeployed address) is refused with `NotACcipTokenPool` before any version reasoning starts. So is an
+address that has code but does not answer - a Safe with no fallback handler, a clone over a codeless
+implementation, a proxy whose fallback returns instead of reverting. Both carry `NotACcipTokenPool`;
+the message distinguishes "no contract at" from "did not answer".
 
 ## The catalog
 

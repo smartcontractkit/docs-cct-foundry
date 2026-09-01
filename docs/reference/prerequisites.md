@@ -30,9 +30,10 @@ This layer never needs `ccip-cli`.
 ## To run on a live testnet
 
 - **Per-chain RPC variable.** The environment variable name for a chain's RPC equals the `rpcEnv` field in
-  its `config/chains/<name>.json`. Adding a chain means exporting `<THAT_RPCENV>=<url>` (for example
-  `ETHEREUM_SEPOLIA_RPC_URL=...`). The `make deploy-*` targets read `rpcEnv` and resolve the RPC for you;
-  a bare `forge script` needs it exported.
+  its `config/chains/<name>.json`. Adding a chain means setting `<THAT_RPCENV>=<url>` in `.env` (for
+  example `ETHEREUM_SEPOLIA_RPC_URL=...`). Everything reads that file directly - the `make` targets and
+  `script/config/*.sh` through a shared resolver, a bare `forge script` through Foundry's own `.env`
+  autoload - so the variable does not need to be exported. Export it anyway and the exported value wins.
 - **Funding.** Each chain needs native gas for the signer, plus LINK or native for CCIP fees. Fund before
   you send. Funding is the real-world blocker a clean-room checklist omits: a live send hits it
   immediately (a missing per-chain RPC var and a chain's native-fee floor are the usual first failures).

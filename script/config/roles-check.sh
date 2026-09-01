@@ -26,26 +26,15 @@ set -uo pipefail
 
 cd "$(dirname "$0")/../.."
 
-# .env fills gaps only — a var already set by the caller wins (callers inject e.g. a chain RPC
-# override; plain source-after-inject would clobber it with the .env value).
-if [ -f ./.env ]; then
-    declare -a _preset_keys=() _preset_vals=()
-    while IFS= read -r _line; do
-        case "$_line" in '' | \#*) continue ;; esac
-        _line="${_line#export }"
-        _k="${_line%%=*}"
-        case "$_k" in *[!A-Za-z0-9_]* | '') continue ;; esac
-        if [ -n "${!_k+x}" ]; then
-            _preset_keys+=("$_k")
-            _preset_vals+=("${!_k}")
-        fi
-    done < ./.env
-    # shellcheck disable=SC1091
-    set -a && source ./.env && set +a
-    for _i in "${!_preset_keys[@]}"; do
-        export "${_preset_keys[$_i]}=${_preset_vals[$_i]}"
-    done
-fi
+# The forge runs below read ./.env themselves (Foundry autoloads it without overriding the ambient
+# environment), so only the two vars this script reads in the shell need resolving here. Gap-fill
+# only - a var already set by the caller wins.
+for _k in PROJECT_GROUP DENY; do
+    [ -n "${!_k+x}" ] && continue
+    _v="$(bash script/config/dotenv-get.sh "$_k")"
+    [ -n "$_v" ] && export "$_k=$_v"
+done
+unset _k _v
 
 # project store path for (group, chain); empty group = the flat default group.
 group_file() { if [ -z "$1" ]; then echo "project/$2.json"; else echo "project/$1/$2.json"; fi; }

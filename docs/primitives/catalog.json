@@ -2,7 +2,7 @@
   "generatedBy": "script/docs/gen-primitives.mjs",
   "note": "Generated from the script/ tree and the Makefile. Do not edit by hand; run `npm run docs:catalog`.",
   "counts": {
-    "primitives": 61,
+    "primitives": 60,
     "makeTargets": 27
   },
   "primitives": [
@@ -620,31 +620,6 @@
       ]
     },
     {
-      "name": "PreflightTransfer",
-      "script": "script/diagnostics/PreflightTransfer.s.sol",
-      "group": "diagnostics",
-      "description": "Preflights a token transfer before any real send by simulating both pool legs against live chain state: the source pool's `lockOrBurn`, then the destination pool's `releaseOrMint` fed the exact `destPoolData` the source leg produced.",
-      "modes": [
-        "read"
-      ],
-      "read_only": true,
-      "writes_onchain": false,
-      "destructive": false,
-      "inputs": [
-        "AMOUNT",
-        "DEST_CHAIN",
-        "DEST_POOL",
-        "DEST_RPC_URL",
-        "ORIGINAL_SENDER",
-        "RECEIVER",
-        "REQUESTED_FINALITY",
-        "SOURCE_CHAIN",
-        "SOURCE_POOL",
-        "SOURCE_RPC_URL",
-        "TOKEN_ARGS"
-      ]
-    },
-    {
       "name": "DeploySafe",
       "script": "script/governance/DeploySafe.s.sol",
       "group": "governance",
@@ -1095,7 +1070,7 @@
     },
     {
       "target": "preflight",
-      "help": "Preflight a token transfer before sending: simulate source lockOrBurn + dest releaseOrMint against live state, GO/NO-GO (SOURCE_CHAIN= DEST_CHAIN= AMOUNT= RECEIVER= required; opt SOURCE_POOL= DEST_POOL= ORIGINAL_SENDER= REQUESTED_FINALITY=; read-only, no keystore)"
+      "help": "Preflight a token transfer before sending: destination-side simulation via ccip-cli, nothing sent (SOURCE_CHAIN= DEST_CHAIN= AMOUNT= RECEIVER= required; opt TOKEN= WALLET=; needs ccip-cli; GO/NO-GO/UNRESOLVED - CI uses the script for 0/1/2)"
     },
     {
       "target": "verify-execution",

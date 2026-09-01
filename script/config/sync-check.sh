@@ -14,26 +14,8 @@ set -uo pipefail
 
 cd "$(dirname "$0")/../.."
 
-# .env fills gaps only — a var already set by the caller wins (callers inject e.g.
-# CCIP_API_BASE=<fixture>; plain source-after-inject would clobber it with the .env value).
-if [ -f ./.env ]; then
-    declare -a _preset_keys=() _preset_vals=()
-    while IFS= read -r _line; do
-        case "$_line" in '' | \#*) continue ;; esac
-        _line="${_line#export }"
-        _k="${_line%%=*}"
-        case "$_k" in *[!A-Za-z0-9_]* | '') continue ;; esac
-        if [ -n "${!_k+x}" ]; then
-            _preset_keys+=("$_k")
-            _preset_vals+=("${!_k}")
-        fi
-    done < ./.env
-    # shellcheck disable=SC1091
-    set -a && source ./.env && set +a
-    for _i in "${!_preset_keys[@]}"; do
-        export "${_preset_keys[$_i]}=${_preset_vals[$_i]}"
-    done
-fi
+# No var from ./.env is read in this shell; the forge run below autoloads ./.env itself, without
+# overriding what the caller injected (e.g. CCIP_API_BASE=<fixture>).
 
 chains=("$@")
 if [ ${#chains[@]} -eq 0 ]; then

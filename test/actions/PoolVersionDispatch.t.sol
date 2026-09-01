@@ -13,6 +13,7 @@ import {RemoveRemotePool} from "../../script/configure/remote-pools/RemoveRemote
 import {RemoveChain} from "../../script/configure/remote-chains/RemoveChain.s.sol";
 import {BaseForkTest} from "../BaseForkTest.t.sol";
 import {HelperConfig} from "../../script/HelperConfig.s.sol";
+import {EmptyReturn} from "../fixtures/ReturnDataShells.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mocks
@@ -80,6 +81,21 @@ contract Mock150Pool {
 }
 
 /// @dev A modern (1.5.1+) read surface: typeAndVersion plus the PLURAL getRemotePools only.
+/// @dev Answers `getRemotePools` with valid data but has NO `typeAndVersion()`. The discriminator for
+/// the fork rule: guessing would succeed here, so a test using it fails when the gate is removed. A
+/// shell that answers nothing cannot pin the gate - the decode reverts either way.
+contract PoolsWithoutTypeAndVersion {
+    bytes[] internal s_remotePools;
+
+    constructor(bytes memory remotePool) {
+        s_remotePools.push(remotePool);
+    }
+
+    function getRemotePools(uint64) external view returns (bytes[] memory) {
+        return s_remotePools;
+    }
+}
+
 contract MockModernPool {
     bytes[] internal s_remotePools;
 
@@ -423,6 +439,15 @@ contract PoolVersionDispatchTest is Test {
             keccak256(bytes(present)) != keccak256(bytes(codeless)),
             "a deployed contract that stays silent and an empty address must not refuse identically"
         );
+    }
+
+    /// @dev The sibling of the test above, for an address that ANSWERS rather than reverts. That case
+    /// escaped the old `try` and reverted here with no reason, so it never reached `_unreadable`. Every
+    /// mutating script resolves through this path.
+    function test_Refusal_ContractAnswersUndecodably() public {
+        string memory reason = _catchResolve(address(new EmptyReturn()));
+        _assertContains(reason, "NotACcipTokenPool");
+        _assertContains(reason, "did not answer");
     }
 
     function test_Refusal_NotAPool_CodelessAddress() public view {
@@ -820,6 +845,26 @@ contract PoolVersionDispatchTest is Test {
         pools = shim.remotePools(address(new Mock150Pool(encoded)), PoolVersions.Version.UNKNOWN, SELECTOR);
         assertEq(pools.length, 1, "best effort falls back to the singular getter");
         assertEq(pools[0], encoded, "fallback value");
+    }
+
+    /// Best effort is for a FORK - a pool whose `typeAndVersion()` this repo does not catalog. An
+    /// address that does not answer it at all is not a pool, and guessing which getter it might expose
+    /// would dress a wrong answer as a reading. `UNKNOWN` is returned for both cases, so the guess is
+    /// gated on the answer rather than on the enum.
+    function test_RemotePoolsRead_UnknownWithoutTypeAndVersion_Refuses() public {
+        // Answers getRemotePools decodably, so without the gate this returns a value instead of
+        // refusing - which is what makes the assertion pin the gate rather than the decode.
+        address noTv = address(new PoolsWithoutTypeAndVersion(abi.encode(REMOTE_POOL)));
+        vm.expectRevert();
+        shim.remotePools(noTv, PoolVersions.Version.UNKNOWN, SELECTOR);
+    }
+
+    /// The fork case still works: an uncataloged version string is supported as long as it answers.
+    function test_RemotePoolsRead_ForkAnsweringTypeAndVersion_IsBestEffort() public {
+        bytes memory encoded = abi.encode(REMOTE_POOL);
+        bytes[] memory pools =
+            shim.remotePools(address(new MockModernPool(encoded)), PoolVersions.Version.UNKNOWN, SELECTOR);
+        assertEq(pools[0], encoded, "a fork that answers typeAndVersion is still read");
     }
 
     // ─────────────────────────────────────────────────────────────────────────

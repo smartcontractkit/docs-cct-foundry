@@ -61,11 +61,11 @@ EXPECTED_SELECTOR="$(jq -r '.chainSelector // empty' "$CHAIN_FILE")"
 unset CCIP_API_URL
 
 # The destination RPC is optional corroboration, not a requirement: the CCIP index answers without it.
-# Read it from the environment if the chain's rpcEnv var is exported (export it, or source .env, to add
+# Read it from the environment, or from ./.env when it is not exported there (to add
 # the on-chain read); the safety property, the selector cross-check below, needs only the index.
 _rpc=""
 _rpc_env="$(jq -r '.rpcEnv // empty' "$CHAIN_FILE")"
-[ -n "$_rpc_env" ] && _rpc="$(printenv "$_rpc_env" || true)"
+[ -n "$_rpc_env" ] && _rpc="$(bash script/config/dotenv-get.sh "$_rpc_env")"
 
 _err="$(mktemp)"
 trap 'rm -f "$_err"' EXIT
