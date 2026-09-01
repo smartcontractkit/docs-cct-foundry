@@ -42,23 +42,32 @@ counterpart to the static [health check](health-check.md).
    `bash script/config/preflight-transfer.sh <src> <dst> <amountWei> <receiver>`, and under that the raw
    `ccip-cli send --only-estimate --estimate-gas-limit 0`.
 
-   It covers, on the source: the burn or lock authority, the allowlist, and the outbound rate limit. On the
-   destination: the source-pool wiring (`InvalidSourcePoolAddress`), the inbound rate limit
-   (`TokenMaxCapacityExceeded`), the mint or release authority, the RMN curse, and liquidity. It also checks
-   the OffRamp lane gates and, on v2 lanes, the CCV and finality resolve. Every pool version from v1.5.0
-   through v2.0 works, dispatched by each pool's own ERC165 answer the same way the ramps do, and
-   destinations that are not EVM are covered too. Nothing is sent: exit 0 is GO, exit 1 is NO-GO.
+   **What it is.** `--only-estimate` is a *destination-side* simulation. It resolves the lane (the source
+   Router's OnRamp for the destination, then the matching OffRamp) and then checks the destination: the
+   OffRamp lane gates (source chain enabled, the sending OnRamp among its allowed OnRamps), the source-pool
+   wiring (`InvalidSourcePoolAddress`), the inbound rate limit (`TokenMaxCapacityExceeded`), the mint or
+   release authority, liquidity, and on v2 lanes that the CCV and finality resolve. Destinations that are
+   not EVM are covered too. Nothing is sent.
 
-   **The sender matters.** The source pool gates its allowlist on who is sending, so the verdict is
-   sender-specific. Set `ORIGINAL_SENDER=<addr>` or `WALLET=<spec>` (`foundry:<name>`, `ledger[:index]`, …)
-   when the sender is not the default the CLI resolves; otherwise a clean GO can still be followed by a
-   live `SenderNotAllowed`.
+   **What it does not check.** Nothing on this path evaluates the source `ccipSend`, so the source pool's
+   allowlist, its outbound rate limit, and its burn or lock authority are all outside the verdict - a clean
+   GO can still be followed by a live `SenderNotAllowed`. Use `make doctor` and `make roles-check` for that
+   configuration, and note that your own token balance, the Router allowance, and the fee are not checked
+   either.
 
-   **Two things it does not check**, because the simulation overrides balances to reach the pool at all:
-   your own token balance, and the Router allowance. Check those separately. One further gap: on the source
-   leg a plain `Error(string)` or `Panic(uint256)` revert is treated as an artifact of that override and
-   does not block, so a pool using string-revert access control for burn authority is not covered. Modern
-   `chainlink-ccip` pools use custom errors and are.
+   **Three exit codes, not two.** 0 is GO, 1 is NO-GO, and 2 is UNRESOLVED - the run reached no verdict at
+   all (a bad flag, an unreachable RPC, a destination the CLI could not simulate). UNRESOLVED is not a
+   quiet NO-GO: it says nothing about the transfer, so fix the tooling and run it again.
+
+   **The sender is what the destination sees** - a receiver that gates on it, and the destination pool's
+   `releaseOrMint` - not the source allowlist. `ccip-cli` resolves it in one order: `--wallet`, else
+   `PRIVATE_KEY`/`USER_KEY`/`OWNER_KEY` from the environment, else those same names read out of `./.env`.
+   So a project that already keeps a key in `.env` gets a sender-scoped estimate with no extra flag. To
+   scope it to a keystore account instead, set `WALLET=foundry:<account>` together with
+   `FOUNDRY_KEYSTORE_PASSWORD` (the wrapper requires the password up front, because `--no-interactive`
+   makes `ccip-cli` swallow the failure and quietly estimate with no sender at all). With none of them the
+   estimate still runs, unscoped, and the wrapper says so. There is no way to scope it to an address you
+   hold no key for: `--wallet` takes a wallet, not an address.
 
    **The token must expose `symbol()`, `decimals()` and `name()`.** `ccip-cli` reads all three to resolve
    a token amount and does not tolerate a missing one, so a token that omits any of them cannot be

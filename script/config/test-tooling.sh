@@ -696,10 +696,11 @@ fi
 rm_fixture_config "$TMP_FILE"
 rm -rf "project/$GRP_X"
 
-# 13c. caller env beats .env: sync-check sources ./.env to fill GAPS only - a var the caller already
-#      set must survive the sourcing. Plant CCIP_API_BASE=<unreachable> in .env (backup/restore, also
-#      covered by cleanup()), inject the fixture-server base from the caller: CLEAN exit 0 proves the
-#      caller's value won (a source-overrides regression would hit the unreachable base and exit 2).
+# 13c. caller env beats .env: the forge run inside sync-check autoloads ./.env WITHOUT overriding the
+#      ambient environment, so a var the caller already set must survive. Plant CCIP_API_BASE=<unreachable>
+#      in .env (backup/restore, also covered by cleanup()), inject the fixture-server base from the
+#      caller: CLEAN exit 0 proves the caller's value won (an overriding regression would hit the
+#      unreachable base and exit 2).
 if offline_enabled; then
     if [ -f ./.env ]; then
         env_bak="$(mktemp)"
@@ -710,6 +711,212 @@ if offline_enabled; then
     cp config/chains/ethereum-testnet-sepolia.json "$TMP_FILE"
     run_case "sync-check: caller CCIP_API_BASE beats the .env value" zero "CLEAN" -- \
         env CCIP_API_BASE="http://127.0.0.1:$port" bash script/config/sync-check.sh "$TMP_CHAIN"
+    rm_fixture_config "$TMP_FILE"
+    restore_env
+fi
+
+# 13d. dotenv-get: the one resolver every shell caller uses to read ./.env. `.env` in this repo carries
+#      no `export`, so `source .env` makes SHELL variables that printenv and ${!var} cannot see - the
+#      reason `make preflight` reported "RPC not set" against a correctly filled .env. Each case below
+#      is a line shape a real .env contains; the last two are the precedence contract.
+if offline_enabled; then
+    if [ -f ./.env ]; then
+        env_bak="$(mktemp)"
+        cp ./.env "$env_bak"
+    fi
+    env_planted=1
+    {
+        printf '\nZZ_PLAIN=plain\n'
+        printf '    ZZ_INDENTED=indented\n'
+        printf 'export ZZ_EXPORTED=exported\n'
+        printf 'ZZ_DQUOTED="dq"\n'
+        printf "ZZ_SQUOTED='sq'\n"
+        printf 'ZZ_HASHIN=http://h/x#frag\n'
+        printf 'ZZ_TRAILCOMMENT=val # trailing\n'
+        printf 'ZZ_DUP=first\n'
+        printf 'ZZ_DUP=last\n'
+        printf '9ZZ_BADKEY=skipme\n'
+        printf 'ZZ_SUBST=$(touch zz-scratch-dotenv-pwned)\n'
+        printf 'ZZ_CRLF=crlf\r\n'
+        printf 'ZZ_CRLFQ="cq"\r\n'
+        printf 'ZZ_NOEOL=noeol'
+    } >> ./.env
+
+    dg_case() { # name expected key [env-assignment...]
+        local name="$1" expected="$2" key="$3"
+        shift 3
+        local got
+        got="$(env "$@" bash script/config/dotenv-get.sh "$key")"
+        if [ "$got" = "$expected" ]; then
+            pass=$((pass + 1))
+            echo "[PASS] $name"
+        else
+            fail=$((fail + 1))
+            failures+=("$name")
+            echo "[FAIL] $name (got '$got', want '$expected')"
+        fi
+    }
+
+    dg_case "dotenv-get: plain KEY=value"                 "plain"            ZZ_PLAIN
+    dg_case "dotenv-get: leading whitespace"              "indented"         ZZ_INDENTED
+    dg_case "dotenv-get: export prefix"                   "exported"         ZZ_EXPORTED
+    dg_case "dotenv-get: double quotes stripped"          "dq"               ZZ_DQUOTED
+    dg_case "dotenv-get: single quotes stripped"          "sq"               ZZ_SQUOTED
+    dg_case "dotenv-get: # inside an unquoted value kept" "http://h/x#frag"  ZZ_HASHIN
+    dg_case "dotenv-get: trailing comment stripped"       "val"              ZZ_TRAILCOMMENT
+    dg_case "dotenv-get: duplicate key, last wins"        "last"             ZZ_DUP
+    dg_case "dotenv-get: CRLF line ending stripped"       "crlf"             ZZ_CRLF
+    # A quoted value is what the CRLF strip actually protects: with the \r still attached the line no
+    # longer ends in a quote, so the quote-stripping case never matches and the quotes survive.
+    dg_case "dotenv-get: CRLF with a quoted value"        "cq"               ZZ_CRLFQ
+    dg_case "dotenv-get: final line without a newline"    "noeol"            ZZ_NOEOL
+    dg_case "dotenv-get: absent key prints nothing"       ""                 ZZ_ABSENT
+    # A malformed key must not abort the scan: forge's own autoload stops at a digit-leading key, and a
+    # resolver that did the same would silently lose every RPC declared after one.
+    dg_case "dotenv-get: malformed key does not stop the scan" "noeol"       ZZ_NOEOL
+    # Precedence: the environment is the source of truth, .env only fills the gap. Set-but-empty counts
+    # as set (matching Foundry and the Makefile), so an intentional blank is not overwritten from .env.
+    dg_case "dotenv-get: exported value beats .env"       "from-env"         ZZ_PLAIN ZZ_PLAIN=from-env
+    dg_case "dotenv-get: exported empty value beats .env" ""                 ZZ_PLAIN ZZ_PLAIN=
+    # The file is data, never code: reading a value must not run what it contains.
+    bash script/config/dotenv-get.sh ZZ_SUBST > /dev/null 2>&1
+    if [ -e zz-scratch-dotenv-pwned ]; then
+        fail=$((fail + 1))
+        failures+=("dotenv-get: command substitution in a value is not executed")
+        echo "[FAIL] dotenv-get: command substitution in a value is not executed"
+        rm -f zz-scratch-dotenv-pwned
+    else
+        pass=$((pass + 1))
+        echo "[PASS] dotenv-get: command substitution in a value is not executed"
+    fi
+
+    stub_bin="$(mktemp -d)"
+    cat > "$stub_bin/cast" << 'STUB'
+#!/usr/bin/env bash
+case "$*" in
+    *"decimals()"*) echo 18 ;;
+    "to-unit "*) echo 1 ;;
+    *) exit 1 ;;
+esac
+STUB
+    cat > "$stub_bin/ccip-cli" << STUB
+#!/usr/bin/env bash
+# Mirrors the real stream split: the estimate object on stdout, diagnostics on stderr.
+printf '%s\n' "\$STUB_STDOUT"
+printf '%s\n' "\$STUB_ERR" >&2
+exit \${STUB_RC:-1}
+STUB
+    chmod +x "$stub_bin/cast" "$stub_bin/ccip-cli"
+
+    # 13e. The reported bug, end to end: with the RPC set in .env and NOT exported, preflight must run
+    #      to a verdict. Asserting exit 0 + GO (not merely the absence of the gate's message) is what
+    #      keeps this honest: ccip-cli is checked for BEFORE the RPC gate, so on a machine without it -
+    #      which is every CI runner here, none install it - an absence assertion passes with the bug
+    #      still in place. The stub supplies both binaries, so the case tests the same thing everywhere.
+    # Leading \n: the block above deliberately ends with a newline-less line.
+    printf '\nZZ_SCRATCH_RPC_URL=http://127.0.0.1:1\n' >> ./.env
+    cp config/chains/ethereum-testnet-sepolia.json "$TMP_FILE"
+    jq '.rpcEnv = "ZZ_SCRATCH_RPC_URL"' "$TMP_FILE" > "$TMP_FILE.t" && mv "$TMP_FILE.t" "$TMP_FILE"
+    pf_out="$(env -u ZZ_SCRATCH_RPC_URL -u PRIVATE_KEY PATH="$stub_bin:$PATH" \
+        STUB_STDOUT='{"estimated":1}' STUB_ERR="" STUB_RC=0 \
+        TOKEN=0x0000000000000000000000000000000000000003 \
+        bash script/config/preflight-transfer.sh "$TMP_CHAIN" "$TMP_CHAIN" 1 \
+        0x0000000000000000000000000000000000000002 2>&1)"
+    pf_status=$?
+    if [ $pf_status -eq 0 ] && grep -q "GO:" <<< "$pf_out"; then
+        pass=$((pass + 1))
+        echo "[PASS] preflight: an RPC set in .env but not exported is found"
+    else
+        fail=$((fail + 1))
+        failures+=("preflight: an RPC set in .env but not exported is found")
+        echo "[FAIL] preflight: an RPC set in .env but not exported is found (exit=$pf_status)"
+        echo "$pf_out" | tail -4 | sed 's/^/       | /'
+    fi
+    # 13f. verdict vs tooling failure. `--only-estimate` makes ccip-cli rethrow EVERY error the estimate
+    #      raises, including the one its own source calls "inconclusive, not a verdict" - so an
+    #      unreachable dest RPC or a stray CCIP_* var (the parser maps them to options and rejects the
+    #      unknown ones) arrives looking exactly like "your transfer would fail". Reporting that as
+    #      NO-GO tells a user their healthy lane is broken. Stub the CLI to emit each failure shape and
+    #      assert the exit code: 1 is reserved for a verdict, 2 says the run reached none.
+    pf_exit() { # stderr-text [stdout-text] [rc] -> exit code
+        env -u ZZ_SCRATCH_RPC_URL PATH="$stub_bin:$PATH" \
+            STUB_ERR="$1" STUB_STDOUT="${2:-}" STUB_RC="${3:-1}" \
+            TOKEN=0x0000000000000000000000000000000000000003 \
+            bash script/config/preflight-transfer.sh "$TMP_CHAIN" "$TMP_CHAIN" 1 \
+            0x0000000000000000000000000000000000000002 > /dev/null 2>&1
+        echo $?
+    }
+    pf_code_case() { # name expected-exit stderr-text [stdout-text] [rc]
+        local got
+        got="$(pf_exit "$3" "${4:-}" "${5:-1}")"
+        if [ "$got" = "$2" ]; then
+            pass=$((pass + 1))
+            echo "[PASS] $1"
+        else
+            fail=$((fail + 1))
+            failures+=("$1")
+            echo "[FAIL] $1 (exit $got, want $2)"
+        fi
+    }
+    pf_code_case "preflight: a stray CCIP_* var is UNRESOLVED, not NO-GO" 2 "Unknown argument: apiBase"
+    pf_code_case "preflight: an unreachable dest RPC is UNRESOLVED, not NO-GO" 2 \
+        "error[DEST_SIMULATION_UNAVAILABLE]: could not simulate"
+    pf_code_case "preflight: a missing RPC is UNRESOLVED, not NO-GO" 2 \
+        "error[RPC_NOT_FOUND]: No RPC found for chain=x"
+    # The verdict path must still report NO-GO - a classifier that answered UNRESOLVED to everything
+    # would pass the three cases above and say nothing true.
+    pf_code_case "preflight: an actual revert verdict is still NO-GO" 1 \
+        "execution reverted: SenderNotAllowed"
+    # Exit 0 is not by itself a GO: without a parseable estimate the run answered nothing, and
+    # "no answer" must not be reported as a favourable one.
+    pf_code_case "preflight: exit 0 with no parseable estimate is UNRESOLVED" 2 "" "" 0
+    pf_code_case "preflight: exit 0 with unparseable stdout is UNRESOLVED" 2 "" "not json at all" 0
+    # ...and a well-formed estimate on stdout is the GO.
+    pf_code_case "preflight: exit 0 with a parseable estimate is GO" 0 "" \
+        '{"estimated":123,"bufferPercent":0,"withBuffer":123}' 0
+    # 13g. sender resolution. ORIGINAL_SENDER mapped to `--wallet <address>`, which ccip-cli rejects as a
+    #      wallet spec - and because it occupies --wallet it also suppressed the PRIVATE_KEY resolution
+    #      that would otherwise have produced a sender, so passing it was worse than passing nothing.
+    #      It is refused by name now rather than silently producing an unscoped estimate.
+    pf_sender_case() { # name expected-exit pattern env-assignment...
+        local name="$1" want="$2" pat="$3"
+        shift 3
+        local out status
+        out="$(env -u ZZ_SCRATCH_RPC_URL -u PRIVATE_KEY PATH="$stub_bin:$PATH" "$@" \
+            STUB_ERR="" STUB_STDOUT='{"estimated":1}' STUB_RC=0 \
+            TOKEN=0x0000000000000000000000000000000000000003 \
+            bash script/config/preflight-transfer.sh "$TMP_CHAIN" "$TMP_CHAIN" 1 \
+            0x0000000000000000000000000000000000000002 2>&1)"
+        status=$?
+        if [ "$status" = "$want" ] && grep -q -- "$pat" <<< "$out"; then
+            pass=$((pass + 1))
+            echo "[PASS] $name"
+        else
+            fail=$((fail + 1))
+            failures+=("$name")
+            echo "[FAIL] $name (exit=$status, want $want + /$pat/)"
+            echo "$out" | tail -4 | sed 's/^/       | /'
+        fi
+    }
+    pf_sender_case "preflight: ORIGINAL_SENDER is refused by name" 2 "ORIGINAL_SENDER is not supported" \
+        ORIGINAL_SENDER=0x00000000000000000000000000000000000000A1
+    pf_sender_case "preflight: a missing Foundry keystore is named" 2 "no Foundry keystore" \
+        WALLET=foundry:zz-scratch-nope FOUNDRY_DIR=/nonexistent-zz
+    # A keystore with no password would be swallowed by ccip-cli and estimated with no sender, so the
+    # wrapper refuses first rather than reporting a GO for a check the user asked to be sender-scoped.
+    ks_dir="$(mktemp -d)/keystores"
+    mkdir -p "$ks_dir" && echo '{}' > "$ks_dir/zz-scratch-acct"
+    pf_sender_case "preflight: a keystore without a password is refused, not silently unscoped" 2 \
+        "needs its password" WALLET=foundry:zz-scratch-acct FOUNDRY_DIR="$(dirname "$ks_dir")"
+    pf_sender_case "preflight: keystore + password proceeds to the estimate" 0 "GO:" \
+        WALLET=foundry:zz-scratch-acct FOUNDRY_DIR="$(dirname "$ks_dir")" \
+        FOUNDRY_KEYSTORE_PASSWORD=zz-scratch-pw
+    # With no wallet and no key anywhere, a GO must not imply a sender-scoped answer it did not give.
+    pf_sender_case "preflight: an unscoped estimate says so" 0 "not scoped to a sender"
+    rm -rf "$(dirname "$ks_dir")"
+
+    rm -rf "$stub_bin"
+
     rm_fixture_config "$TMP_FILE"
     restore_env
 fi

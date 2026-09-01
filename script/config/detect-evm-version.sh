@@ -67,7 +67,7 @@ if [ -z "$rpc_env" ]; then
         "make detect-evm-version CHAIN=${name}" >&2
     exit 4
 fi
-rpc="${!rpc_env:-}"
+rpc="$(bash script/config/dotenv-get.sh "$rpc_env")"
 if [ -z "$rpc" ]; then
     echo "[detect-evm-version] ${name}: \$${rpc_env:-<none>} is not set, so PUSH0 support was not measured." \
         "The chain inherits the repo default. If this chain does not support PUSH0, set" \

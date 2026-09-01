@@ -55,7 +55,8 @@ RPC and keystore, so on such a chain pass it yourself:
 
 Run these for EACH of your two chains (`<chain>` is a selectorName such as `ethereum-testnet-sepolia`;
 selectorNames may contain underscores, e.g. `binance_smart_chain-mainnet`; set
-its `rpcEnv` and `KEYSTORE_NAME` in `.env`, then `source .env`).
+its `rpcEnv` and `KEYSTORE_NAME` in `.env` - the tooling reads that file itself, so nothing needs
+exporting).
 
 1. **Onboard the chain from the CCIP API** ([operations/chains](docs/operations/chains.md)):
 

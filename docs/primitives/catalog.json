@@ -1070,7 +1070,7 @@
     },
     {
       "target": "preflight",
-      "help": "Preflight a token transfer before sending: GO/NO-GO via ccip-cli, nothing sent (SOURCE_CHAIN= DEST_CHAIN= AMOUNT= RECEIVER= required; opt TOKEN= ORIGINAL_SENDER= WALLET=; needs ccip-cli)"
+      "help": "Preflight a token transfer before sending: destination-side simulation via ccip-cli, nothing sent (SOURCE_CHAIN= DEST_CHAIN= AMOUNT= RECEIVER= required; opt TOKEN= WALLET=; needs ccip-cli; GO/NO-GO/UNRESOLVED - CI uses the script for 0/1/2)"
     },
     {
       "target": "verify-execution",
