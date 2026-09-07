@@ -132,8 +132,9 @@ contract RegistryResolutionTest is Test {
 ///      fixtures. Rungs 2-4 are asserted directly here. Rung 1 (the bare inline `LOCK_BOX` /
 ///      `POOL_HOOKS` alias) is deliberately NOT set process-wide: the deploy/ops fork fixtures consume
 ///      the lockbox/hooks addresses via the CHAIN-SCOPED vars (`LockboxOps` sets
-///      `ETHEREUM_SEPOLIA_LOCK_BOX`, not the bare `LOCK_BOX`), and no suite sets the bare
-///      `LOCK_BOX`/`POOL_HOOKS` alias, so rungs 2-4 here are race-free. The inline rung (rung 1)
+///      `ETHEREUM_SEPOLIA_LOCK_BOX`, not the bare `LOCK_BOX`). One suite does set a bare alias -
+///      `BaseForkTest` pins `POOL_HOOKS` to zero, which this ladder cannot distinguish from unset - so
+///      rungs 2-4 here stay race-free. A bare alias set to a NON-zero value would break them. The inline rung (rung 1)
 ///      is intentionally NOT asserted anywhere (see `RegistryResolutionTest`'s natspec): a
 ///      process-global bare alias poisons parallel fork suites, and the rung is a trivial one-line
 ///      `vm.envOr("<ROLE>", <chain-scoped>)` first argument shared verbatim across all four roles.

@@ -32,7 +32,7 @@ if [ -n "${!key+x}" ]; then
     exit 0
 fi
 
-env_file="$(dirname "$0")/../../.env"
+env_file="${DOTENV_FILE:-$(dirname "$0")/../../.env}"
 [ -r "$env_file" ] || exit 0
 
 # `|| [ -n "$line" ]` so a final line with no trailing newline is still read.

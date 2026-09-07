@@ -1,16 +1,23 @@
+# Several rules here are written WITHOUT a trailing slash on purpose - every rule below that has no
+# trailing slash is deliberate. A trailing slash matches a directory only, and git classifies a symlink as a
+# file, so `node_modules/` does not cover `node_modules -> /elsewhere` and `git add -A` stages the
+# link. A bare name still ignores the directory's whole contents; it also ignores a regular file of
+# that name, which is the accepted trade. `script/config/test-tooling.sh` pins the unanchored ones with
+# real symlinks; the anchored ones (docs/src, docs/book) it cannot reach, so they rely on this note.
+
 # Dependencies
-node_modules/
+node_modules
 pnpm-lock.yaml
 
 # Foundry
-cache/
-out/
-broadcast/
-lib/
+cache
+out
+broadcast
+lib
 
 # Docs: all authored documentation under docs/ is tracked. Ignore only `forge doc` generated output.
-docs/src/
-docs/book/
+docs/src
+docs/book
 docs/book.toml
 
 # Safe Transaction Builder batches (run artifacts, kept local); keep the example
@@ -26,7 +33,12 @@ batches/*
 
 # Deploy history ledger (append-only, written by the deploy scripts, kept local; per-artifact
 # timestamped files under history/<category>/<selectorName>/) - never tracked
-history/
+history
+
+# Root-level test scratch. The suite's ignore-contract probe builds one here, and the other zz-scratch
+# rules are all scoped under project/ or config/chains/, so without this a probe left behind by an
+# interrupted run would show up as untracked - in the very gate that asserts nothing strays.
+/zz-scratch-*
 
 # Project state store (lanes + roles + deployed addresses). In THIS template repo it holds OUR
 # throwaway test-deployment addresses, so it is gitignored and only the example ships. A downstream

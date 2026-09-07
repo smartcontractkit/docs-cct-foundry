@@ -59,6 +59,7 @@ CLEANX_GRPDIR="project/zz-scratch-cleanx-grp"
 CLEANX_HISTDIR="history/tokens/zz-scratch-cleanx"
 # Manual config plane (configSource: "manual") fixtures (section 31): a hand-maintained chain and an
 # API-sourced chain, both gitignored zz-scratch configs; in cleanup()'s rm-list.
+SL_PROBE="zz-scratch-ignore-probe"
 DRYRUN_CHAIN="zz-scratch-dryrun"
 DRYRUN_CONFIG="config/chains/${DRYRUN_CHAIN}.json"
 DRYRUN_PROJECT="project/${DRYRUN_CHAIN}.json"
@@ -155,6 +156,7 @@ cleanup() {
     rm -f config/chains/zz-scratch-*.json project/zz-scratch-*.json
     [ -n "$anvil_pid" ] && kill "$anvil_pid" 2> /dev/null
     rm -rf "$DRYRUN_HIST"
+    rm -rf "$SL_PROBE"
     [ -n "$server_pid" ] && kill "$server_pid" 2> /dev/null
     [ -n "$server_dir" ] && rm -rf "$server_dir"
 }
@@ -720,13 +722,13 @@ fi
 #      reason `make preflight` reported "RPC not set" against a correctly filled .env. Each case below
 #      is a line shape a real .env contains; the last two are the precedence contract.
 if offline_enabled; then
-    if [ -f ./.env ]; then
-        env_bak="$(mktemp)"
-        cp ./.env "$env_bak"
-    fi
-    env_planted=1
+    # A fixture file, not the developer's ./.env: appending to the real file made these cases mean
+    # different things on different machines (they passed on CI, which has no .env, and failed for
+    # anyone whose .env already set one of the names under test), and a test run that rewrites a file
+    # holding someone's keys is a hazard on its own. DOTENV_FILE points the resolver here instead.
+    dotenv_fx="$(mktemp)"
     {
-        printf '\nZZ_PLAIN=plain\n'
+        printf 'ZZ_PLAIN=plain\n'
         printf '    ZZ_INDENTED=indented\n'
         printf 'export ZZ_EXPORTED=exported\n'
         printf 'ZZ_DQUOTED="dq"\n'
@@ -740,13 +742,13 @@ if offline_enabled; then
         printf 'ZZ_CRLF=crlf\r\n'
         printf 'ZZ_CRLFQ="cq"\r\n'
         printf 'ZZ_NOEOL=noeol'
-    } >> ./.env
+    } > "$dotenv_fx"
 
     dg_case() { # name expected key [env-assignment...]
         local name="$1" expected="$2" key="$3"
         shift 3
         local got
-        got="$(env "$@" bash script/config/dotenv-get.sh "$key")"
+        got="$(env DOTENV_FILE="$dotenv_fx" "$@" bash script/config/dotenv-get.sh "$key")"
         if [ "$got" = "$expected" ]; then
             pass=$((pass + 1))
             echo "[PASS] $name"
@@ -779,7 +781,7 @@ if offline_enabled; then
     dg_case "dotenv-get: exported value beats .env"       "from-env"         ZZ_PLAIN ZZ_PLAIN=from-env
     dg_case "dotenv-get: exported empty value beats .env" ""                 ZZ_PLAIN ZZ_PLAIN=
     # The file is data, never code: reading a value must not run what it contains.
-    bash script/config/dotenv-get.sh ZZ_SUBST > /dev/null 2>&1
+    DOTENV_FILE="$dotenv_fx" bash script/config/dotenv-get.sh ZZ_SUBST > /dev/null 2>&1
     if [ -e zz-scratch-dotenv-pwned ]; then
         fail=$((fail + 1))
         failures+=("dotenv-get: command substitution in a value is not executed")
@@ -813,11 +815,12 @@ STUB
     #      keeps this honest: ccip-cli is checked for BEFORE the RPC gate, so on a machine without it -
     #      which is every CI runner here, none install it - an absence assertion passes with the bug
     #      still in place. The stub supplies both binaries, so the case tests the same thing everywhere.
-    # Leading \n: the block above deliberately ends with a newline-less line.
-    printf '\nZZ_SCRATCH_RPC_URL=http://127.0.0.1:1\n' >> ./.env
+    printf 'ZZ_SCRATCH_RPC_URL=http://127.0.0.1:1\n' > "$dotenv_fx"
     cp config/chains/ethereum-testnet-sepolia.json "$TMP_FILE"
     jq '.rpcEnv = "ZZ_SCRATCH_RPC_URL"' "$TMP_FILE" > "$TMP_FILE.t" && mv "$TMP_FILE.t" "$TMP_FILE"
-    pf_out="$(env -u ZZ_SCRATCH_RPC_URL -u PRIVATE_KEY PATH="$stub_bin:$PATH" \
+    pf_out="$(env -u PRIVATE_KEY -u USER_KEY -u OWNER_KEY -u FOUNDRY_KEYSTORE_PASSWORD \
+        -u USER_KEY_PASSWORD -u WALLET -u ORIGINAL_SENDER -u FOUNDRY_DIR -u CCIP_API_BASE \
+        -u PROJECT_GROUP -u ZZ_SCRATCH_RPC_URL DOTENV_FILE="$dotenv_fx" PATH="$stub_bin:$PATH" \
         STUB_STDOUT='{"estimated":1}' STUB_ERR="" STUB_RC=0 \
         TOKEN=0x0000000000000000000000000000000000000003 \
         bash script/config/preflight-transfer.sh "$TMP_CHAIN" "$TMP_CHAIN" 1 \
@@ -839,7 +842,9 @@ STUB
     #      NO-GO tells a user their healthy lane is broken. Stub the CLI to emit each failure shape and
     #      assert the exit code: 1 is reserved for a verdict, 2 says the run reached none.
     pf_exit() { # stderr-text [stdout-text] [rc] -> exit code
-        env -u ZZ_SCRATCH_RPC_URL PATH="$stub_bin:$PATH" \
+        env -u PRIVATE_KEY -u USER_KEY -u OWNER_KEY -u FOUNDRY_KEYSTORE_PASSWORD \
+        -u USER_KEY_PASSWORD -u WALLET -u ORIGINAL_SENDER -u FOUNDRY_DIR -u CCIP_API_BASE \
+        -u PROJECT_GROUP -u ZZ_SCRATCH_RPC_URL DOTENV_FILE="$dotenv_fx" PATH="$stub_bin:$PATH" \
             STUB_ERR="$1" STUB_STDOUT="${2:-}" STUB_RC="${3:-1}" \
             TOKEN=0x0000000000000000000000000000000000000003 \
             bash script/config/preflight-transfer.sh "$TMP_CHAIN" "$TMP_CHAIN" 1 \
@@ -882,7 +887,9 @@ STUB
         local name="$1" want="$2" pat="$3"
         shift 3
         local out status
-        out="$(env -u ZZ_SCRATCH_RPC_URL -u PRIVATE_KEY PATH="$stub_bin:$PATH" "$@" \
+        out="$(env -u PRIVATE_KEY -u USER_KEY -u OWNER_KEY -u FOUNDRY_KEYSTORE_PASSWORD \
+        -u USER_KEY_PASSWORD -u WALLET -u ORIGINAL_SENDER -u FOUNDRY_DIR -u CCIP_API_BASE \
+        -u PROJECT_GROUP -u ZZ_SCRATCH_RPC_URL DOTENV_FILE="$dotenv_fx" PATH="$stub_bin:$PATH" "$@" \
             STUB_ERR="" STUB_STDOUT='{"estimated":1}' STUB_RC=0 \
             TOKEN=0x0000000000000000000000000000000000000003 \
             bash script/config/preflight-transfer.sh "$TMP_CHAIN" "$TMP_CHAIN" 1 \
@@ -918,7 +925,7 @@ STUB
     rm -rf "$stub_bin"
 
     rm_fixture_config "$TMP_FILE"
-    restore_env
+    rm -f "$dotenv_fx"
 fi
 
 # ---------------------------------------------------------------- check-chain doctor
@@ -1855,7 +1862,7 @@ EOF
     rm -f "$argv_file"
     run_case "verify-contract wrapper: no ctor-args and no RPC -> named error" nonzero "needs the RPC" -- \
         env PATH="$stub_dir:$PATH" STUB_ARGV_FILE="$argv_file" bash -c \
-        'unset INK_SEPOLIA_RPC_URL; bash script/config/verify-contract.sh ink-testnet-sepolia 0x000000000000000000000000000000000000dEaD src/CrossChainToken.sol:CrossChainToken'
+        'unset INK_SEPOLIA_RPC_URL; DOTENV_FILE=/dev/null bash script/config/verify-contract.sh ink-testnet-sepolia 0x000000000000000000000000000000000000dEaD src/CrossChainToken.sol:CrossChainToken'
     if [ ! -e "$argv_file" ]; then
         pass=$((pass + 1))
         echo "[PASS] verify-contract wrapper: the no-RPC error fires before forge runs"
@@ -2099,6 +2106,22 @@ if offline_enabled; then
         ci_ok=0
         echo "       | the committed example must NOT be ignored (it is the one trackable project file)"
     fi
+    # A SYMLINK of these names must be ignored too - see the .gitignore preamble for why those rules
+    # carry no trailing slash. Real symlinks, not bare paths: check-ignore can only tell a directory
+    # from a symlink when the entry exists on disk.
+    # Probed inside a scratch directory, not at the repo root: node_modules/, out/ and cache/ usually
+    # EXIST there, and skipping the names that do would leave the check covering whichever ones happen
+    # to be absent. Only unanchored rules can be checked this way - `docs/src`/`docs/book` carry a slash
+    # and so match at the root only, which is why they are not in the list.
+    mkdir -p "$SL_PROBE/target"
+    for name in node_modules cache out lib history broadcast; do
+        ln -sfn target "$SL_PROBE/$name"
+        git check-ignore -q "$SL_PROBE/$name" || {
+            ci_ok=0
+            echo "       | a symlink named $name is NOT ignored (did a trailing slash come back?)"
+        }
+    done
+    rm -rf "$SL_PROBE"
     if [ $ci_ok -eq 1 ]; then
         pass=$((pass + 1))
         echo "[PASS] gitignore contract: scratch/local/real project + history ignored, example trackable"
