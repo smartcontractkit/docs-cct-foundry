@@ -43,7 +43,7 @@ evm-version-flag = --evm-version $(call evm-version,$(1))
 GROUP_DIR := $(if $(GROUP),$(GROUP)/,)
 
 .DEFAULT_GOAL := help
-.PHONY: adopt-token help tools discover add-chain add-lane remove-lane sync sync-preview sync-all sync-check doctor fmt-config clean-scratch snapshot-chain roles-check roles-check-all deploy-token deploy-pool deploy-lockbox deploy-lockrelease-pool deploy-new-chain preflight verify verify-args verify-execution
+.PHONY: probe-chain adopt-token help tools discover add-chain add-lane remove-lane sync sync-preview sync-all sync-check doctor fmt-config clean-scratch snapshot-chain roles-check roles-check-all deploy-token deploy-pool deploy-lockbox deploy-lockrelease-pool deploy-new-chain preflight verify verify-args verify-execution
 
 # Deploy-time parameters are read by the forge scripts from the environment (vm.env*). Forward a value
 # passed on the make command line (make deploy-token TOKEN_NAME=...) to the forge subprocess; a value
@@ -96,8 +96,8 @@ tools: ## Check the required tools are installed (forge, curl, jq)
 	@command -v jq > /dev/null || { echo "missing: jq - install it (e.g. brew install jq / apt install jq)"; exit 2; }
 	@echo "tools: forge, curl and jq are all present"
 
-discover: tools ## List the CCIP API testnet catalog vs local configs (FILTER=<term> narrows)
-	@FILTER="$(FILTER)" bash script/config/sync-discover.sh
+discover: tools ## List the CCIP API chain catalog vs local configs, both planes (FILTER=<term> narrows; ENVIRONMENT=<testnet|mainnet> narrows the plane)
+	@FILTER="$(FILTER)" ENVIRONMENT="$(ENVIRONMENT)" bash script/config/sync-discover.sh
 
 add-chain: tools ## Generate config/chains/<CHAIN>.json from the live API (CHAIN= and SELECTOR= required)
 	$(if $(CHAIN),,$(error CHAIN is required: make add-chain CHAIN=<selectorName> SELECTOR=<selector> - both from the make discover API NAME + SELECTOR columns))
@@ -164,7 +164,7 @@ ifdef TOKEN_B58
 	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script script/config/AdoptToken.s.sol $(call evm-version-flag,$(CHAIN)) --sig "runNonEvm(string,string,string)" "$(CHAIN)" "$(TOKEN_B58)" "$(POOL_B58)"
 else
 	$(if $(TOKEN),,$(error TOKEN is required - the externally deployed token address to adopt (or TOKEN_B58 for a non-EVM chain)))
-	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script script/config/AdoptToken.s.sol $(call evm-version-flag,$(CHAIN)) --sig "run(string,address,address)" "$(CHAIN)" "$(TOKEN)" "$(or $(TOKEN_POOL),0x0000000000000000000000000000000000000000)"
+	@FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" bash script/config/forge-fork.sh "$(CHAIN)" -- forge script script/config/AdoptToken.s.sol $(call evm-version-flag,$(CHAIN)) --sig "run(string,address,address)" "$(CHAIN)" "$(TOKEN)" "$(or $(TOKEN_POOL),0x0000000000000000000000000000000000000000)"
 endif
 
 sync: tools ## Refresh <CHAIN>'s ccip{} block from the live API (CHAIN= required)
@@ -225,10 +225,15 @@ verify: tools ## Source-verify an already-deployed contract on <CHAIN>'s explore
 	$(if $(CONTRACT),,$(error CONTRACT is required - e.g. CONTRACT=src/CrossChainToken.sol:CrossChainToken))
 	@bash script/config/verify-contract.sh "$(CHAIN)" "$(ADDRESS)" "$(CONTRACT)" $(if $(CONSTRUCTOR_ARGS),"$(CONSTRUCTOR_ARGS)",)
 
+probe-chain: tools ## Read a chain's CCIP wiring over plain JSON-RPC without forking it (CHAIN= required; read-only, reports rather than verifies; works where doctor's fork cannot reach the chain)
+	$(if $(CHAIN),,$(error CHAIN is required: make probe-chain CHAIN=<name>))
+	$(require-chain-config)
+	FOUNDRY_PROFILE=sync forge script script/config/ProbeChain.s.sol --tc ProbeChain --sig "run(string)" "$(CHAIN)"
+
 doctor: tools ## Layered verification of one chain's config (CHAIN= required; GROUP= scopes to one token group)
 	$(if $(CHAIN),,$(error CHAIN is required: make doctor CHAIN=<name>))
 	$(require-chain-config)
-	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script script/config/VerifyChain.s.sol $(call evm-version-flag,$(CHAIN)) --tc VerifyChain --sig "run(string)" "$(CHAIN)"
+	@FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" bash script/config/forge-fork.sh "$(CHAIN)" -- forge script script/config/VerifyChain.s.sol $(call evm-version-flag,$(CHAIN)) --tc VerifyChain --sig "run(string)" "$(CHAIN)"
 
 # The one target that spans TWO chains in one forge process, so it cannot use "the chain's" evm
 # version - it picks the LATER of the two. That is sound because preflight only simulates: an
@@ -316,7 +321,7 @@ deploy-new-chain: tools ## Guided deploy: add-chain -> deploy-token -> deploy-po
 snapshot-chain: tools ## Backfill the declared roles{} authority block FROM chain (CHAIN= required; GROUP= scopes to one token group; opt: TOKEN= TOKEN_POOL= TAR= SCAN_FROM_BLOCK= REANCHOR=true)
 	$(if $(CHAIN),,$(error CHAIN is required: make snapshot-chain CHAIN=<name>))
 	$(require-chain-config)
-	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script script/config/SnapshotChain.s.sol $(call evm-version-flag,$(CHAIN)) --sig "run(string)" "$(CHAIN)"
+	@FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" bash script/config/forge-fork.sh "$(CHAIN)" -- forge script script/config/SnapshotChain.s.sol $(call evm-version-flag,$(CHAIN)) --sig "run(string)" "$(CHAIN)"
 	$(canon-project)
 	@echo "review the roles{} diff in project/$(GROUP_DIR)$(CHAIN).json (roles{} = declared authority), then reconcile: make roles-check CHAIN=$(CHAIN)$(if $(GROUP), GROUP=$(GROUP),)"
 

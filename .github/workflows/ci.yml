@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 env:
-  FOUNDRY_VERSION: v1.7.1
+  FOUNDRY_VERSION: v1.8.1
 
 jobs:
   build:
@@ -87,8 +87,11 @@ jobs:
       - name: docs links, anchors, and prose
         run: npm run docs:check
 
-  # Fork tests default to public Sepolia RPC endpoints (with fallback), so no
-  # secret is required; set ETHEREUM_SEPOLIA_RPC_URL to override with a private endpoint.
+  # Fork tests default to public Sepolia RPC endpoints (with fallback), so no secret is required. Set
+  # an ETHEREUM_SEPOLIA_RPC_URL repository secret to override with a private endpoint; unset, it
+  # arrives as an empty string and BaseForkTest falls through to the public list, which is the
+  # behaviour with no secret configured at all. Note secrets are not exposed to runs triggered by a
+  # pull request from a fork, so those keep the public endpoints either way.
   test:
     name: forge test
     runs-on: ubuntu-latest
@@ -104,6 +107,8 @@ jobs:
           version: ${{ env.FOUNDRY_VERSION }}
       - run: npm ci
       - run: forge test -vv
+        env:
+          ETHEREUM_SEPOLIA_RPC_URL: ${{ secrets.ETHEREUM_SEPOLIA_RPC_URL }}
       # A green suite must strand NOTHING in the stores, whatever the filename - tracked, untracked,
       # or gitignored (a fresh checkout starts with these paths clean, so any entry is test residue).
       - name: no test residue (any filename)

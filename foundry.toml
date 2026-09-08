@@ -82,7 +82,32 @@ remappings = [
 fs_permissions = [{ access = "read-write", path = "./" }]
 
 [lint]
+# `forge build` gained a post-build lint step in 1.8.x, so `forge build --deny warnings` - the gate
+# that has always meant "zero COMPILER warnings" - started failing on 760 lint warnings from that
+# release's new rule set (calls-loop, unused-return, literal-instead-of-constant, boolean-cst and
+# others, almost all in script/ and test/). Keep the two gates separate: this restores `forge build`
+# to compiling, and `forge lint` stays the lint gate. Note `forge lint` currently EXITS 0 whatever it
+# finds, so it reports rather than enforces; making it enforce means triaging that rule set first and
+# then adding `--deny warning`, which is tracked work, not a config flip.
+lint_on_build = false
+
+# The four below are 1.8.x rules that fire on things this repo does deliberately. Each was checked
+# against real sites before being excluded, not waved through by rule name:
+#   calls-loop            - every configure primitive loops over chains/lanes/pools making calls; that
+#                           IS the work. It also misfires interprocedurally, flagging sites that are in
+#                           no loop at all (e.g. `new bytes(...)` in ChainConfig, a memory allocation).
+#   boolean-cst           - flags the tolerant-read tuple idiom `return (false, ...)`, which is how
+#                           every guarded read here reports "did not answer" without reverting.
+#   reentrancy-no-eth     - deploy and configure scripts, which have no reentrancy surface to protect.
+#   require-revert-in-loop- deliberate fail-fast: a batch that hits a bad entry must stop, not carry on.
+# Everything else stays on. `arbitrary-send-eth` and `encode-packed-collision` are deliberately NOT
+# excluded - both are correct-by-design here but would matter elsewhere, so they get per-site comments
+# when the time comes rather than a global off switch.
 exclude_lints = [
+  "calls-loop",
+  "boolean-cst",
+  "reentrancy-no-eth",
+  "require-revert-in-loop",
   "mixed-case-variable",
   "pascal-case-struct",
   "mixed-case-function",

@@ -7,6 +7,39 @@ type: index
 A symptom-to-diagnosis-to-fix catalog. Each entry quotes the error (the match key), gives the diagnosis
 command, the fix, and a self-verify. Start from the error you see.
 
+## `cannot create a` ... `fork with an EVM instantiated for` ... on `vm.createSelectFork`
+
+- **Diagnosis.** forge 1.8.x types the EVM by execution network, and a `forge script` invoked without
+  `--rpc-url` boots as generic `ethereum`; the fork is then refused when it retargets a chain forge
+  types separately (Monad, for one). The message names the two families, not the missing flag. Confirm
+  with `forge --version`: 1.7.1 and earlier have no such concept and do not fail this way.
+- **Fix.** Re-run naming the endpoint:
+  `forge script <script> --rpc-url "$(bash script/config/rpc-url.sh <chain>)" ...`. Add it only for
+  this error: on an OP-stack chain the same flag makes forge abort inside `op_revm` (rc=134). And never
+  pass it empty - the resolver prints nothing when the chain's `rpcEnv` is unset, and an empty
+  `--rpc-url` fails a second way (`failed to retrieve chain ID from fork endpoint`), so set the
+  variable first. `make doctor CHAIN=<chain>` handles all three cases and is the shorter road.
+- **Verify.** `make doctor CHAIN=<chain>` reaches its `[PASS] rpc:` line instead of reverting. See
+  [the gotcha](../gotchas/index.md#fork-needs-network-named).
+
+## `PARAM_VERIFY_ERROR: failed to parse block hash or number`
+
+- **Diagnosis.** The chain's RPC rejects the EIP-1898 block-object parameter, which forge 1.8.x uses to
+  pin a fork to one exact block. Confirm it is the wrapper and not the hash: the same hash as a plain
+  string is accepted, the object form is not.
+
+  ```bash
+  H=$(cast rpc eth_getBlockByNumber latest false --rpc-url "$RPC" | jq -r .hash)
+  cast rpc eth_getBalance 0x0000000000000000000000000000000000000001 "\"$H\"" --rpc-url "$RPC"   # works
+  cast rpc eth_getBalance 0x0000000000000000000000000000000000000001 "{\"blockHash\":\"$H\"}" --rpc-url "$RPC"  # PARAM_VERIFY_ERROR
+  ```
+
+- **Fix.** There is none on this side: no script here builds that parameter. Read the chain with
+  `make probe-chain CHAIN=<chain>`, which pins no block. It reports rather than verifies, so `doctor`
+  stays unavailable for that chain.
+- **Verify.** `make probe-chain CHAIN=<chain>` prints `[ ok ] rpc: reachable` and the core contract
+  lines. See [the decision record](../decisions/0002-eip-1898-fork-reads.md).
+
 ## `ccip-cli` exits immediately with a yargs / strict-parser error
 
 - **Diagnosis.** A `CCIP_API_URL` value is set in the environment (often from a sourced `.env`). It maps

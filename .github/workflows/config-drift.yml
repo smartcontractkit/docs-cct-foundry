@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 env:
-  FOUNDRY_VERSION: v1.7.1
+  FOUNDRY_VERSION: v1.8.1
 
 jobs:
   sync-check:

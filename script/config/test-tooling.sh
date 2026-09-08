@@ -928,6 +928,160 @@ STUB
     rm -f "$dotenv_fx"
 fi
 
+# ---------------------------------------------------------------- rpc-url.sh (the --rpc-url resolver)
+
+# forge 1.8.x types the EVM by execution network: a script that only forks INTERNALLY boots as generic
+# `ethereum` and is then refused when it retargets ("cannot create a `monad` fork with an EVM
+# instantiated for `ethereum`"). Naming the endpoint on the CLI makes the network an explicit
+# selection. The resolver must print NOTHING rather than an empty string's worth of flag when there is
+# no endpoint, because the read targets degrade to a clean SKIP without one and an empty --rpc-url
+# would turn that into a forge CLI error.
+if offline_enabled; then
+    ru_fx="$(mktemp)"
+    {
+        printf 'ZZ_RU_RPC_URL=https://example.invalid/rpc?a=1&b=2\n'
+        # Present so the non-EVM guard is observable: without it the resolver would find this and
+        # return it, and a test using a fixture that lacked the key would pass either way.
+        printf 'SOLANA_DEVNET_RPC_URL=https://example.invalid/solana\n'
+    } > "$ru_fx"
+    ru_case() { # name expected chain [env...]
+        local name="$1" want="$2" chain="$3"
+        shift 3
+        local got
+        got="$(env -u ZZ_RU_RPC_URL DOTENV_FILE="$ru_fx" "$@" bash script/config/rpc-url.sh "$chain")"
+        local rc=$?
+        if [ "$got" = "$want" ] && [ $rc -eq 0 ]; then
+            pass=$((pass + 1))
+            echo "[PASS] $name"
+        else
+            fail=$((fail + 1))
+            failures+=("$name")
+            echo "[FAIL] $name (got '$got' rc=$rc, want '$want' rc=0)"
+        fi
+    }
+    jq --indent 2 -S '.rpcEnv = "ZZ_RU_RPC_URL"' config/chains/ethereum-testnet-sepolia.json > "$TMP_FILE"
+    # An & in the value is why callers must quote: the resolver returns it whole, never truncated.
+    ru_case "rpc-url: resolves the chain's rpcEnv, ampersand intact" \
+        "https://example.invalid/rpc?a=1&b=2" "$TMP_CHAIN"
+    ru_case "rpc-url: an exported value wins over the file" "https://from-env/rpc" \
+        "$TMP_CHAIN" ZZ_RU_RPC_URL=https://from-env/rpc
+    rm_fixture_config "$TMP_FILE"
+
+    # Each of these must yield NOTHING, so the caller omits the flag rather than passing an empty one.
+    ru_case "rpc-url: a non-EVM chain resolves to nothing" "" solana-devnet
+    ru_case "rpc-url: an unknown chain resolves to nothing" "" doesnotexist
+    ru_case "rpc-url: no argument resolves to nothing" "" ""
+    jq --indent 2 -S 'del(.rpcEnv)' config/chains/ethereum-testnet-sepolia.json > "$TMP_FILE"
+    ru_case "rpc-url: a chain declaring no rpcEnv resolves to nothing" "" "$TMP_CHAIN"
+    rm_fixture_config "$TMP_FILE"
+    jq --indent 2 -S '.rpcEnv = "ZZ_RU_ABSENT_RPC_URL"' config/chains/ethereum-testnet-sepolia.json > "$TMP_FILE"
+    ru_case "rpc-url: an unset rpcEnv variable resolves to nothing" "" "$TMP_CHAIN"
+    rm_fixture_config "$TMP_FILE"
+    rm -f "$ru_fx"
+fi
+
+# ---------------------------------------------------------------- discover: both planes
+
+# The catalog listing was pinned to `?environment=testnet`, so a mainnet chain simply did not appear
+# and looked absent from CCIP. `make add-chain` was never restricted (it fetches /chains/<selector>
+# directly), so such a chain was addable all along - only invisible here. Stub curl to capture the URL
+# the script builds: a static fixture server cannot distinguish these, because http.server ignores the
+# query string entirely.
+if offline_enabled; then
+    dsc_bin="$(mktemp -d)"
+    dsc_url="$(mktemp)"
+    cat > "$dsc_bin/curl" << STUB
+#!/usr/bin/env bash
+# Record every URL, then answer like the real endpoint: body to -o, HTTP code on stdout.
+out=""
+for a in "\$@"; do
+    case "\$prev" in -o) out="\$a" ;; esac
+    case "\$a" in http*) echo "\$a" >> "$dsc_url" ;; esac
+    prev="\$a"
+done
+[ -n "\$out" ] && printf '%s' '[{"name":"ethereum-mainnet","displayName":"Ethereum","chainFamily":"EVM","environment":"mainnet","chainSelector":5009297550715157269,"chainId":1}]' > "\$out"
+printf '200'
+STUB
+    chmod +x "$dsc_bin/curl"
+
+    dsc_case() { # name expected-url-suffix env-value
+        local name="$1" want="$2"
+        : > "$dsc_url"
+        if [ -n "$3" ]; then
+            env PATH="$dsc_bin:$PATH" ENVIRONMENT="$3" bash script/config/sync-discover.sh > /dev/null 2>&1
+        else
+            env -u ENVIRONMENT PATH="$dsc_bin:$PATH" bash script/config/sync-discover.sh > /dev/null 2>&1
+        fi
+        local got
+        got="$(head -1 "$dsc_url")"
+        if [ "$got" = "$want" ]; then
+            pass=$((pass + 1))
+            echo "[PASS] $name"
+        else
+            fail=$((fail + 1))
+            failures+=("$name")
+            echo "[FAIL] $name (called '$got', want '$want')"
+        fi
+    }
+    # Unset lists BOTH planes: the API returns every chain when the parameter is omitted.
+    dsc_case "discover: no ENVIRONMENT queries both planes (no filter in the URL)" \
+        "https://api.ccip.chain.link/v2/chains" ""
+    dsc_case "discover: ENVIRONMENT=mainnet filters to mainnet" \
+        "https://api.ccip.chain.link/v2/chains?environment=mainnet" mainnet
+    dsc_case "discover: ENVIRONMENT=testnet still filters to testnet" \
+        "https://api.ccip.chain.link/v2/chains?environment=testnet" testnet
+
+    # The API answers an unrecognised environment with HTTP 200 and an EMPTY list, so passing one
+    # through would print a confident "no chains". It must be refused before any request is made.
+    : > "$dsc_url"
+    dsc_out="$(env PATH="$dsc_bin:$PATH" ENVIRONMENT=all bash script/config/sync-discover.sh 2>&1)"
+    dsc_rc=$?
+    if [ $dsc_rc -eq 3 ] && grep -q "BAD_ARG" <<< "$dsc_out" && [ ! -s "$dsc_url" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] discover: an unrecognised ENVIRONMENT is refused before the request"
+    else
+        fail=$((fail + 1))
+        failures+=("discover: an unrecognised ENVIRONMENT is refused before the request")
+        echo "[FAIL] discover: an unrecognised ENVIRONMENT is refused before the request (exit=$dsc_rc, urls=$(wc -l < "$dsc_url"))"
+    fi
+
+    # The ENV column is what makes a two-plane listing readable.
+    dsc_hdr="$(env -u ENVIRONMENT PATH="$dsc_bin:$PATH" bash script/config/sync-discover.sh 2>/dev/null | head -1)"
+    if grep -q "ENV" <<< "$dsc_hdr"; then
+        pass=$((pass + 1))
+        echo "[PASS] discover: the listing carries an ENV column"
+    else
+        fail=$((fail + 1))
+        failures+=("discover: the listing carries an ENV column")
+        echo "[FAIL] discover: the listing carries an ENV column (header='$dsc_hdr')"
+    fi
+    rm -rf "$dsc_bin" "$dsc_url"
+fi
+
+# ---------------------------------------------------------------- probe-chain (non-forking reader)
+
+# probe-chain exists because every other read primitive reaches the chain through
+# `vm.createSelectFork`, which drags in Foundry's fork backend and its eth_getProof / EIP-1898
+# requirements - chains that serve ordinary eth_call but not those (Pharos, Monad) cannot be read at
+# all. These cases cover the guards that run BEFORE any request, so they need no network; the reads
+# themselves are exercised live (make probe-chain CHAIN=<evm chain>).
+run_case "probe-chain names an unknown chain" nonzero "unknown chain 'doesnotexist'" -- \
+    make probe-chain CHAIN=doesnotexist
+
+# Non-EVM chains speak a different RPC entirely. Refusing by name beats emitting eth_ calls that a
+# Solana or Aptos endpoint will reject for reasons that look like a network fault.
+run_case "probe-chain refuses a non-EVM chain by family" nonzero "chainFamily 'svm'" -- \
+    make probe-chain CHAIN=solana-devnet
+
+if offline_enabled; then
+    # A missing RPC must say which variable, and where to put it - the same resolution every other
+    # shell target uses (environment first, then ./.env).
+    jq --indent 2 -S '.rpcEnv = "ZZ_SCRATCH_ABSENT_RPC_URL"' config/chains/ethereum-testnet-sepolia.json > "$TMP_FILE"
+    run_case "probe-chain names the missing rpcEnv variable" nonzero "ZZ_SCRATCH_ABSENT_RPC_URL unset" -- \
+        env -u ZZ_SCRATCH_ABSENT_RPC_URL make probe-chain CHAIN="$TMP_CHAIN"
+    rm_fixture_config "$TMP_FILE"
+fi
+
 # ---------------------------------------------------------------- check-chain doctor
 
 # 14. unknown chain -> attributed FAIL + nonzero verdict
@@ -1985,6 +2139,14 @@ if offline_enabled; then
     STUB_DIR="$(mktemp -d)"
     make_cast_stub() {
         # $1 = what the PUSH0 probe prints, $2 = its exit code.
+        # $3/$4 = same for BOTH cancun probes, $5/$6 = override for TSTORE alone (default: same as $3/$4).
+        # Cancun defaults to a REJECTION so every pre-existing case keeps meaning what it meant: those
+        # cases were written when the knob only moved down, and a default of "supported" would silently
+        # turn each of them into a cancun test.
+        local c_out="${3:-error: server returned an error response: -32000 invalid opcode: MCOPY}"
+        local c_rc="${4:-1}"
+        local t_out="${5:-$c_out}"
+        local t_rc="${6:-$c_rc}"
         cat > "$STUB_DIR/cast" <<STUB
 #!/usr/bin/env bash
 for a in "\$@"; do
@@ -1992,6 +2154,8 @@ for a in "\$@"; do
         0xfe) exit 1 ;;                    # INVALID: must error, as a real node does
         0x60006000f3) echo "0x"; exit 0 ;; # paris-valid control: succeeds
         0x5f5ff3) echo "$1"; exit $2 ;;    # the PUSH0 probe under test
+        0x5f5f5f5e60006000f3) echo "$c_out"; exit $c_rc ;; # MCOPY probe
+        0x5f5f5d60006000f3) echo "$t_out"; exit $t_rc ;;   # TSTORE probe
     esac
 done
 case "\$1" in chain-id) echo "1112"; exit 0 ;; esac
@@ -2033,7 +2197,8 @@ STUB
         echo "[FAIL] detect-evm-version rejects (exit=$status, evmVersion=$pinned - expected 0/paris)"
     fi
 
-    # A supported chain gets no key at all, so the common case leaves the config untouched.
+    # A chain at exactly the repo default gets no key at all, so the common case leaves the config
+    # untouched. (PUSH0 supported, cancun not - nothing to pin in either direction.)
     jq --indent 2 -S 'del(.evmVersion)' "$TMP_FILE" > "$TMP_FILE.t" && mv "$TMP_FILE.t" "$TMP_FILE"
     before="$(md5 -q "$TMP_FILE" 2> /dev/null || md5sum "$TMP_FILE" | cut -d' ' -f1)"
     make_cast_stub "0x" 0
@@ -2043,11 +2208,79 @@ STUB
     after="$(md5 -q "$TMP_FILE" 2> /dev/null || md5sum "$TMP_FILE" | cut -d' ' -f1)"
     if [ "$status" -eq 0 ] && [ "$before" = "$after" ]; then
         pass=$((pass + 1))
-        echo "[PASS] detect-evm-version: a PUSH0 chain is left byte-identical"
+        echo "[PASS] detect-evm-version: a shanghai-only chain is left byte-identical"
     else
         fail=$((fail + 1))
         failures+=("detect-evm-version supported")
         echo "[FAIL] detect-evm-version supported (exit=$status, file changed=$([ "$before" = "$after" ] && echo no || echo yes))"
+    fi
+
+    # `evm_version` also selects the local EVM a `forge script` simulation runs in, so a cancun chain
+    # left at the shanghai default halts on cancun bytecode it reads on chain (EvmError: NotActivated) -
+    # the mirror of the paris/PUSH0 failure. The probe therefore has to pin UP as well as down.
+    jq --indent 2 -S 'del(.evmVersion)' "$TMP_FILE" > "$TMP_FILE.t" && mv "$TMP_FILE.t" "$TMP_FILE"
+    make_cast_stub "0x" 0 "0x" 0
+    ZZ_STUB_RPC_URL=http://stub PATH="$STUB_DIR:$PATH" \
+        bash script/config/detect-evm-version.sh "$TMP_CHAIN" > /dev/null 2>&1
+    status=$?
+    pinned="$(jq -r '.evmVersion // "absent"' "$TMP_FILE")"
+    if [ "$status" -eq 0 ] && [ "$pinned" = "cancun" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] detect-evm-version: a cancun chain is pinned cancun"
+    else
+        fail=$((fail + 1))
+        failures+=("detect-evm-version cancun pin")
+        echo "[FAIL] detect-evm-version cancun pin (exit=$status, evmVersion=$pinned - expected 0/cancun)"
+    fi
+
+    # A pin already in the file is never overwritten: changing one changes the bytecode every future
+    # deploy produces, so that stays a human decision.
+    jq --indent 2 -S '.evmVersion = "shanghai"' "$TMP_FILE" > "$TMP_FILE.t" && mv "$TMP_FILE.t" "$TMP_FILE"
+    before="$(md5 -q "$TMP_FILE" 2> /dev/null || md5sum "$TMP_FILE" | cut -d' ' -f1)"
+    make_cast_stub "0x" 0 "0x" 0
+    ZZ_STUB_RPC_URL=http://stub PATH="$STUB_DIR:$PATH" \
+        bash script/config/detect-evm-version.sh "$TMP_CHAIN" > /dev/null 2>&1
+    status=$?
+    after="$(md5 -q "$TMP_FILE" 2> /dev/null || md5sum "$TMP_FILE" | cut -d' ' -f1)"
+    if [ "$status" -eq 0 ] && [ "$before" = "$after" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] detect-evm-version: an existing pin survives a cancun chain"
+    else
+        fail=$((fail + 1))
+        failures+=("detect-evm-version cancun overwrite")
+        echo "[FAIL] detect-evm-version cancun overwrite (exit=$status, file changed=$([ "$before" = "$after" ] && echo no || echo yes))"
+    fi
+
+    # One opcode is not a cancun EVM. Answering half the question and pinning anyway records a guess,
+    # and a wrong pin is permanent and passes `doctor`.
+    jq --indent 2 -S 'del(.evmVersion)' "$TMP_FILE" > "$TMP_FILE.t" && mv "$TMP_FILE.t" "$TMP_FILE"
+    make_cast_stub "0x" 0 "0x" 0 "error: server returned an error response: -32000 invalid opcode: TSTORE" 1
+    ZZ_STUB_RPC_URL=http://stub PATH="$STUB_DIR:$PATH" \
+        bash script/config/detect-evm-version.sh "$TMP_CHAIN" > /dev/null 2>&1
+    status=$?
+    pinned="$(jq -r '.evmVersion // "absent"' "$TMP_FILE")"
+    if [ "$status" -eq 4 ] && [ "$pinned" = "absent" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] detect-evm-version: half-supported cancun writes no pin"
+    else
+        fail=$((fail + 1))
+        failures+=("detect-evm-version cancun partial")
+        echo "[FAIL] detect-evm-version cancun partial (exit=$status, evmVersion=$pinned - expected 4/absent)"
+    fi
+
+    # A rate limit on the cancun probe is not a pre-cancun verdict, exactly as it is not for PUSH0.
+    make_cast_stub "0x" 0 "error: server returned an error response: 429 Too Many Requests" 1
+    ZZ_STUB_RPC_URL=http://stub PATH="$STUB_DIR:$PATH" \
+        bash script/config/detect-evm-version.sh "$TMP_CHAIN" > /dev/null 2>&1
+    status=$?
+    pinned="$(jq -r '.evmVersion // "absent"' "$TMP_FILE")"
+    if [ "$status" -eq 4 ] && [ "$pinned" = "absent" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] detect-evm-version: a transient cancun probe error writes no pin"
+    else
+        fail=$((fail + 1))
+        failures+=("detect-evm-version cancun transient")
+        echo "[FAIL] detect-evm-version cancun transient (exit=$status, evmVersion=$pinned - expected 4/absent)"
     fi
 
     # Malformed JSON must not read as "not an EVM chain" and exit 0 - that is a success that measured

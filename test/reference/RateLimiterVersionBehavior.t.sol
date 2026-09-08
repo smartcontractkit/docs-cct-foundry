@@ -117,12 +117,12 @@ contract RateLimiterVersionBehavior is BaseForkTest {
         IVersionedPool(V200)
             .lockOrBurn(
                 Pool.LockOrBurnInV1({
-                receiver: abi.encode(OWNER),
-                remoteChainSelector: FUJI,
-                originalSender: OWNER,
-                amount: amount,
-                localToken: V200_TOKEN
-            })
+                    receiver: abi.encode(OWNER),
+                    remoteChainSelector: FUJI,
+                    originalSender: OWNER,
+                    amount: amount,
+                    localToken: V200_TOKEN
+                })
             );
     }
 
@@ -133,12 +133,12 @@ contract RateLimiterVersionBehavior is BaseForkTest {
         IVersionedPool(V200)
             .lockOrBurn(
                 Pool.LockOrBurnInV1({
-                receiver: abi.encode(OWNER),
-                remoteChainSelector: FUJI,
-                originalSender: OWNER,
-                amount: amount,
-                localToken: V200_TOKEN
-            }),
+                    receiver: abi.encode(OWNER),
+                    remoteChainSelector: FUJI,
+                    originalSender: OWNER,
+                    amount: amount,
+                    localToken: V200_TOKEN
+                }),
                 finality,
                 ""
             );

@@ -112,12 +112,62 @@ fi
 # PUSH0 PUSH0 RETURN: returns 0x where the opcode exists.
 push0_out="$(cast call --rpc-url "$rpc" --create 0x5f5ff3 2>&1)"
 if [ "$push0_out" = "0x" ]; then
-    if [ "$(jq -r '.evmVersion // empty' "$file")" = "paris" ]; then
+    declared="$(jq -r '.evmVersion // empty' "$file")"
+    if [ "$declared" = "paris" ]; then
         echo "[detect-evm-version] ${name}: PUSH0 IS supported, but this config pins paris. Leaving the" \
             "pin in place - removing it would change the bytecode every future deploy produces. Delete" \
             "the evmVersion key by hand if the pin is genuinely obsolete." >&2
+        exit 0
     fi
-    exit 0
+
+    # PUSH0 is supported, so the floor is met and nothing needs pinning DOWN. The knob still has to be
+    # able to move UP: `evm_version` also selects the local EVM every `forge script` simulation runs in
+    # (foundry.toml documents both roles), so reading an operator's contract whose bytecode uses a
+    # cancun opcode halts a shanghai interpreter with `EvmError: NotActivated` - the exact mirror of the
+    # paris/PUSH0 failure, and invisible until it happens on one chain.
+    #
+    # Both cancun opcodes must answer, not either: a chain that serves one and not the other is not a
+    # cancun EVM, and pinning from a half-answer records a guess. Same refuse-when-unsure rule the
+    # PUSH0 path already follows.
+    mcopy_out="$(cast call --rpc-url "$rpc" --create 0x5f5f5f5e60006000f3 2>&1)"  # PUSH0 x3, MCOPY
+    tstore_out="$(cast call --rpc-url "$rpc" --create 0x5f5f5d60006000f3 2>&1)"   # PUSH0 x2, TSTORE
+
+    rejected() { # a node that SAYS it rejected the opcode, not merely one that failed to answer
+        case "$1" in
+            *"invalid opcode"* | *"InvalidFEOpcode"* | *"not activated"* | *"NotActivated"*) return 0 ;;
+            *) return 1 ;;
+        esac
+    }
+
+    if [ "$mcopy_out" = "0x" ] && [ "$tstore_out" = "0x" ]; then
+        if [ -n "$declared" ]; then
+            echo "[detect-evm-version] ${name}: this chain is a cancun EVM, but the config already pins" \
+                "\"${declared}\". Leaving it - changing a pin changes the bytecode every future deploy" \
+                "produces. Edit the evmVersion key by hand if the pin is wrong." >&2
+            exit 0
+        fi
+        # The control has to still hold, or the two successes say nothing about the opcodes.
+        if [ "$(probe 0x60006000f3)" != "0x" ]; then
+            echo "[detect-evm-version] ${name}: the cancun probes succeeded, but the paris-valid control" \
+                "then stopped working, so the endpoint - not the opcode set - is the likely cause. No pin" \
+                "was written. Re-run when the endpoint is healthy: make detect-evm-version CHAIN=${name}" >&2
+            exit 4
+        fi
+        tmp="$(mktemp)"
+        jq --indent 2 -S '.evmVersion = "cancun"' "$file" > "$tmp" && mv "$tmp" "$file"
+        echo "[detect-evm-version] ${name}: this chain is a cancun EVM, so \"evmVersion\": \"cancun\" was" \
+            "recorded. Simulations scoped to it can now execute cancun bytecode they read on chain." >&2
+        exit 0
+    fi
+
+    if rejected "$mcopy_out" && rejected "$tstore_out"; then
+        exit 0 # pre-cancun: the repo default already matches, so there is nothing to record
+    fi
+
+    echo "[detect-evm-version] ${name}: PUSH0 is supported, but cancun support was NOT determined, so" \
+        "no pin was written and the chain inherits the repo default. MCOPY said: ${mcopy_out}." \
+        "TSTORE said: ${tstore_out}." >&2
+    exit 4
 fi
 
 # Anything else is NOT yet a rejection. A timeout, a rate limit or a malformed response also fail to

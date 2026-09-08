@@ -31,6 +31,7 @@ at [`catalog.json`](catalog.json). These pages are generated from the scripts an
 ## config-plane
 
 - [AdoptToken](config-plane/AdoptToken.md) - Adopts an externally deployed token (and optionally its pool) into the address registry, so contracts this repo did NOT deploy resolve exactly like the ones it did (the zero-export `active.<role>` ladder). _(write)_
+- [ProbeChain](config-plane/ProbeChain.md) - Read a chain's CCIP wiring over plain JSON-RPC, WITHOUT forking it. _(write)_
 - [RolesCheck](config-plane/RolesCheck.md) - **`make roles-check CHAIN=<name>` - READ-ONLY reconcile of the declared `roles{}` against the live chain.** It never writes a file and never broadcasts; the only outputs are the aligned [PASS]/[FAIL]/[WARN]/[SKIP] lines from `RolesAuditor` and the exit status. _(write)_
 - [SnapshotChain](config-plane/SnapshotChain.md) - **`make snapshot-chain CHAIN=<name>` - backfill the DECLARED authority state FROM chain.** Reads the live role surface (owner/defaultAdmin/getCCIPAdmin/hasRole/TAR getTokenConfig/ dual-generation pool admins/getAllAuthorizedCallers/getAllowList/...) through `RolesSnapshot` and writes the `roles{}` subtree of `project/<selectorName>.json` (preserve-and-replace, the same single-subtree pattern as the `ccip{}` sync). _(write)_
 - [SyncCcipConfig](config-plane/SyncCcipConfig.md) - The config-sync entrypoints: everything that generates, refreshes, or drift-checks a `config/chains/<name>.json` file from the live CCIP REST API v2. _(write)_
