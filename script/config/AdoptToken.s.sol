@@ -51,6 +51,7 @@ contract AdoptToken is Script {
         string memory rpcEnv = vm.parseJsonString(json, ".rpcEnv");
         string memory url = vm.envOr(rpcEnv, string(""));
         require(bytes(url).length > 0, string.concat("env ", rpcEnv, " unset - adoption validates on-chain state"));
+        // forge-lint: disable-next-line(unused-return) - the fork id is not needed: nothing switches back to a previous fork
         vm.createSelectFork(url);
         require(
             block.chainid == chainId,

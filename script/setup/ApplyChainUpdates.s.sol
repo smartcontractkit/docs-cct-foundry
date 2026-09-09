@@ -482,6 +482,7 @@ contract ApplyChainUpdates is EoaExecutor {
             appliedCap = appliedEnabled ? uint256(uint128(vm.parseJsonUint(json, string.concat(key, ".capacity")))) : 0;
             appliedRate = appliedEnabled ? uint256(uint128(vm.parseJsonUint(json, string.concat(key, ".rate")))) : 0;
         }
+        // forge-lint: disable-next-line(uninitialized-local) - an omitted JSON block genuinely IS applied-disabled; the defaults model the apply path
         if (appliedEnabled && appliedCap == declCap && appliedRate == declRate) return;
 
         if (!given) {

@@ -59,6 +59,7 @@ contract GetAllowList is Script {
             // would tell any wrapper reading it that the allowlist state was read.
             revert("getAllowListEnabled() could not be read (see above)");
         }
+        // forge-lint: disable-next-line(uninitialized-local) - the catch reverts rather than reporting an unread allowlist state
         if (!enforced) {
             console.log(unicode"⚠️  These hooks enforce NO allowlist: every sender is permitted.");
             console.log("   Enforcement is fixed at deployment and cannot be turned on later. To restrict");

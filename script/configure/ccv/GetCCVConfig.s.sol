@@ -95,6 +95,7 @@ contract GetCCVConfig is Script {
             _footer(chainId, tokenPoolAddress);
             return;
         }
+        // forge-lint: disable-next-line(uninitialized-local) - the catch returns after its own distinct no-hooks message
         if (hooksAddress == address(0)) {
             _logNoHooks("No AdvancedPoolHooks contract is wired to this pool");
             _footer(chainId, tokenPoolAddress);

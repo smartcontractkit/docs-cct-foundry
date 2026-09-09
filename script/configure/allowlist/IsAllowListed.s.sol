@@ -60,6 +60,7 @@ contract IsAllowListed is Script {
             revert("getAllowListEnabled() could not be read (see above)");
         }
 
+        // forge-lint: disable-next-line(uninitialized-local) - the catch reverts rather than reporting an unread allowlist state
         if (!enforced) {
             console.log(
                 unicode"⚠️  These hooks enforce NO allowlist: every sender is permitted, this one included."
@@ -76,11 +77,21 @@ contract IsAllowListed is Script {
             return;
         }
 
-        // Enforcement is on, so a revert now carries the membership answer and nothing else.
+        // Enforcement is on, so a SenderNotAllowed revert carries the membership answer. Nothing else
+        // does: a bare `catch {}` here would turn an out-of-gas, an RPC failure, or a proxy reverting
+        // for its own reasons into a confident "NOT allowlisted", which is a definite verdict derived
+        // from a read that never happened. Match the selector, and refuse anything else - the same
+        // rule the getAllowListEnabled() catch above applies by reverting.
         bool isAllowListed = false;
         try AdvancedPoolHooks(hooksAddress).checkAllowList(checkAddress) {
             isAllowListed = true;
-        } catch {}
+        } catch (bytes memory reason) {
+            if (bytes4(reason) != AdvancedPoolHooks.SenderNotAllowed.selector) {
+                console.log(string.concat("checkAllowList(", vm.toString(checkAddress), ") reverted unexpectedly."));
+                console.logBytes(reason);
+                revert("checkAllowList() did not answer - membership is UNKNOWN, not negative");
+            }
+        }
 
         if (isAllowListed) {
             console.log(unicode"✅ Address IS allowlisted.");

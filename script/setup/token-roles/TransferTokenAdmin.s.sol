@@ -102,6 +102,7 @@ contract TransferTokenAdmin is TokenRoleScript {
         _logOperationOutcome(outcome);
         console.log("========================================");
         console.log(string.concat("Token: ", helperConfig.getExplorerUrl(chainId, "/address/", token)));
+        // forge-lint: disable-next-line(uninitialized-local) - false is the correct fact for the legs that start no two-step transfer
         if (twoStepInitiated) {
             console.log("Next: the new admin runs this same script with ACCEPT=1 to complete the transfer.");
         }

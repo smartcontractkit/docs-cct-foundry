@@ -89,6 +89,7 @@ contract ChainProbe {
     }
 
     function forkTo(string memory rpcUrl) external returns (uint256) {
+        // forge-lint: disable-next-line(unused-return) - the fork id is not needed: nothing switches back to a previous fork
         VM.createSelectFork(rpcUrl);
         return block.chainid;
     }
@@ -282,8 +283,11 @@ contract VerifyChain is Script {
         console.log(string.concat("[FAIL] ", msg_));
     }
 
+    // A private log counter in a script: it emits nothing, and s_lastWarn gates nothing - its only
+    // reader is lastWarnForTest().
     function _warn(string memory msg_) private {
         s_warns++;
+        // forge-lint: disable-next-line(missing-events-access-control)
         s_lastWarn = msg_;
         console.log(string.concat("[WARN] ", msg_));
     }
@@ -1282,6 +1286,10 @@ contract VerifyChain is Script {
             } catch {
                 continue;
             }
+            // The catch `continue`s, so the use is unreachable unassigned. It continues SILENTLY,
+            // though: a failed hasKey read skips this chain's reverse-reciprocity check with no
+            // warning, which is a report-only-what-was-observed gap worth closing separately.
+            // forge-lint: disable-next-line(uninitialized-local)
             if (!declaresMe) continue;
             if (!vm.keyExistsJson(projectJson, string.concat(".lanes.", other))) {
                 _fail(
@@ -1616,6 +1624,7 @@ contract VerifyChain is Script {
             return;
         }
         address active = RegistryWriter._read(name, role);
+        // forge-lint: disable-next-line(uninitialized-local) - the catch warns and returns/continues, so the use is unreachable unassigned
         if (anchor == address(0)) {
             _warn(
                 string.concat(
@@ -1764,6 +1773,7 @@ contract VerifyChain is Script {
             );
             return selector;
         }
+        // forge-lint: disable-next-line(uninitialized-local) - the catch warns and returns/continues, so the use is unreachable unassigned
         if (!supported) {
             _warn(
                 string.concat(
@@ -2018,6 +2028,7 @@ contract VerifyChain is Script {
             );
             return;
         }
+        // forge-lint: disable-next-line(uninitialized-local) - the catch warns and returns/continues, so the use is unreachable unassigned
         if (hooks == address(0)) {
             _fail(
                 string.concat(
@@ -2115,6 +2126,7 @@ contract VerifyChain is Script {
             );
             return;
         }
+        // forge-lint: disable-next-line(uninitialized-local) - the catch warns and returns/continues, so the use is unreachable unassigned
         if (hooks == address(0)) {
             _fail(
                 string.concat(
@@ -2139,6 +2151,7 @@ contract VerifyChain is Script {
             return;
         }
         uint256 declared = vm.parseJsonUint(json, ".poolPolicy.ccvThreshold");
+        // forge-lint: disable-next-line(uninitialized-local) - the catch warns and returns/continues, so the use is unreachable unassigned
         if (declared == live) return;
         _fail(
             string.concat(
@@ -2194,6 +2207,7 @@ contract VerifyChain is Script {
             _fail("lanes: malformed poolPolicy.finality declaration (a value failed to parse) - fix the hand edit");
             return;
         }
+        // forge-lint: disable-next-line(uninitialized-local) - the catch warns and returns/continues, so the use is unreachable unassigned
         if (declared == live) return;
         _fail(
             string.concat(

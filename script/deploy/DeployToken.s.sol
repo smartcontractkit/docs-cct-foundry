@@ -52,6 +52,7 @@ contract DeployToken is Script {
 
         vm.startBroadcast();
 
+        // forge-lint: disable-next-line(unused-return) - the discarded CallerMode is necessarily a broadcast mode - this sits inside an open startBroadcast
         (, address broadcaster,) = vm.readCallers();
 
         // Default preMintRecipient to broadcaster if a pre-mint is requested but no recipient was specified
