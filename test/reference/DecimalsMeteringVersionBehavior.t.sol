@@ -119,15 +119,15 @@ contract DecimalsMeteringVersionBehavior is BaseForkTest {
         IMeteringPool(pool)
             .releaseOrMint(
                 Pool.ReleaseOrMintInV1({
-                originalSender: abi.encode(OWNER),
-                remoteChainSelector: sel,
-                receiver: OWNER,
-                sourceDenominatedAmount: SOURCE_AMOUNT,
-                localToken: token,
-                sourcePoolAddress: abi.encode(remotePool),
-                sourcePoolData: abi.encode(uint256(REMOTE_DECIMALS)),
-                offchainTokenData: ""
-            })
+                    originalSender: abi.encode(OWNER),
+                    remoteChainSelector: sel,
+                    receiver: OWNER,
+                    sourceDenominatedAmount: SOURCE_AMOUNT,
+                    localToken: token,
+                    sourcePoolAddress: abi.encode(remotePool),
+                    sourcePoolData: abi.encode(uint256(REMOTE_DECIMALS)),
+                    offchainTokenData: ""
+                })
             );
     }
 

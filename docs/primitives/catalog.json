@@ -2,8 +2,8 @@
   "generatedBy": "script/docs/gen-primitives.mjs",
   "note": "Generated from the script/ tree and the Makefile. Do not edit by hand; run `npm run docs:catalog`.",
   "counts": {
-    "primitives": 60,
-    "makeTargets": 27
+    "primitives": 61,
+    "makeTargets": 28
   },
   "primitives": [
     {
@@ -11,6 +11,19 @@
       "script": "script/config/AdoptToken.s.sol",
       "group": "config-plane",
       "description": "Adopts an externally deployed token (and optionally its pool) into the address registry, so contracts this repo did NOT deploy resolve exactly like the ones it did (the zero-export `active.<role>` ladder).",
+      "modes": [
+        "eoa"
+      ],
+      "read_only": false,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": []
+    },
+    {
+      "name": "ProbeChain",
+      "script": "script/config/ProbeChain.s.sol",
+      "group": "config-plane",
+      "description": "Read a chain's CCIP wiring over plain JSON-RPC, WITHOUT forking it.",
       "modes": [
         "eoa"
       ],
@@ -1010,7 +1023,7 @@
     },
     {
       "target": "discover",
-      "help": "List the CCIP API testnet catalog vs local configs (FILTER=<term> narrows)"
+      "help": "List the CCIP API chain catalog vs local configs, both planes (FILTER=<term> narrows; ENVIRONMENT=<testnet|mainnet> narrows the plane)"
     },
     {
       "target": "add-chain",
@@ -1063,6 +1076,10 @@
     {
       "target": "verify",
       "help": "Source-verify an already-deployed contract on <CHAIN>'s explorer backend (CHAIN= ADDRESS= CONTRACT= required; CONSTRUCTOR_ARGS= optional, else guessed via the RPC)"
+    },
+    {
+      "target": "probe-chain",
+      "help": "Read a chain's CCIP wiring over plain JSON-RPC without forking it (CHAIN= required; read-only, reports rather than verifies; works where doctor's fork cannot reach the chain)"
     },
     {
       "target": "doctor",

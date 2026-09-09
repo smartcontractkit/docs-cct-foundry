@@ -9,6 +9,51 @@ link to.
 
 ## Registry
 
+<a id="forking-excludes-chains"></a>
+- **The read primitives fork, and forking rules out chains a plain `eth_call` would reach.**
+  `AdoptToken.s.sol` and `VerifyChain.s.sol` call `vm.createSelectFork`, so every chain-reading target
+  inherits Foundry's fork backend and its `eth_getProof` and EIP-1898 requirements. Chains that serve
+  ordinary `eth_call` but not those cannot be read at all. A second, more common failure is that
+  `createSelectFork` pins whatever one node called `latest`, and a later request routed to a node a
+  moment behind cannot serve that block: `vm.createSelectFork: failed to get account ... HTTP 400
+  {"message":"Unknown block","code":26}`. **How badly this bites scales with the chain's block time.**
+  Monad produces a block roughly every 0.3s, so a few hundred milliseconds of lag is several blocks
+  gone; Sepolia's ~12s blocks absorb the same lag unnoticed. Measured on `make doctor`: monad-testnet
+  through a load-balanced gateway failed 9 of 10 runs on a free key and 3 of 10 on a paid one, and
+  passed 3 of 3 through the chain's own single-provider RPC - while Sepolia through the same paid
+  gateway passed 10 of 10. A paid plan reduces this; it does not remove it. `make probe-chain
+  CHAIN=<name>` never pins a block, so backend lag cannot reach it (20 of 20 across both chains). Nothing here calls `getProof` itself, so there is nothing local to switch off.
+  `make probe-chain CHAIN=<name>` reads the same wiring over plain JSON-RPC with no fork and answers on
+  those chains; it reports rather than verifies, and `doctor` stays the fuller check wherever forking
+  works. The same fork dependence is why the Sepolia fork tests flake against public endpoints.
+
+<a id="fork-needs-network-named"></a>
+- **A script that forks internally must still be told the endpoint on the CLI.** forge 1.8.x types the
+  EVM by execution network and refuses a fork whose family differs:
+  ``vm.createSelectFork: cannot create a `monad` fork with an EVM instantiated for `ethereum` ``
+  (`crates/evm/core/src/fork/multi.rs`, `require_endpoint_family_match`). A `forge script` with no
+  `--rpc-url` boots as generic `ethereum`, so the flag is what names the network. **But it cannot simply
+  be passed always:** on an OP-stack chain the same flag makes forge abort inside `op_revm` (measured on
+  Base Sepolia: rc=134 with it, VERIFIED without). So it is a fallback, not a default -
+  `script/config/forge-fork.sh` runs the script bare and re-runs with `--rpc-url` only on this one
+  error, which is what the four forking targets (`doctor`, `adopt-token`, `snapshot-chain`,
+  `roles-check.sh`) call. By hand, do the same: run it bare first, and add
+  `--rpc-url "$(bash script/config/rpc-url.sh <chain>)"` only if you see this error. Never pass the
+  flag empty - the read targets degrade to a clean SKIP without an endpoint, and an empty `--rpc-url`
+  turns that into a fork-setup error instead.
+
+<a id="chains-that-cannot-be-forked"></a>
+- **A node that rejects the EIP-1898 block-object parameter cannot be forked by forge 1.8.x, on any
+  pin, and downgrading is not a supported route.** 1.8.x resolves a fork to one exact block and
+  addresses its preflight reads by block hash - `{"blockHash":"0x...","requireCanonical":false}`, from
+  `exact_block_id()` in `crates/evm/core/src/fork/resolved.rs` (new in 1.8.x), with the backend then
+  anchored on that same hash; 1.7.1 sent a plain number or tag, which is why such a chain worked there.
+  Pharos mainnet answers the bare hash but rejects the wrapper with
+  `PARAM_VERIFY_ERROR: failed to parse block hash or number`, so `doctor` and every other fork-based
+  target fails there permanently. `make probe-chain CHAIN=<name>` is the only reader that works: it
+  pins no block, needs the chain's `rpcEnv` set in `.env` like any other target, and reports rather than
+  verifies. See [the parameter-form measurements](../decisions/0002-eip-1898-fork-reads.md).
+
 <a id="pool-version-pinned"></a>
 - **Pool version is pinned to 2.0.0 in the deploy path.** Migration coexistence is not reachable through
   the deploy scripts; the migration guide points at the fixture instead.
@@ -85,6 +130,6 @@ link to.
   arrays, structs containing them. Use `src/utils/TolerantCall.sol`, which validates offset, length and
   bounds before decoding. `src/roles/RolesProbes.sol` covers value types, but only `_tryUint` and
   `_tryBytes32` are fully safe: `address` and `bool` carry decoder validators that reject a dirty word
-  the same way. Known remaining instances are listed in the PR that introduced the helper.
+  the same way. Find the remaining instances with: rg 'abi.decode' src script | rg -v TolerantCall
 
 _The registry grows as findings graduate from the internal vault under the publication gate._

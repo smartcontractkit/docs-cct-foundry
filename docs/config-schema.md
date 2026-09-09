@@ -172,8 +172,24 @@ chains lower the version for their own runs, in data:
 }
 ```
 
-**The value is measured, not maintained by hand.** `make add-chain` probes the new chain and writes the
-key only when that chain rejects PUSH0; a chain that supports it gets no key and inherits the default.
+The knob moves in both directions, because the setting does both jobs. A chain that never activated
+PUSH0 needs it lowered so the bytecode is deployable. A chain whose deployed contracts use cancun
+opcodes needs it raised, or the local interpreter halts on `EvmError: NotActivated` while reading them -
+the same failure as the paris case, arriving from the opposite side:
+
+```jsonc
+{
+  "name": "some-cancun-chain",
+  "evmVersion": "cancun"
+}
+```
+
+**The value is measured, not maintained by hand.** `make add-chain` probes the new chain and writes a
+key only when the chain differs from the default: `paris` when it rejects PUSH0, `cancun` when it
+supports both MCOPY and TSTORE. A chain at the default gets no key. Both cancun opcodes must answer,
+because a chain serving one and not the other is not a cancun EVM and pinning from a half-answer would
+record a guess. An existing key is never overwritten - changing a pin changes the bytecode every future
+deploy produces, so that stays a human decision.
 The probe is an `eth_call` carrying initcode, so it needs no funds, no keys and no gas, and it checks
 `eth_chainId` first because public RPC directories carry chainId collisions and a mismatched endpoint
 would otherwise answer for a different chain.

@@ -131,7 +131,11 @@ for i in "${!pair_chain[@]}"; do
     # No FOUNDRY_PROFILE=sync here (unlike sync-check.sh): RolesCheck is read-only and needs no ffi; the
     # default profile already grants the fs read it uses. PROJECT_GROUP selects the group's project store.
     evm="$(bash script/config/evm-version.sh "$name" --lenient)"
-    out="$(PROJECT_GROUP="$g" forge script script/config/RolesCheck.s.sol --evm-version "$evm" --sig "run(string)" "$name" 2>&1)"
+    # --rpc-url names the execution network BEFORE the EVM is instantiated. Without it, a script that
+    # only forks internally boots as generic `ethereum` and forge 1.8.x refuses to retarget it
+    # ("cannot create a `monad` fork with an EVM instantiated for `ethereum`"). Omitted entirely, never
+    # empty, when there is no endpoint: this path is designed to degrade to RPC_UNAVAILABLE.
+    out="$(PROJECT_GROUP="$g" bash script/config/forge-fork.sh "$name" -- forge script script/config/RolesCheck.s.sol --evm-version "$evm" --sig "run(string)" "$name" 2>&1)"
     status=$?
     grep -q "NO_ROLES_DECLARED" <<< "$out" || reconciled=$((reconciled + 1))
     matched="$(echo "$out" | grep -E "\[PASS\]|\[FAIL\]|\[WARN\]|\[SKIP\]|CLEAN|ROLES_DRIFT|RPC_UNAVAILABLE|NO_ROLES_DECLARED|unknown chain" || true)"

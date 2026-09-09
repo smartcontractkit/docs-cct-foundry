@@ -552,11 +552,7 @@ contract SyncCcipConfig is Script {
                 )
             );
             console.log(
-                string.concat(
-                    "  5. verify: FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig \"run(string)\" ",
-                    localName,
-                    " (re-run until it reports VERIFIED)"
-                )
+                string.concat("  5. verify: make doctor CHAIN=", localName, " (re-run until it reports VERIFIED)")
             );
         } else {
             console.log("  3. non-EVM chain: the ccip{} block stays zeroed (destination-only support, see README)");
