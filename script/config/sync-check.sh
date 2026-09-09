@@ -31,7 +31,7 @@ drift=0
 unreachable=0
 declare -a drifted=() flaked=()
 
-for name in "${chains[@]}"; do
+for name in "${chains[@]+"${chains[@]}"}"; do
     echo ">> sync-check $name"
     out="$(FOUNDRY_PROFILE=sync forge script script/config/SyncCcipConfig.s.sol --sig "check(string)" "$name" 2>&1)"
     status=$?
@@ -48,12 +48,12 @@ for name in "${chains[@]}"; do
 done
 
 if [ $drift -ne 0 ]; then
-    echo "sync-check: CONFIG_DRIFT (or config error) for: ${drifted[*]} - refresh with: make sync CHAIN=<name>" \
+    echo "sync-check: CONFIG_DRIFT (or config error) for: ${drifted[*]+"${drifted[*]}"} - refresh with: make sync CHAIN=<name>" \
         "(raw escape hatch: FOUNDRY_PROFILE=sync forge script script/config/SyncCcipConfig.s.sol --sig \"run(string)\" <name>," \
         "then make fmt-config - vm.writeJson output is not canonical)"
     exit 1
 elif [ $unreachable -ne 0 ]; then
-    echo "sync-check: API_UNREACHABLE for: ${flaked[*]} - flake, not drift; retry later"
+    echo "sync-check: API_UNREACHABLE for: ${flaked[*]+"${flaked[*]}"} - flake, not drift; retry later"
     exit 2
 fi
 echo "sync-check: CLEAN - no drift against the live API"

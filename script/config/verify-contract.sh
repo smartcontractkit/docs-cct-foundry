@@ -51,7 +51,7 @@ fi
 cmd+=("$address" "$contract")
 
 for attempt in 1 2 3; do
-    out="$("${cmd[@]}" 2>&1)"
+    out="$("${cmd[@]}" 2>&1)" # bash32-ok: cmd always holds at least the program name
     status=$?
     echo "$out"
     if [ $status -eq 0 ]; then

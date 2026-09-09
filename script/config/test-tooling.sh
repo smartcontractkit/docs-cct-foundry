@@ -2395,6 +2395,53 @@ if offline_enabled; then
         echo "[FAIL] committed-tree: secret-lint (see above)"
     fi
 
+    # bash 3.2 array sweep. Stock macOS ships bash 3.2 as /bin/bash, and under `set -u` it treats an
+    # EMPTY array as UNSET: "${arr[@]}" aborts with "unbound variable" where bash 5 expands it to
+    # nothing. That is invisible to CI (Ubuntu, bash 5) and to anyone whose PATH bash is newer, so it
+    # reached an operator as `make preflight` simply not working on a stock Mac. A runtime check would
+    # no-op on CI, so this is static: every "${arr[@]}" in a `set -u` script must either use the
+    # guarded "${arr[@]+"${arr[@]}"}" form, or be marked `# bash32-ok:` with the reason it can never
+    # be empty at that point.
+    b32_hits=""
+    for f in script/config/*.sh; do
+        # `set -o nounset` is the same thing spelled long, and skipping it would skip a whole file.
+        grep -qE 'set -[a-z]*u|set -o nounset' "$f" || continue
+        while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            # A COMMENT is a line whose first non-space character is #. Strip the "NNN:" prefix and
+            # the leading whitespace and look, rather than globbing: `[[:space:]]*'"'"'#'"'"'*` reads as
+            # optional-space-then-hash but actually means ONE space, then anything, then a hash
+            # ANYWHERE - which silently exempts `    code "${a[@]}" # note`, real code with a real bug.
+            _b32_body="${line#*:}"
+            _b32_body="${_b32_body#"${_b32_body%%[![:space:]]*}"}"
+            case "$_b32_body" in '#'*) continue ;; esac
+            # The marker only counts inside a comment and only with a reason after it. Matched anywhere
+            # on the line, `echo "${a[@]}" "bash32-ok:"` would silence a genuine bug from inside a
+            # string literal.
+            case "$_b32_body" in
+                *'#'*bash32-ok:*[!' ']*) continue ;;
+            esac
+            b32_hits="$b32_hits$f: $line
+"
+        done < <(
+            # Both subscripts: "${a[*]}" aborts on 3.2 exactly as "${a[@]}" does, and the repo had
+            # four live [*] sites this rule used to be blind to. Strip the GUARDED expansions from the
+            # line first rather than dropping the whole line, so one guarded and one unguarded
+            # expansion on the same line still reports.
+            sed -E 's/\$\{[a-zA-Z_][a-zA-Z0-9_]*\[[@*]\]\+[^}]*\}//g' "$f" \
+                | grep -nE '\$\{[a-zA-Z_][a-zA-Z0-9_]*\[[@*]\]\}' || true
+        )
+    done
+    if [ -z "$b32_hits" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] bash 3.2: every array expansion in a set -u script is guarded or justified"
+    else
+        fail=$((fail + 1))
+        failures+=("bash 3.2 array sweep")
+        echo "[FAIL] bash 3.2: unguarded array expansion - empty is 'unbound variable' on stock macOS:"
+        printf '%s' "$b32_hits" | sed 's/^/       | /'
+    fi
+
     # Stale-string sweep: no relocated-store PATH reference survives anywhere in src+script — a
     # `script/deployments/<file>` read/write or an `addresses/<chainId>` path (the ledger + address
     # stores were relocated to history/ and project/). Clean break: no code acknowledges the old
@@ -2615,6 +2662,6 @@ assert_configs_intact
 echo ""
 echo "== test-tooling ($PARTITION): $pass passed, $fail failed, $skip skipped =="
 if [ $fail -ne 0 ]; then
-    printf 'failed: %s\n' "${failures[@]}"
+    printf 'failed: %s\n' "${failures[@]}" # bash32-ok: only reached when fail -ne 0, so non-empty
     exit 1
 fi

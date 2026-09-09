@@ -91,7 +91,7 @@ if [ "$#" -gt 0 ]; then
         pair_chain+=("$name")
     done
 else
-    for g in "${groups[@]}"; do
+    for g in "${groups[@]+"${groups[@]}"}"; do
         for f in config/chains/*.json; do
             name="$(basename "$f" .json)"
             # Skip the gitignored zz-scratch-* files the test suites write here (fake selectors).
@@ -157,10 +157,10 @@ for i in "${!pair_chain[@]}"; do
 done
 
 if [ $drift -ne 0 ]; then
-    echo "roles-check: ROLES_DRIFT (or config error) for: ${drifted[*]} - remediate on-chain or re-declare via make snapshot-chain CHAIN=<name> [GROUP=<g>]; a FAIL reading 'could not be read' is a refused read, not drift - fix the RPC or the declared address (docs/roles.md verdict (c))"
+    echo "roles-check: ROLES_DRIFT (or config error) for: ${drifted[*]+"${drifted[*]}"} - remediate on-chain or re-declare via make snapshot-chain CHAIN=<name> [GROUP=<g>]; a FAIL reading 'could not be read' is a refused read, not drift - fix the RPC or the declared address (docs/roles.md verdict (c))"
     exit 1
 elif [ $unreachable -ne 0 ]; then
-    echo "roles-check: RPC_UNAVAILABLE for: ${flaked[*]} - flake/missing secret, not drift; retry with the RPC env set"
+    echo "roles-check: RPC_UNAVAILABLE for: ${flaked[*]+"${flaked[*]}"} - flake/missing secret, not drift; retry with the RPC env set"
     exit 2
 fi
 # A DENY sweep that reconciled zero chains proved nothing - "the retired address holds nothing"
