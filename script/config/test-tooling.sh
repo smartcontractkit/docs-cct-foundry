@@ -52,11 +52,26 @@ GRP_X="zz-scratch-grp-x"
 GRP_Y="zz-scratch-grp-y"
 SVM_CHAIN="zz-scratch-svm-grp"
 SVM_FILE="config/chains/${SVM_CHAIN}.json"
-# Planted fixtures for the `make clean-scratch` case (19b); all four are in cleanup()'s rm-list.
+# Planted fixtures for the `make clean-scratch` case (19b); all in cleanup()'s rm-list.
 CLEANX_PROJECT="project/zz-scratch-cleanx.json"
 CLEANX_CONFIG="config/chains/zz-scratch-cleanx.json"
 CLEANX_GRPDIR="project/zz-scratch-cleanx-grp"
 CLEANX_HISTDIR="history/tokens/zz-scratch-cleanx"
+# batches/ fixtures for 19b. This store is accumulate-and-keep: it holds the operator's REAL run
+# artifacts under bare action-shaped names (`mint.11155111.json`), so clean-scratch sweeps ONLY the
+# `zz-scratch-`-prefixed .json there. Four fixtures pin both halves of that contract: the prefixed
+# one must go, while the two unprefixed ones must survive - a BARE action-shaped name (what a real
+# operator batch looks like) and a `zz-`-but-not-`zz-scratch-` one, so widening the pattern to either
+# `batches/*.json` or `batches/zz-*` is caught. The prefixed NON-.json fixture must survive too (the
+# glob is `.json`-only, by design).
+# The keep-fixtures deliberately carry names no real batch uses; the case refuses to plant over an
+# existing file, and cleanup only removes what it planted (batches_planted), so a run inside a clone
+# holding real batches can neither overwrite nor delete one.
+CLEANX_BATCH="batches/zz-scratch-cleanx.11155111.json"
+CLEANX_BATCH_KEEP="batches/tooling-cleanx-keepme.11155111.json"
+CLEANX_BATCH_KEEP2="batches/zz-tooling-cleanx-keepme.11155111.json"
+CLEANX_BATCH_NOEXT="batches/zz-scratch-cleanx-noext.txt"
+batches_planted=0
 # Manual config plane (configSource: "manual") fixtures (section 31): a hand-maintained chain and an
 # API-sourced chain, both gitignored zz-scratch configs; in cleanup()'s rm-list.
 SL_PROBE="zz-scratch-ignore-probe"
@@ -145,6 +160,12 @@ cleanup() {
     rm_fixture_config "$TMP_FILE" "$TMP_FILE_B" "$US_FILE" "$SVM_FILE"
     rm -f "$PROJECT_FILE" "$PROJECT_FILE_B"
     rm -f "$CLEANX_PROJECT" "$CLEANX_CONFIG"
+    # Only ever remove batches fixtures this run created (see 19b): unconditional rm here would
+    # delete a real operator artifact that happened to share a name.
+    if [ "$batches_planted" = 1 ]; then
+        rm -f "$CLEANX_BATCH" "$CLEANX_BATCH_KEEP" "$CLEANX_BATCH_KEEP2" "$CLEANX_BATCH_NOEXT"
+        batches_planted=0
+    fi
     rm_fixture_config "$MANUAL_FILE" "$XPLANE_API_FILE"
     rm -f "$MANUAL_PROJECT" "project/$XPLANE_API_CHAIN.json"
     rm_fixture_config "$TYPO_FILE"
@@ -1522,12 +1543,30 @@ else
 fi
 
 # 19b. clean-scratch removes planted test-scratch fixtures (project file + config file + group dir +
-#      history dir) via explicit patterns - never `git clean -X`, which would also delete the user's
-#      REAL gitignored project state. Planted names are in cleanup()'s rm-list.
+#      history dir + batches file) via explicit patterns - never `git clean -X`, which would also
+#      delete the user's REAL gitignored project state. Planted names are in cleanup()'s rm-list.
+#      The batches/ arm is asserted in BOTH directions (see the fixture comments at the top): a
+#      prefixed batch goes, a bare-named one stays. Skipped if a fixture name is already taken, so
+#      the case can never overwrite a real batch artifact.
 if offline_enabled; then
     printf '{"schema":3}' > "$CLEANX_PROJECT"
     printf '{"schema":3}' > "$CLEANX_CONFIG"
     mkdir -p "$CLEANX_GRPDIR" "$CLEANX_HISTDIR"
+    batches_ok=1
+    if [ ! -d batches ]; then batches_ok=0; fi
+    for _b in "$CLEANX_BATCH" "$CLEANX_BATCH_KEEP" "$CLEANX_BATCH_KEEP2" "$CLEANX_BATCH_NOEXT"; do
+        if [ -e "$_b" ]; then
+            echo "[GUARD] refusing to plant $_b: it already exists (a real batch artifact)" >&2
+            batches_ok=0
+        fi
+    done
+    if [ "$batches_ok" = 1 ]; then
+        printf '{"version":"1.0"}' > "$CLEANX_BATCH"
+        printf '{"version":"1.0"}' > "$CLEANX_BATCH_KEEP"
+        printf '{"version":"1.0"}' > "$CLEANX_BATCH_KEEP2"
+        printf 'scratch' > "$CLEANX_BATCH_NOEXT"
+        batches_planted=1
+    fi
     out="$(make clean-scratch 2>&1)"
     status=$?
     if [ $status -eq 0 ] && grep -q "clean-scratch: removed" <<< "$out" &&
@@ -1540,6 +1579,30 @@ if offline_enabled; then
         failures+=("make clean-scratch")
         echo "[FAIL] make clean-scratch (exit=$status; a planted scratch path survived)"
         echo "$out" | tail -4 | sed 's/^/       | /'
+    fi
+    if [ "$batches_planted" = 1 ]; then
+        if [ ! -e "$CLEANX_BATCH" ] && [ -e "$CLEANX_BATCH_KEEP" ] && [ -e "$CLEANX_BATCH_KEEP2" ] &&
+            [ -e "$CLEANX_BATCH_NOEXT" ]; then
+            pass=$((pass + 1))
+            echo "[PASS] make clean-scratch sweeps batches/zz-scratch-*.json and spares bare-named batches"
+        else
+            fail=$((fail + 1))
+            failures+=("make clean-scratch batches/")
+            if [ -e "$CLEANX_BATCH" ]; then
+                echo "[FAIL] make clean-scratch left the scratch batch behind: $CLEANX_BATCH"
+            fi
+            if [ ! -e "$CLEANX_BATCH_KEEP" ] || [ ! -e "$CLEANX_BATCH_KEEP2" ]; then
+                echo "[FAIL] make clean-scratch DELETED an unprefixed batch ($CLEANX_BATCH_KEEP / $CLEANX_BATCH_KEEP2) - the batches/ pattern is too wide and would destroy real operator artifacts"
+            fi
+            if [ ! -e "$CLEANX_BATCH_NOEXT" ]; then
+                echo "[FAIL] make clean-scratch deleted a non-.json scratch batch ($CLEANX_BATCH_NOEXT) - the batches/ pattern is wider than documented"
+            fi
+        fi
+        rm -f "$CLEANX_BATCH" "$CLEANX_BATCH_KEEP" "$CLEANX_BATCH_KEEP2" "$CLEANX_BATCH_NOEXT"
+        batches_planted=0
+    else
+        skip=$((skip + 1))
+        echo "[SKIP] make clean-scratch batches/ assertions (a fixture name is taken or batches/ is absent)"
     fi
 fi
 

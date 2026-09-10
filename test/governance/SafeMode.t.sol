@@ -21,6 +21,7 @@ import {ISafe, SafeCanonical} from "../../src/base/ISafe.sol";
 import {SafeMode} from "../../src/base/SafeMode.sol";
 import {RolesProbes} from "../../src/roles/RolesProbes.sol";
 import {ChainHandlers} from "../../script/utils/ChainHandlers.s.sol";
+import {BatchScratch} from "../utils/BatchScratch.sol";
 
 /// @dev Test-only: the real AcceptAdminRole script pinned to safe mode via the override (the `MODE`
 ///      env var is process-wide, see ExecutorHarness). Captures the built calls instead of
@@ -152,7 +153,7 @@ contract SafeModeForkTest is BaseForkTest {
         // Two of the three owner keys - meets the threshold. Test-only keys, never real secrets.
         vm.setEnv("SAFE_SIGNER_KEYS", string.concat(vm.toString(OWNER1_KEY), ",", vm.toString(OWNER2_KEY)));
         vm.setEnv("SAFE_EXEC", "");
-        vm.setEnv("BATCH_NAME", "test-dispatch");
+        vm.setEnv("BATCH_NAME", BatchScratch.name("test-dispatch"));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -182,7 +183,10 @@ contract SafeModeForkTest is BaseForkTest {
             address(0),
             "safe mode must not broadcast the inner call"
         );
-        string memory json = vm.readFile(string.concat("batches/test-dispatch.", vm.toString(block.chainid), ".json"));
+        string memory batchPath = BatchScratch.path("test-dispatch");
+        string memory json = vm.readFile(batchPath);
+        // Removed before the assert so a failing assert cannot strand the artifact either.
+        BatchScratch.clean(batchPath);
         assertEq(
             vm.parseJsonAddress(json, ".transactions[0].to"),
             address(registryModule),
@@ -595,7 +599,9 @@ contract SafeModeForkTest is BaseForkTest {
     ///      with the batch name and Safe passed as parameters instead of process-wide env vars (forge
     ///      runs tests in parallel, so per-test `vm.setEnv` values would race across tests).
     function _runSafeDirect(string memory batchName, CctActions.Call[] memory calls) internal {
-        SafeMode._emitBatch(batchName, address(safe), calls);
+        // The emitted batch is review output only - Mode B executes `calls` directly - so it is swept
+        // as soon as it is written, before anything downstream can revert and strand it.
+        BatchScratch.clean(BatchScratch.emitBatch(batchName, address(safe), calls));
         SafeMode._execDirect(safe, calls);
     }
 
@@ -604,8 +610,10 @@ contract SafeModeForkTest is BaseForkTest {
     ///      Mode B payload (`encodeForSafe`) back to the same calls.
     function _assertBatchRoundTrip(string memory name, CctActions.Call[] memory calls) internal {
         // JSON leg (the Transaction Builder / Mode A artifact).
-        string memory path = SafeMode._emitBatch(name, address(safe), calls);
+        string memory path = BatchScratch.emitBatch(name, address(safe), calls);
         string memory json = vm.readFile(path);
+        // Swept once its bytes are in hand, BEFORE the first assert: a failing assert must not strand it.
+        BatchScratch.clean(path);
         for (uint256 i = 0; i < calls.length; i++) {
             string memory prefix = string.concat(".transactions[", vm.toString(i), "]");
             assertEq(
