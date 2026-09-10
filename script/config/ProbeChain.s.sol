@@ -92,7 +92,10 @@ contract ProbeChain is Script {
         require(
             liveId == declaredId,
             string.concat(
-                "RPC answers as chain ",
+                // The wrapper classifies UNREADABLE vs UNRESOLVED on this leading token, which only
+                // this revert can produce; grepping the prose below would also match a chain whose
+                // NAME contains it.
+                "PROBE_WRONG_CHAIN: RPC answers as chain ",
                 vm.toString(liveId),
                 " but ",
                 name,

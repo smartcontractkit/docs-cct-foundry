@@ -261,8 +261,8 @@ contract ChainProbe {
 ///                WARN: they are pending work or degraded visibility, not proven drift
 ///
 /// Run: FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" <name>
-/// @dev Non-EVM chains (e.g. solana-devnet) get the schema parse only; API/RPC/on-chain/registry
-/// rungs are skipped (destination-only support, zeroed `ccip{}` by design).
+/// @dev Non-EVM chains (e.g. solana-devnet) get the schema + selectorName parse only; the
+/// API/RPC/on-chain/registry rungs have no EVM JSON-RPC path, so the run ends INCOMPLETE.
 contract VerifyChain is Script {
     uint256 private s_fails;
     uint256 private s_warns;
@@ -292,19 +292,26 @@ contract VerifyChain is Script {
         console.log(string.concat("[WARN] ", msg_));
     }
 
-    /// @dev A DESIGNED skip: there is nothing to verify (non-EVM rung, an undeclared optional block, a
-    /// bootstrap state). Printed, never counted - it cannot make the verdict INCOMPLETE.
+    /// @dev A DESIGNED skip: there is nothing to verify (an undeclared optional block, a bootstrap
+    /// state). Printed, never counted - it cannot make the verdict INCOMPLETE.
     function _skip(string memory msg_) private pure {
         console.log(string.concat("[SKIP] ", msg_));
     }
 
     /// @dev An UNVERIFIED gap: something IS declared or deployed and could not be checked (an unset
-    /// RPC, a contract that did not answer). Counted into the verdict - enough of these and the run is
-    /// INCOMPLETE rather than clean, because a check that never ran proves nothing. The UNVERIFIED tag
-    /// separates these lines from designed skips, so the INCOMPLETE verdict points at exactly them.
+    /// RPC, a contract that did not answer). Counted, so the run ends INCOMPLETE rather than clean.
     function _skipUnverified(string memory msg_) private {
         s_skips++;
         console.log(string.concat("[SKIP] UNVERIFIED ", msg_));
+    }
+
+    /// @dev A non-EVM chain's EVM rungs are an UNVERIFIED gap, not a designed absence: the chain has a
+    /// live CCIP deployment this repo cannot read over EVM JSON-RPC, so VERIFIED would claim on-chain
+    /// state the doctor never touched. Same treatment as an unset RPC on an EVM chain.
+    function _skipNonEvmRungs() private {
+        _skipUnverified(
+            "rpc/on-chain/registry: non-EVM chain - no EVM JSON-RPC path to read it; schema + selectorName only"
+        );
     }
 
     function _path(string memory name) private pure returns (string memory) {
@@ -423,21 +430,17 @@ contract VerifyChain is Script {
             _checkRoles(name, projectJson, rpcOk);
         } else {
             // Non-EVM chains have no EVM-shaped ccip{} to sync, so the API/RPC/on-chain/registry
-            // rungs are skipped - but the selectorName IS validatable for every family (chainId is a
+            // rungs cannot run - but the selectorName IS validatable for every family (chainId is a
             // placeholder "0" here, so it is the only identity the doctor can check).
             _checkSelectorNameNonEvm(json);
-            _skip("rpc/on-chain/registry: non-EVM chain (destination-only support) - schema + selectorName only");
+            _skipNonEvmRungs();
         }
         _verdict(name);
     }
 
-    /// @dev Three outcomes, not a boolean. The one that matters here is INCOMPLETE - checks that were
-    /// declared or deployed but could NOT run (an unset RPC, a contract that did not answer).
-    /// Without it, a run that verifies nothing prints
-    /// `0 FAIL, 0 WARN` and exits 0, indistinguishable from a run that verified everything, and any
-    /// wrapper gating on the exit code passes a chain the doctor never actually checked. Designed
-    /// absences (a non-EVM chain's EVM rungs, an undeclared optional block) stay plain SKIPs and do
-    /// not affect the verdict: there, nothing claimable was left unchecked.
+    /// @dev Three outcomes, not a boolean. INCOMPLETE exists so a run that verified nothing cannot
+    /// print `0 FAIL, 0 WARN` and exit 0, which any wrapper gating on the exit code would read as a
+    /// pass. An undeclared optional block stays a plain SKIP: nothing claimable went unchecked.
     function _verdict(string memory name) private view {
         console.log(
             string.concat(
@@ -1461,6 +1464,14 @@ contract VerifyChain is Script {
         _reconcilePoolWithTar(address(1), address(1), address(1));
         _checkRoles("zz-tt-rpcgaps", rolesJson, false);
         _checkLanesOnChain("zz-tt-rpcgaps", "", "{}");
+        return s_skips;
+    }
+
+    /// @notice Test hook: runs the non-EVM branch's rung skip and returns the unverified-gap count, so
+    /// the INCOMPLETE-not-VERIFIED contract for a non-EVM chain is pinnable without the ffi/API run.
+    /// Not used by any production path.
+    function nonEvmRungSkipsForTest() public returns (uint256 skipsOut) {
+        _skipNonEvmRungs();
         return s_skips;
     }
 

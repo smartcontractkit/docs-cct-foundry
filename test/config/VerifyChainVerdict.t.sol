@@ -6,10 +6,10 @@ import {VerifyChain} from "../../script/config/VerifyChain.s.sol";
 
 /// @title VerifyChainVerdictTest - the doctor's three-outcome contract
 /// @notice The doctor returns VERIFIED / INCOMPLETE / FAILED, not a boolean. The state this pins is
-/// INCOMPLETE: a run whose declared or deployed checks could not run (an unset RPC, a contract that
-/// did not answer) must not exit clean (the rationale lives on `_verdict`). Designed absences (non-EVM
-/// rungs, undeclared optional blocks) stay plain SKIPs and never taint the verdict: there, nothing
-/// claimable was left unchecked. Driven through `verdictForTest`, which seeds the counters exactly as
+/// INCOMPLETE: a run whose declared or deployed checks could not run (an unset RPC, a non-EVM chain's
+/// EVM rungs, a contract that did not answer) must not exit clean (the rationale lives on `_verdict`).
+/// An undeclared optional block stays a plain SKIP and never taints the verdict: nothing claimable was
+/// left unchecked there. Driven through `verdictForTest`, which seeds the counters exactly as
 /// the rungs do; the full-run path (rpcEnv unset -> nonzero exit) is exercised by
 /// `script/config/test-tooling.sh`.
 contract VerifyChainVerdictTest is Test {
@@ -39,6 +39,33 @@ contract VerifyChainVerdictTest is Test {
         } catch Error(string memory reason) {
             _assertContains(reason, string.concat("check-chain FAILED for ", NAME));
         }
+    }
+
+    /// @dev A non-EVM chain's EVM rungs were a designed skip, so `doctor solana-devnet` printed
+    ///      VERIFIED having read nothing on-chain. They count as an unverified gap now.
+    function test_NonEvmRungs_CountOneUnverifiedGap() public {
+        assertEq(new VerifyChain().nonEvmRungSkipsForTest(), 1, "the non-EVM rung skip must count as a gap");
+    }
+
+    function test_NonEvmChain_IsIncompleteNotVerified() public {
+        VerifyChain doctor = new VerifyChain();
+        doctor.nonEvmRungSkipsForTest();
+        try doctor.verdictForTest(NAME, false, false, false) {
+            assertTrue(false, "a non-EVM chain must not report VERIFIED");
+        } catch Error(string memory reason) {
+            _assertContains(reason, string.concat("check-chain INCOMPLETE for ", NAME));
+        }
+    }
+
+    /// @dev Non-regression for the EVM path: the schema rung on a real EVM config leaves no gap, so the
+    ///      verdict stays VERIFIED.
+    function test_EvmChain_SchemaRungLeavesNoGap_StaysVerified() public {
+        VerifyChain doctor = new VerifyChain();
+        (bool isEvm, uint256 fails,) = doctor.checkSchemaForTest("ethereum-testnet-sepolia");
+        assertTrue(isEvm, "sepolia is an EVM chain");
+        assertEq(fails, 0, "the bundled sepolia config must pass the schema rung");
+        assertEq(doctor.unverifiedForTest(), 0, "an EVM chain's schema rung opens no unverified gap");
+        doctor.verdictForTest("ethereum-testnet-sepolia", false, false, false);
     }
 
     /// @dev Pins each RPC-gated site individually: registry TAR reconcile, roles rung, lanes rung.

@@ -45,9 +45,13 @@ refuses as a FAIL rather than skipping. INCOMPLETE means no check failed but an 
 checks from running at all - an unset RPC env, a pool that did not answer the lanes reverse-check - and
 the run exits nonzero rather than clean: a wrapper reading exit 0 there would treat an unchecked
 chain as a healthy one. Each counted gap is tagged
-`[SKIP] UNVERIFIED` in the output. VERIFIED (exit 0) means every applicable check ran. Designed
-absences (a non-EVM chain's EVM rungs, an optional block that is not declared) are plain SKIPs and
-never make a run INCOMPLETE.
+`[SKIP] UNVERIFIED` in the output. VERIFIED (exit 0) means every applicable check ran. An optional
+block that is not declared is a plain SKIP and never makes a run INCOMPLETE.
+
+A non-EVM chain (`solana-devnet` and friends) always ends INCOMPLETE: its schema and selectorName are
+checked, but this toolkit has no EVM JSON-RPC path to its on-chain state, so there is nothing to read.
+That is the honest verdict, not a fault in the config - verify a non-EVM deployment with that chain's
+own tooling.
 
 Names may contain underscores, which some CCIP selectorNames use (e.g.
 `binance_smart_chain-mainnet`); pass the name from `make discover` verbatim.
