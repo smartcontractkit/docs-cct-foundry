@@ -93,19 +93,10 @@ fail=0
 declare -a failures=()
 server_pid=""
 server_dir=""
-# .env backup for the caller-env-precedence case (13c): restored inline AND in cleanup() so a
-# mid-case abort never leaves a mutated .env. env_planted=1 = case 13c wrote ./.env; env_bak is the
-# pre-case copy (empty when .env did not exist).
-env_planted=0
-env_bak=""
-
-restore_env() {
-    if [ "$env_planted" = 1 ]; then
-        if [ -n "$env_bak" ]; then mv "$env_bak" ./.env; else rm -f ./.env; fi
-        env_planted=0
-        env_bak=""
-    fi
-}
+# Throwaway project root for the caller-env-precedence case (13c): a mktemp dir with a `.env` of its
+# own, so nothing in this suite ever writes the developer's real ./.env. Removed inline and in
+# cleanup(); a killed run strands it under $TMPDIR, never in the repo.
+dotenv_root=""
 
 # --------------------------------------------------------------- committed-config protection
 # Every fixture below writes throwaway files into config/chains/. A fixture whose chain later becomes
@@ -156,7 +147,7 @@ assert_configs_intact() {
 }
 
 cleanup() {
-    restore_env
+    [ -n "$dotenv_root" ] && rm -rf "$dotenv_root"
     rm_fixture_config "$TMP_FILE" "$TMP_FILE_B" "$US_FILE" "$SVM_FILE"
     rm -f "$PROJECT_FILE" "$PROJECT_FILE_B"
     rm -f "$CLEANX_PROJECT" "$CLEANX_CONFIG"
@@ -719,23 +710,28 @@ fi
 rm_fixture_config "$TMP_FILE"
 rm -rf "project/$GRP_X"
 
-# 13c. caller env beats .env: the forge run inside sync-check autoloads ./.env WITHOUT overriding the
-#      ambient environment, so a var the caller already set must survive. Plant CCIP_API_BASE=<unreachable>
-#      in .env (backup/restore, also covered by cleanup()), inject the fixture-server base from the
-#      caller: CLEAN exit 0 proves the caller's value won (an overriding regression would hit the
-#      unreachable base and exit 2).
+# 13c. caller env beats .env: forge autoloads the project root's `.env` without overriding the ambient
+#      environment, so a var the caller already set must survive. Planted in a mktemp project root,
+#      never ./.env - the old trap-restore lost twice to a SIGKILL and left a dead CCIP_API_BASE in a
+#      file that also holds a real PRIVATE_KEY. DOTENV_FILE does not help: the autoload is Foundry's,
+#      not the repo's resolver. The root needs foundry.toml, the source trees symlinked (warm out/ and
+#      cache/ still hit) and a REAL config/chains, since fs_permissions resolves symlinks and a link
+#      out of the root reads as out-of-bounds.
 if offline_enabled; then
-    if [ -f ./.env ]; then
-        env_bak="$(mktemp)"
-        cp ./.env "$env_bak"
-    fi
-    env_planted=1
-    printf '\nCCIP_API_BASE=http://127.0.0.1:1\n' >> ./.env
-    cp config/chains/ethereum-testnet-sepolia.json "$TMP_FILE"
+    dotenv_root="$(mktemp -d)"
+    for _d in src script node_modules out cache; do [ -e "$_d" ] && ln -s "$PWD/$_d" "$dotenv_root/$_d"; done
+    ln -s "$PWD/foundry.toml" "$dotenv_root/foundry.toml"
+    mkdir -p "$dotenv_root/config/chains"
+    cp config/chains/ethereum-testnet-sepolia.json "$dotenv_root/config/chains/$TMP_CHAIN.json"
+    printf 'CCIP_API_BASE=http://127.0.0.1:1\n' > "$dotenv_root/.env"
     run_case "sync-check: caller CCIP_API_BASE beats the .env value" zero "CLEAN" -- \
-        env CCIP_API_BASE="http://127.0.0.1:$port" bash script/config/sync-check.sh "$TMP_CHAIN"
-    rm_fixture_config "$TMP_FILE"
-    restore_env
+        env CCIP_API_BASE="http://127.0.0.1:$port" bash "$dotenv_root/script/config/sync-check.sh" "$TMP_CHAIN"
+    # Control: with no caller value the same root must hit the planted base and fail. Without it, a
+    # root whose `.env` never loaded at all would let the CLEAN case pass while proving nothing.
+    run_case "sync-check: the fixture root's .env is really autoloaded (13c control)" nonzero "API_UNREACHABLE" -- \
+        env -u CCIP_API_BASE bash "$dotenv_root/script/config/sync-check.sh" "$TMP_CHAIN"
+    rm -rf "$dotenv_root"
+    dotenv_root=""
 fi
 
 # 13d. dotenv-get: the one resolver every shell caller uses to read ./.env. `.env` in this repo carries
