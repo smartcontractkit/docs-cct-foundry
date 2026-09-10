@@ -284,19 +284,25 @@ contract RolesSnapshot {
 
     function _assemble(Ctx memory c, string memory json) private returns (string memory) {
         string memory root = string.concat("roles-", c.name);
+        // forge-lint: disable-next-line(unused-return) - vm.serializeX accumulator; only the final return is used
         VM.serializeString(root, "token", _tokenBlock(c, json));
+        // forge-lint: disable-next-line(unused-return) - vm.serializeX accumulator; only the final return is used
         VM.serializeString(root, "tokenAdminRegistry", _tarBlock(c));
 
         string memory sub = _lockboxBlock(c.name, c.pool);
+        // forge-lint: disable-next-line(unused-return) - vm.serializeX accumulator; only the final return is used
         if (bytes(sub).length != 0) VM.serializeString(root, "lockbox", sub);
 
         sub = _hooksBlock(c.name, json, c.pool, c.isV2);
+        // forge-lint: disable-next-line(unused-return) - vm.serializeX accumulator; only the final return is used
         if (bytes(sub).length != 0) VM.serializeString(root, "hooks", sub);
 
         (bool hasRebalancer, address rebalancer) = RolesProbes._tryAddress(c.pool, "getRebalancer()");
+        // forge-lint: disable-next-line(unused-return) - vm.serializeX accumulator; only the final return is used
         if (hasRebalancer) VM.serializeAddress(root, "rebalancer", rebalancer);
 
         sub = _governanceBlock(c.name, json, c.poolOwner);
+        // forge-lint: disable-next-line(unused-return) - vm.serializeX accumulator; only the final return is used
         if (bytes(sub).length != 0) VM.serializeString(root, "governance", sub);
 
         // pool is serialized last so the mandatory key closes the object
@@ -307,20 +313,24 @@ contract RolesSnapshot {
 
     function _tokenBlock(Ctx memory c, string memory json) private returns (string memory) {
         string memory obj = string.concat("roles-token-", c.name);
+        // forge-lint: disable-next-line(unused-return) - vm.serializeX accumulator; only the final return is used
         VM.serializeString(obj, "type", RolesProbes._templateName(c.template));
 
         (bool hasCcipAdmin, address ccipAdmin) = RolesProbes._tryAddress(c.token, "getCCIPAdmin()");
         c.ccipAdmin = ccipAdmin;
+        // forge-lint: disable-next-line(unused-return) - vm.serializeX accumulator; only the final return is used
         if (hasCcipAdmin) VM.serializeAddress(obj, "ccipAdmin", ccipAdmin);
 
         if (c.template == RolesProbes.TokenTemplate.CrossChainToken) {
             _tokenAdminCrossChain(c, json, obj);
         } else if (c.template == RolesProbes.TokenTemplate.BurnMintERC20) {
             c.adminHolder = _firstAdminCandidate(c, json);
+            // forge-lint: disable-next-line(unused-return) - vm.serializeX accumulator; only the final return is used
             VM.serializeString(obj, "defaultAdmins", _defaultAdminsBlock(c, json));
         } else if (c.template == RolesProbes.TokenTemplate.FactoryBurnMintERC20) {
             (bool okOwner, address tokenOwner) = RolesProbes._tryAddress(c.token, "owner()");
             c.adminHolder = tokenOwner;
+            // forge-lint: disable-next-line(unused-return) - vm.serializeX accumulator; only the final return is used
             if (okOwner) VM.serializeAddress(obj, "owner", c.adminHolder);
             else _logUnread("token.owner", "owner()");
         } else {
@@ -328,7 +338,9 @@ contract RolesSnapshot {
         }
 
         if (c.template != RolesProbes.TokenTemplate.BYO || _hasAclSurface(c.token)) {
+            // forge-lint: disable-next-line(unused-return) - vm.serializeX accumulator; only the final return is used
             VM.serializeString(obj, "minters", _mintBurnBlock(c, json, true));
+            // forge-lint: disable-next-line(unused-return) - vm.serializeX accumulator; only the final return is used
             VM.serializeString(obj, "burners", _mintBurnBlock(c, json, false));
         } else {
             console.log(
@@ -344,13 +356,16 @@ contract RolesSnapshot {
     function _tokenAdminCrossChain(Ctx memory c, string memory json, string memory obj) private {
         (bool okAdmin, address adminHolder) = RolesProbes._tryAddress(c.token, "defaultAdmin()");
         c.adminHolder = adminHolder;
+        // forge-lint: disable-next-line(unused-return) - vm.serializeX accumulator; only the final return is used
         if (okAdmin) VM.serializeAddress(obj, "defaultAdmin", c.adminHolder);
         else _logUnread("token.defaultAdmin", "defaultAdmin()");
         (bool okPending, address pending) = RolesProbes._tryAddress(c.token, "pendingDefaultAdmin()");
         if (!okPending) _logUnread("token.pendingDefaultAdmin", "pendingDefaultAdmin()");
+        // forge-lint: disable-next-line(unused-return) - vm.serializeX accumulator; only the final return is used
         else if (pending != address(0)) VM.serializeAddress(obj, "pendingDefaultAdmin", pending);
         bytes32 role = RolesProbes._roleIdOrDefault(c.token, "BURN_MINT_ADMIN_ROLE()", RolesProbes.BURN_MINT_ADMIN_ROLE);
         address[] memory candidates = _candidates(c, json, ".roles.token.burnMintRoleAdmins.holders");
+        // forge-lint: disable-next-line(unused-return) - vm.serializeX accumulator; only the final return is used
         VM.serializeString(obj, "burnMintRoleAdmins", _holdersBlock(c, "burnMintRoleAdmins", "", role, candidates));
     }
 
@@ -360,10 +375,12 @@ contract RolesSnapshot {
         (bool hasOwner, address owner_) = RolesProbes._tryAddress(c.token, "owner()");
         if (hasOwner) {
             c.adminHolder = owner_;
+            // forge-lint: disable-next-line(unused-return) - vm.serializeX accumulator; only the final return is used
             VM.serializeAddress(obj, "owner", owner_);
         }
         if (_hasAclSurface(c.token)) {
             if (c.adminHolder == address(0)) c.adminHolder = _firstAdminCandidate(c, json);
+            // forge-lint: disable-next-line(unused-return) - vm.serializeX accumulator; only the final return is used
             VM.serializeString(obj, "defaultAdmins", _defaultAdminsBlock(c, json));
         }
     }
@@ -471,11 +488,16 @@ contract RolesSnapshot {
             if (!complete) holders = _filterHolders(token, ownableIsSig, role, candidates);
         }
         string memory obj = string.concat("roles-", label, "-", c.name);
+        // The forge-std vm.serializeX accumulator idiom: each call returns the JSON built so far and
+        // only the LAST one's return is used. Bounded region, NOT to end-of-file: an unbounded
+        // disable-start would silently suppress any FUTURE ignored return in this file too.
+        // forge-lint: disable-start(unused-return)
         VM.serializeBool(obj, "complete", complete);
         // Provenance: when the list was proven by an event scan, record the block it scanned from so a
         // later reconcile knows the completeness is a proof AS OF that block (not a live invariant), and
         // an opt-in reconcile scan can resume from it. Enumerable-derived lists carry no block.
         if (scannedFrom != 0) VM.serializeUint(obj, "scannedFromBlock", scannedFrom);
+        // forge-lint: disable-end(unused-return)
         return VM.serializeAddress(obj, "holders", holders);
     }
 
@@ -616,8 +638,13 @@ contract RolesSnapshot {
             );
         }
         string memory obj = string.concat("roles-tar-", c.name);
+        // The forge-std vm.serializeX accumulator idiom: each call returns the JSON built so far and
+        // only the LAST one's return is used. Bounded region, NOT to end-of-file: an unbounded
+        // disable-start would silently suppress any FUTURE ignored return in this file too.
+        // forge-lint: disable-start(unused-return)
         VM.serializeAddress(obj, "registry", c.tar);
         VM.serializeAddress(obj, "administrator", admin);
+        // forge-lint: disable-end(unused-return)
         return VM.serializeAddress(obj, "pendingAdministrator", pending);
     }
 

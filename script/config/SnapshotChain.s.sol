@@ -47,6 +47,7 @@ contract SnapshotChain is Script {
         require(
             bytes(url).length != 0, string.concat("[snapshot] RPC_UNAVAILABLE: env ", rpcEnv, " unset - add it to .env")
         );
+        // forge-lint: disable-next-line(unused-return) - the fork id is not needed: nothing switches back to a previous fork
         vm.createSelectFork(url);
         require(
             block.chainid == vm.parseJsonUint(configJson, ".chainId"),

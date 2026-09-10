@@ -74,7 +74,12 @@ library DeploymentUtils {
         // Unique handle per call (see saveTokenDeployment): a shared "poolDeployment" handle would carry a
         // stale LOCK_BOX key from a prior lock-release save into this burn-mint body.
         string memory handle = string.concat("poolDeployment-", vm.toString(tokenPoolAddress));
+        // The forge-std vm.serializeX accumulator idiom: each call returns the JSON built so far and
+        // only the LAST one's return is used. Bounded region, NOT to end-of-file: an unbounded
+        // disable-start would silently suppress any FUTURE ignored return in this file too.
+        // forge-lint: disable-start(unused-return)
         vm.serializeAddress(handle, string.concat(chainNameIdentifier, "_TOKEN_POOL"), tokenPoolAddress);
+        // forge-lint: disable-end(unused-return)
         string memory deploymentJson =
             vm.serializeAddress(handle, string.concat(chainNameIdentifier, "_TOKEN"), tokenAddress);
         string memory timestamp = vm.toString(block.timestamp);
@@ -122,8 +127,13 @@ library DeploymentUtils {
         // Unique handle per call (see saveTokenDeployment) so this lock-release body never bleeds keys
         // into (or from) a sibling pool save sharing the process.
         string memory handle = string.concat("poolDeployment-", vm.toString(tokenPoolAddress));
+        // The forge-std vm.serializeX accumulator idiom: each call returns the JSON built so far and
+        // only the LAST one's return is used. Bounded region, NOT to end-of-file: an unbounded
+        // disable-start would silently suppress any FUTURE ignored return in this file too.
+        // forge-lint: disable-start(unused-return)
         vm.serializeAddress(handle, string.concat(chainNameIdentifier, "_TOKEN_POOL"), tokenPoolAddress);
         vm.serializeAddress(handle, "LOCK_BOX", lockBox);
+        // forge-lint: disable-end(unused-return)
         string memory deploymentJson =
             vm.serializeAddress(handle, string.concat(chainNameIdentifier, "_TOKEN"), tokenAddress);
         string memory timestamp = vm.toString(block.timestamp);
@@ -166,7 +176,12 @@ library DeploymentUtils {
 
         // Unique handle per call (see saveTokenDeployment).
         string memory handle = string.concat("lockBoxDeployment-", vm.toString(lockBoxAddress));
+        // The forge-std vm.serializeX accumulator idiom: each call returns the JSON built so far and
+        // only the LAST one's return is used. Bounded region, NOT to end-of-file: an unbounded
+        // disable-start would silently suppress any FUTURE ignored return in this file too.
+        // forge-lint: disable-start(unused-return)
         vm.serializeAddress(handle, "LOCK_BOX", lockBoxAddress);
+        // forge-lint: disable-end(unused-return)
         string memory deploymentJson =
             vm.serializeAddress(handle, string.concat(chainNameIdentifier, "_TOKEN"), tokenAddress);
         string memory timestamp = vm.toString(block.timestamp);

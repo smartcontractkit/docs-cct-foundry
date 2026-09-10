@@ -53,7 +53,15 @@ jobs:
         with:
           version: ${{ env.FOUNDRY_VERSION }}
       - run: npm ci
-      - run: forge lint
+      # Scoped to src + script and set to FAIL on a warning. Bare `forge lint` exits 0 whatever it
+      # finds, so this job reported without enforcing - on every release, not just 1.8.x. The trade is
+      # explicit: scoping also stops it REPORTING on test/, which is ~204 warnings it used to print
+      # and nobody read. Those rules are fixture style, and gating on them would mean suppressing
+      # hundreds of no-risk sites. Run `forge lint` unscoped to see them.
+      #
+      # This gate is not a substitute for compilation: `forge lint` is silent on a file it cannot
+      # parse, and exits 0. `forge build --deny warnings` above is what catches that.
+      - run: forge lint src script --deny warnings
 
   solhint:
     name: solhint

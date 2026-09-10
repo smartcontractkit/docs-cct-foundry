@@ -138,9 +138,13 @@ library SafeMode {
         for (uint256 i = 0; i < calls.length; i++) {
             // MultiSend packed encoding: operation (1 byte, 0=CALL) || to (20) || value (32) ||
             // dataLength (32) || data.
+            // The length prefix IS the mitigation this rule looks for: dataLength is encoded before
+            // data, per Safe's MultiSend format described above.
+            // forge-lint: disable-start(encode-packed-collision)
             packed = abi.encodePacked(
                 packed, uint8(0), calls[i].target, calls[i].value, calls[i].data.length, calls[i].data
             );
+            // forge-lint: disable-end(encode-packed-collision)
         }
         return (SafeCanonical.MULTI_SEND_CALL_ONLY, 0, abi.encodeCall(IMultiSendCallOnly.multiSend, (packed)), 1);
     }

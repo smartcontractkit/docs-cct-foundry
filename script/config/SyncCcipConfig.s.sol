@@ -307,7 +307,12 @@ contract SyncCcipConfig is Script {
         string memory obj = string.concat("ccip-", name);
         string[7] memory keys = ccipAddressKeys();
         for (uint256 i = 0; i < keys.length; i++) {
+            // The forge-std vm.serializeX accumulator idiom: each call returns the JSON built so far and
+            // only the LAST one's return is used. Bounded region, NOT to end-of-file: an unbounded
+            // disable-start would silently suppress any FUTURE ignored return in this file too.
+            // forge-lint: disable-start(unused-return)
             vm.serializeAddress(obj, keys[i], vm.parseJsonAddress(flat, string.concat(".", keys[i])));
+            // forge-lint: disable-end(unused-return)
         }
         return vm.serializeAddress(obj, "feeTokens", vm.parseJsonAddressArray(flat, ".feeTokens"));
     }
@@ -323,7 +328,12 @@ contract SyncCcipConfig is Script {
         string memory obj = string.concat("ccip-zero-", name);
         string[7] memory keys = ccipAddressKeys();
         for (uint256 i = 0; i < keys.length; i++) {
+            // The forge-std vm.serializeX accumulator idiom: each call returns the JSON built so far and
+            // only the LAST one's return is used. Bounded region, NOT to end-of-file: an unbounded
+            // disable-start would silently suppress any FUTURE ignored return in this file too.
+            // forge-lint: disable-start(unused-return)
             vm.serializeAddress(obj, keys[i], address(0));
+            // forge-lint: disable-end(unused-return)
         }
         return vm.serializeAddress(obj, "feeTokens", new address[](0));
     }
@@ -432,6 +442,10 @@ contract SyncCcipConfig is Script {
         // in project/<name>.json (seeded on the first add-lane / snapshot-chain / deploy), NOT here:
         // config/chains is pure API/chain facts.
         string memory root = string.concat("chain-", localName);
+        // The forge-std vm.serializeX accumulator idiom: each call returns the JSON built so far and
+        // only the LAST one's return is used. Bounded region, NOT to end-of-file: an unbounded
+        // disable-start would silently suppress any FUTURE ignored return in this file too.
+        // forge-lint: disable-start(unused-return)
         vm.serializeString(root, "name", localName);
         vm.serializeString(root, "displayName", vm.parseJsonString(meta, ".displayName"));
         vm.serializeString(root, "chainNameIdentifier", chainNameId);
@@ -446,6 +460,7 @@ contract SyncCcipConfig is Script {
         // explorerUrl/nativeCurrencySymbol come from the API's chainMetadata (served for every family).
         vm.serializeString(root, "explorerUrl", vm.parseJsonString(meta, ".explorerUrl"));
         vm.serializeString(root, "nativeCurrencySymbol", vm.parseJsonString(meta, ".nativeCurrencySymbol"));
+        // forge-lint: disable-end(unused-return)
         string memory complete = vm.serializeString(root, "ccip", ccipBlock);
         vm.writeFile(path, complete);
         console.log(
@@ -939,6 +954,10 @@ contract SyncCcipConfig is Script {
         // Build the new entry with keys in SORTED order (capacity < inbound < rate < remoteSelector) so
         // forge's insertion-order writeJson is canonical.
         string memory newEntry = string.concat("lane-new-", remote);
+        // The forge-std vm.serializeX accumulator idiom: each call returns the JSON built so far and
+        // only the LAST one's return is used. Bounded region, NOT to end-of-file: an unbounded
+        // disable-start would silently suppress any FUTURE ignored return in this file too.
+        // forge-lint: disable-start(unused-return)
         vm.serializeString(newEntry, "capacity", vm.toString(policy.capacity));
         if (policy.withInbound) {
             string memory inboundObj = string.concat("lane-new-inbound-", remote);
@@ -948,6 +967,7 @@ contract SyncCcipConfig is Script {
             );
         }
         vm.serializeString(newEntry, "rate", vm.toString(policy.rate));
+        // forge-lint: disable-end(unused-return)
         string memory newEntryJson = vm.serializeString(newEntry, "remoteSelector", remoteSelector);
 
         // Merge existing + new lane names, sort them, then serialize in sorted order so the lanes{}

@@ -235,9 +235,14 @@ contract SetFinalityConfig is EoaExecutor, LanePolicySource {
             console.log("----------------------------------------");
             console.log(unicode"📊 Current Rate Limits (fast finality where enabled, standard otherwise):");
             console.log("----------------------------------------");
+            // remoteChainSelector is assigned and used under the same destChainSet guard; the rule is
+            // path-insensitive. A region rather than a line directive, because fmt reflows this call
+            // and a disable-next-line would end up above the wrong argument.
+            // forge-lint: disable-start(uninitialized-local)
             RateLimiterUtils._logRateLimiterStateWithFallback(
                 tokenPool, ITokenPoolV1RateLimiter(tokenPoolAddress), remoteChainSelector, poolVersion
             );
+            // forge-lint: disable-end(uninitialized-local)
         }
 
         // ── Step 1: Set finality config ────────────────────────────────────

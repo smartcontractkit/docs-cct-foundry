@@ -98,6 +98,9 @@ abstract contract EoaExecutor is Script {
                     vm.toString(abi.encodePacked(bytes4(calls[i].data)))
                 )
             );
+            // Executing the operator's own batch is this contract's entire purpose, and `success` is
+            // checked and re-reverted immediately below.
+            // forge-lint: disable-next-line(arbitrary-send-eth)
             (bool success, bytes memory returnData) = calls[i].target.call{value: calls[i].value}(calls[i].data);
             if (!success) {
                 // Bubble up the underlying contract's revert reason unchanged.
@@ -114,6 +117,7 @@ abstract contract EoaExecutor is Script {
     ///         transaction is sent.
     function _broadcaster() internal returns (address account) {
         vm.startBroadcast();
+        // forge-lint: disable-next-line(unused-return) - the discarded CallerMode is necessarily a broadcast mode - this sits inside an open startBroadcast
         (, account,) = vm.readCallers();
         vm.stopBroadcast();
     }

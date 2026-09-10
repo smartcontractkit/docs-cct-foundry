@@ -41,6 +41,7 @@ library FinalityConfigUtils {
                 string.concat(basePath, ".blockDepth must be <= FinalityCodec.MAX_BLOCK_DEPTH (65535)")
             );
         }
+        // forge-lint: disable-next-line(uninitialized-local) - an absent key deliberately encodes WAIT_FOR_FINALITY, the real on-chain default; callers gate on declaredness
         return _encode(waitForSafe, blockDepth);
     }
 
