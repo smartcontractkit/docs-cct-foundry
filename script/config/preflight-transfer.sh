@@ -157,6 +157,11 @@ fi
 
 echo "preflight: $SOURCE_CHAIN -> $DEST_CHAIN, $amount_human of $token to $RECEIVER (nothing is sent)"
 
+# `"${arr[@]+"${arr[@]}"}"` rather than `"${arr[@]}"`: under `set -u`, bash 3.2 - which is what stock
+# macOS ships as /bin/bash - treats an EMPTY array as unset and aborts with "unbound variable". bash 5
+# and CI's Ubuntu runner expand it to nothing, so this failed only on the machines the operators
+# actually use. Keep the guarded form on any array that can legitimately be empty.
+#
 # `--json` (the CLI's alias for --format=json) so the answer is parsed, not read off a pretty table
 # whose wording is free to change. It splits the streams too: stdout carries only the estimate object,
 # while logs and errors go to stderr, so the two are captured apart rather than through 2>&1.
@@ -166,9 +171,9 @@ out="$(ccip-cli send \
     --source "$SOURCE_CHAIN" --dest "$DEST_CHAIN" \
     --router "$router" --receiver "$RECEIVER" \
     --transfer-tokens "$token=$amount_human" \
-    --rpcs "${rpcs[@]}" \
+    --rpcs "${rpcs[@]+"${rpcs[@]}"}" \
     --only-estimate --estimate-gas-limit 0 --no-interactive --json \
-    "${sender_args[@]}" 2> "$_err")"
+    "${sender_args[@]+"${sender_args[@]}"}" 2> "$_err")"
 rc=$?
 err="$(cat "$_err")"
 rm -f "$_err"

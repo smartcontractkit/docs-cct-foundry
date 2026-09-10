@@ -54,6 +54,15 @@ link to.
   pins no block, needs the chain's `rpcEnv` set in `.env` like any other target, and reports rather than
   verifies. See [the parameter-form measurements](../decisions/0002-eip-1898-fork-reads.md).
 
+<a id="bash-32-empty-array"></a>
+- **On stock macOS an empty array is an "unbound variable".** `/bin/bash` there is 3.2, which under
+  `set -u` treats `"${arr[@]}"` on an EMPTY array as unset and aborts; bash 5 and CI's Ubuntu runner
+  expand it to nothing. It reached an operator as `make preflight` failing outright with
+  `sender_args[@]: unbound variable` while passing everywhere it was tested. Write
+  `"${arr[@]+"${arr[@]}"}"` for any array that can legitimately be empty, or mark the line
+  `# bash32-ok:` with the reason it cannot be. `test-tooling.sh` sweeps for this statically, because a
+  runtime check would pass on CI and on any machine whose PATH `bash` is newer than `/bin/bash`.
+
 <a id="pool-version-pinned"></a>
 - **Pool version is pinned to 2.0.0 in the deploy path.** Migration coexistence is not reachable through
   the deploy scripts; the migration guide points at the fixture instead.
