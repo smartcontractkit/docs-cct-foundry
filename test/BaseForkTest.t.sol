@@ -89,6 +89,16 @@ abstract contract BaseForkTest is Test {
     /// every suite computes the same address, this one is safe because zero is indistinguishable from
     /// unset to every other reader - so pinning it process-wide changes no other suite's resolution.
     ///
+    /// That holds only while this suite is the ONLY writer of the bare key: a second suite writing a
+    /// NON-zero `POOL_HOOKS` races this pin in both directions, since `vm.setEnv` mutates the whole
+    /// forge process environment and forge runs suites in parallel. `IsAllowListedReadFailure` used to
+    /// be that second writer (a freshly deployed mock), turning roughly one full `forge test` in three
+    /// red - either the fixture inherited the mock, or the allowlist suite read the zero. It now drives
+    /// `IsAllowListed.runWith(address,address)` directly and writes no environment at all, which is the
+    /// convention for handing a script its inputs from a test. Keep it that way: cover a script's env
+    /// resolution through a chain-scoped `{CHAIN}_...` var on a scratch chain (as
+    /// `RegistryResolutionExtrasTest` does), never through the bare alias.
+    ///
     /// Without the pin, a store recording a `poolHooks` address builds the fixture pool around it and
     /// the roles tests fail against the roles engine instead. Whether it has CODE is irrelevant - a
     /// deployed contract that answers none of the five hooks getters fails identically to a codeless

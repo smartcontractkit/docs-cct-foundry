@@ -15,18 +15,38 @@ import {AdvancedPoolHooks} from "@chainlink/contracts-ccip/contracts/pools/Advan
 contract IsAllowListed is Script {
     HelperConfig public helperConfig;
 
+    /// @dev The env-reading entrypoint: resolves the two inputs and hands them to `runWith` below,
+    /// which carries all the behaviour. Tests drive `runWith` directly rather than exporting
+    /// POOL_HOOKS, because `vm.setEnv` writes the whole forge PROCESS environment and forge runs
+    /// suites in parallel (see the note above `BaseForkTest.deployTokenAndPoolFixture`).
+    ///
+    /// `runWith` rather than an overloaded `run`: `forge script <path>` with no `--sig` refuses a
+    /// contract whose ABI holds two `run` entries ("Multiple functions with the same name `run`
+    /// found in the ABI") - an overload would break every documented invocation of this script. No
+    /// script in this repo overloads `run`; the parameterised ones (`AdoptToken.run(string,address,
+    /// address)` and its `runNonEvm` sibling) are distinct names driven with `--sig`.
     function run() external {
         helperConfig = new HelperConfig();
+        // POOL_HOOKS alias > {CHAIN}_POOL_HOOKS > registry active.poolHooks (no manual export needed).
+        address hooksAddress = vm.envOr("POOL_HOOKS", helperConfig.getDeployedPoolHooks(block.chainid));
+        runWith(hooksAddress, vm.envAddress("CHECK_ADDRESS"));
+    }
+
+    /// @notice Reports whether `checkAddress` is allowlisted by the `AdvancedPoolHooks` at
+    /// `hooksAddress`, refusing to answer at all when the underlying read does not answer.
+    /// Drive it directly with `--sig "runWith(address,address)" <hooks> <address>` to bypass the
+    /// environment entirely.
+    function runWith(address hooksAddress, address checkAddress) public {
+        if (address(helperConfig) == address(0)) {
+            helperConfig = new HelperConfig();
+        }
         uint256 chainId = block.chainid;
         string memory chainName = helperConfig.getChainName(chainId);
 
-        // POOL_HOOKS alias > {CHAIN}_POOL_HOOKS > registry active.poolHooks (no manual export needed).
-        address hooksAddress = vm.envOr("POOL_HOOKS", helperConfig.getDeployedPoolHooks(chainId));
         require(
             hooksAddress != address(0),
             "Pool hooks not deployed. Set POOL_HOOKS or the {CHAIN}_POOL_HOOKS environment variable."
         );
-        address checkAddress = vm.envAddress("CHECK_ADDRESS");
 
         console.log("");
         console.log("========================================");
