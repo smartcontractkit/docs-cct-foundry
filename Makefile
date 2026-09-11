@@ -204,10 +204,13 @@ fmt-config: tools ## Repair canonical JSON: config/chains/*.json (jq -S + traili
 
 # Explicit patterns only - NEVER `git clean -X` here: the user's REAL project/history state is
 # gitignored by design, so an ignore-based sweep would delete live project files along with scratch.
-clean-scratch: ## Remove gitignored test-scratch fixtures (zz-scratch-*, zz-tt-*, local-*) from config/chains/, project/ and history/
+# `batches/` holds the operator's OWN run artifacts under the same action-shaped names the suite uses,
+# so only the `zz-scratch-` prefix is swept there - never the bare action names.
+clean-scratch: ## Remove gitignored test-scratch fixtures (zz-scratch-*, zz-tt-*, local-*) from config/chains/, project/, history/ and batches/
 	@rm -f $(CONFIG_DIR)/zz-scratch-*.json project/zz-scratch-*.json project/local-*.json
 	@rm -rf project/zz-scratch-*/ project/zz-tt-*/ history/*/zz-scratch-*
-	@echo "clean-scratch: removed test-scratch fixtures from $(CONFIG_DIR)/, project/ and history/"
+	@rm -f batches/zz-scratch-*.json
+	@echo "clean-scratch: removed test-scratch fixtures from $(CONFIG_DIR)/, project/, history/ and batches/"
 
 sync-check: tools ## Read-only drift check (CHAIN= optional; pass/fail only - CI uses the script for 0/1/2)
 	@bash script/config/sync-check.sh $(CHAIN)

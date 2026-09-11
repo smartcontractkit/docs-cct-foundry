@@ -13,6 +13,7 @@ import {ISafe} from "../../src/base/ISafe.sol";
 import {SafeBatchEmitter} from "../../src/base/SafeBatchEmitter.sol";
 import {SafeBatchLoader} from "../../src/base/SafeBatchLoader.sol";
 import {SafeMode} from "../../src/base/SafeMode.sol";
+import {BatchScratch} from "../utils/BatchScratch.sol";
 
 /// @notice Proofs for composing independently emitted Safe batches into ONE meta-transaction.
 ///         - The loader is the emitter's exact inverse (round-trip byte equality over the catalog).
@@ -96,11 +97,13 @@ contract ExecuteBatchForkTest is BaseForkTest {
         CctActions.Call[] memory lane = CctActions._applyChainUpdates(pool, removes, updates);
 
         string[] memory paths = new string[](3);
-        paths[0] = SafeMode._emitBatch("p311-merge-pair", address(safe), pair);
-        paths[1] = SafeMode._emitBatch("p311-merge-setpool", address(safe), setPoolCall);
-        paths[2] = SafeMode._emitBatch("p311-merge-lane", address(safe), lane);
+        paths[0] = BatchScratch.emitBatch("p311-merge-pair", address(safe), pair);
+        paths[1] = BatchScratch.emitBatch("p311-merge-setpool", address(safe), setPoolCall);
+        paths[2] = BatchScratch.emitBatch("p311-merge-lane", address(safe), lane);
 
         CctActions.Call[] memory merged = SafeBatchLoader._loadMany(paths, block.chainid, address(safe));
+        // Swept once loaded, BEFORE the first assert: a failing assert must not strand the artifacts.
+        BatchScratch.cleanAll(paths);
         CctActions.Call[] memory expected = CctActions._concat(CctActions._concat(pair, setPoolCall), lane);
 
         assertEq(merged.length, expected.length, "merged call count mismatch");
@@ -140,19 +143,21 @@ contract ExecuteBatchForkTest is BaseForkTest {
         TokenPool(pool).transferOwnership(address(safe));
 
         string[] memory paths = new string[](4);
-        paths[0] = SafeMode._emitBatch("p311-full-accept-own", address(safe), CctActions._acceptOwnership(pool));
-        paths[1] = SafeMode._emitBatch(
+        paths[0] = BatchScratch.emitBatch("p311-full-accept-own", address(safe), CctActions._acceptOwnership(pool));
+        paths[1] = BatchScratch.emitBatch(
             "p311-full-pair",
             address(safe),
             CctActions._registerAndAcceptAdminViaGetCCIPAdmin(registryModule, address(registry), token)
         );
-        paths[2] = SafeMode._emitBatch(
+        paths[2] = BatchScratch.emitBatch(
             "p311-full-setpool", address(safe), CctActions._setPool(address(registry), token, pool)
         );
-        paths[3] =
-            SafeMode._emitBatch("p311-full-lane", address(safe), CctActions._applyChainUpdates(pool, removes, updates));
+        paths[3] = BatchScratch.emitBatch(
+            "p311-full-lane", address(safe), CctActions._applyChainUpdates(pool, removes, updates)
+        );
 
         CctActions.Call[] memory merged = SafeBatchLoader._loadMany(paths, block.chainid, address(safe));
+        BatchScratch.cleanAll(paths);
         assertEq(merged.length, 5, "full setup must merge to five calls");
 
         uint256 nonceBefore = safe.nonce();
@@ -173,13 +178,14 @@ contract ExecuteBatchForkTest is BaseForkTest {
         CrossChainToken(token).setCCIPAdmin(address(safe));
 
         string[] memory paths = new string[](2);
-        paths[0] = SafeMode._emitBatch(
+        paths[0] = BatchScratch.emitBatch(
             "p311-rev-accept", address(safe), CctActions._acceptAdminRole(address(registry), token)
         );
-        paths[1] = SafeMode._emitBatch(
+        paths[1] = BatchScratch.emitBatch(
             "p311-rev-claim", address(safe), CctActions._registerAdminViaGetCCIPAdmin(registryModule, token)
         );
         CctActions.Call[] memory merged = SafeBatchLoader._loadMany(paths, block.chainid, address(safe));
+        BatchScratch.cleanAll(paths);
 
         // expectRevert arms the next EXTERNAL call, so the internal library path goes through a shim.
         vm.expectRevert(bytes("GS013"));
@@ -194,28 +200,40 @@ contract ExecuteBatchForkTest is BaseForkTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     function test_Loader_RejectsChainIdMismatch() public {
-        string memory path = "batches/p311-wrong-chain.json";
-        SafeBatchEmitter._write(
-            path, block.chainid + 1, address(safe), "p311-wrong-chain", "test", CctActions._acceptOwnership(pool)
-        );
-        vm.expectRevert();
-        this.loadAndValidateExternal(path, block.chainid, address(safe));
+        string memory name = BatchScratch.name("p311-wrong-chain");
+        string memory path = string.concat("batches/", name, ".json");
+        SafeBatchEmitter._write(path, block.chainid + 1, address(safe), name, "test", CctActions._acceptOwnership(pool));
+        _assertRejectedThenSweep(path, "a chain-id mismatch must be rejected");
     }
 
     function test_Loader_RejectsForeignSafe() public {
-        string memory path = SafeMode._emitBatch("p311-foreign-safe", deployer, CctActions._acceptOwnership(pool));
-        vm.expectRevert();
-        this.loadAndValidateExternal(path, block.chainid, address(safe));
+        string memory path = BatchScratch.emitBatch("p311-foreign-safe", deployer, CctActions._acceptOwnership(pool));
+        _assertRejectedThenSweep(path, "a foreign Safe must be rejected");
     }
 
     function test_Loader_RejectsEmptyBatch() public {
-        string memory path = "batches/p311-empty.json";
-        SafeBatchEmitter._write(path, block.chainid, address(safe), "p311-empty", "test", new CctActions.Call[](0));
-        vm.expectRevert();
-        this.loadAndValidateExternal(path, block.chainid, address(safe));
+        string memory name = BatchScratch.name("p311-empty");
+        string memory path = string.concat("batches/", name, ".json");
+        SafeBatchEmitter._write(path, block.chainid, address(safe), name, "test", new CctActions.Call[](0));
+        _assertRejectedThenSweep(path, "an empty batch must be rejected");
     }
 
-    /// @dev external shim so expectRevert applies to the library call.
+    /// @dev Asserts the loader REJECTS `path`, then sweeps the batch. `vm.expectRevert` cannot be used
+    ///      here: its own verdict fires on the armed call, so nothing after it runs on the failing
+    ///      path and the artifact would be stranded. Catching the revert explicitly is the same
+    ///      assertion (any revert, from the same external shim) with the sweep ordered before it.
+    function _assertRejectedThenSweep(string memory path, string memory reason) internal {
+        bool rejected;
+        try this.loadAndValidateExternal(path, block.chainid, address(safe)) returns (CctActions.Call[] memory) {
+            rejected = false;
+        } catch {
+            rejected = true;
+        }
+        BatchScratch.clean(path);
+        assertTrue(rejected, reason);
+    }
+
+    /// @dev external shim so the internal library call's revert is catchable (try/catch above).
     function loadAndValidateExternal(string memory path, uint256 chainId, address expectedSafe)
         external
         view
@@ -282,8 +300,10 @@ contract ExecuteBatchForkTest is BaseForkTest {
     // ─────────────────────────────────────────────────────────────────────────
 
     function _assertRoundTrip(string memory name, CctActions.Call[] memory calls) internal {
-        string memory path = SafeMode._emitBatch(name, address(safe), calls);
+        string memory path = BatchScratch.emitBatch(name, address(safe), calls);
         (uint256 chainId, address batchSafe, CctActions.Call[] memory loaded) = SafeBatchLoader._load(path);
+        // Swept once loaded, BEFORE the first assert: a failing assert must not strand the artifact.
+        BatchScratch.clean(path);
         assertEq(chainId, block.chainid, string.concat(name, ": chainId mismatch"));
         assertEq(batchSafe, address(safe), string.concat(name, ": safe mismatch"));
         assertEq(loaded.length, calls.length, string.concat(name, ": call count mismatch"));

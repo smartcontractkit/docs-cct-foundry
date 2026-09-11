@@ -28,6 +28,7 @@ import {RolesAuditor} from "../../src/roles/RolesAuditor.sol";
 import {ISafe} from "../../src/base/ISafe.sol";
 import {SafeBatchLoader} from "../../src/base/SafeBatchLoader.sol";
 import {SafeMode} from "../../src/base/SafeMode.sol";
+import {BatchScratch} from "../utils/BatchScratch.sol";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Script harnesses: pin the token / role / holder / admin inputs via the virtual
@@ -416,18 +417,20 @@ contract RolesHandoffForkTest is RolesHandoffBase {
         // advances blocks between A and B anyway).
         vm.warp(block.timestamp + 1);
         string[] memory paths = new string[](3);
-        paths[0] = SafeMode._emitBatch(
+        paths[0] = BatchScratch.emitBatch(
             string.concat("handoff-", tag, "-b-accept-admin"), safeAddr, CctActions._acceptDefaultAdminTransfer(token)
         );
-        paths[1] = SafeMode._emitBatch(
+        paths[1] = BatchScratch.emitBatch(
             string.concat("handoff-", tag, "-b-accept-tar"),
             safeAddr,
             CctActions._acceptAdminRole(address(registry), token)
         );
-        paths[2] = SafeMode._emitBatch(
+        paths[2] = BatchScratch.emitBatch(
             string.concat("handoff-", tag, "-b-accept-pool"), safeAddr, CctActions._acceptOwnership(pool)
         );
         CctActions.Call[] memory merged = SafeBatchLoader._loadMany(paths, block.chainid, safeAddr);
+        // Swept once loaded, BEFORE the execution that may revert - the batches are test output.
+        BatchScratch.cleanAll(paths);
         SafeMode._execDirect(safe, merged);
     }
 
@@ -444,8 +447,10 @@ contract RolesHandoffForkTest is RolesHandoffBase {
     /// @dev Step C - the Safe's atomic revoke batch, LAST, only after the gate passed.
     function _stepC(string memory tag) internal {
         string[] memory paths = new string[](1);
-        paths[0] = SafeMode._emitBatch(string.concat("handoff-", tag, "-c-revokes"), safeAddr, _stepCCalls());
-        SafeMode._execDirect(safe, SafeBatchLoader._loadMany(paths, block.chainid, safeAddr));
+        paths[0] = BatchScratch.emitBatch(string.concat("handoff-", tag, "-c-revokes"), safeAddr, _stepCCalls());
+        CctActions.Call[] memory merged = SafeBatchLoader._loadMany(paths, block.chainid, safeAddr);
+        BatchScratch.cleanAll(paths);
+        SafeMode._execDirect(safe, merged);
     }
 
     function _fullCeremony(string memory tag) internal {
@@ -1004,18 +1009,21 @@ contract RolesHandoffLockboxHooksForkTest is RolesHandoffBase {
     /// @dev `tag` keeps batch filenames unique per test - forge runs a suite's tests in parallel.
     function _stepB(string memory tag) internal {
         string[] memory paths = new string[](3);
-        paths[0] = SafeMode._emitBatch(
+        paths[0] = BatchScratch.emitBatch(
             string.concat("lbhandoff-", tag, "-b-accept-pool"), safeAddr, CctActions._acceptOwnership(address(pool))
         );
-        paths[1] = SafeMode._emitBatch(
+        paths[1] = BatchScratch.emitBatch(
             string.concat("lbhandoff-", tag, "-b-accept-lockbox"),
             safeAddr,
             CctActions._acceptOwnership(address(lockbox))
         );
-        paths[2] = SafeMode._emitBatch(
+        paths[2] = BatchScratch.emitBatch(
             string.concat("lbhandoff-", tag, "-b-accept-hooks"), safeAddr, CctActions._acceptOwnership(address(hooks))
         );
-        SafeMode._execDirect(safe, SafeBatchLoader._loadMany(paths, block.chainid, safeAddr));
+        CctActions.Call[] memory merged = SafeBatchLoader._loadMany(paths, block.chainid, safeAddr);
+        // Swept once loaded, BEFORE the execution that may revert - the batches are test output.
+        BatchScratch.cleanAll(paths);
+        SafeMode._execDirect(safe, merged);
     }
 
     function _stepC(string memory tag) internal {
@@ -1026,8 +1034,10 @@ contract RolesHandoffLockboxHooksForkTest is RolesHandoffBase {
             CctActions._applyAuthorizedCallerUpdates(address(hooks), new address[](0), removes)
         );
         string[] memory paths = new string[](1);
-        paths[0] = SafeMode._emitBatch(string.concat("lbhandoff-", tag, "-c-callers"), safeAddr, calls);
-        SafeMode._execDirect(safe, SafeBatchLoader._loadMany(paths, block.chainid, safeAddr));
+        paths[0] = BatchScratch.emitBatch(string.concat("lbhandoff-", tag, "-c-callers"), safeAddr, calls);
+        CctActions.Call[] memory merged = SafeBatchLoader._loadMany(paths, block.chainid, safeAddr);
+        BatchScratch.cleanAll(paths);
+        SafeMode._execDirect(safe, merged);
     }
 
     /// @dev The token's own handoff (this fixture's ceremony covers the lockbox/hooks rows; the deny

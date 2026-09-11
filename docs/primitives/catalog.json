@@ -1063,7 +1063,7 @@
     },
     {
       "target": "clean-scratch",
-      "help": "Remove gitignored test-scratch fixtures (zz-scratch-*, zz-tt-*, local-*) from config/chains/, project/ and history/"
+      "help": "Remove gitignored test-scratch fixtures (zz-scratch-*, zz-tt-*, local-*) from config/chains/, project/, history/ and batches/"
     },
     {
       "target": "sync-check",

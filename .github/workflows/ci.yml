@@ -117,14 +117,30 @@ jobs:
       - run: forge test -vv
         env:
           ETHEREUM_SEPOLIA_RPC_URL: ${{ secrets.ETHEREUM_SEPOLIA_RPC_URL }}
-      # A green suite must strand NOTHING in the stores, whatever the filename - tracked, untracked,
-      # or gitignored (a fresh checkout starts with these paths clean, so any entry is test residue).
+      # The suite must strand NOTHING in the stores, whatever the filename - tracked, untracked, or
+      # gitignored. `batches/` is in scope and is checked WHOLESALE: it is an accumulate-and-keep
+      # store of the operator's local run artifacts, and the suite emits batches under operator-shaped
+      # action names (`mint`, `accept-ownership`, ...) that no name pattern can tell apart from a real
+      # one, so the check is by inventory rather than by name. Note this is an ABSOLUTE-EMPTINESS
+      # check, not an inventory DIFF: it asserts these paths are clean, which holds in CI because a
+      # checkout starts that way (`batches/` holding only the committed example). On a developer
+      # machine with real operator batches or live project state it will flag them, so it is not
+      # runnable as-is there - compare against your own pre-run inventory instead.
+      # The tests both prefix their batches `zz-scratch-` and sweep them (test/utils/BatchScratch.sol),
+      # so a missed sweep is caught whatever it was called.
+      #
+      # `if: always()` because the residue this most needs to catch is the residue a FAILING run
+      # leaves: the sweeps are ordered before the asserts but not before a revert, so a revert inside
+      # a step between emit and sweep strands the batch. Under the default `success()` that is exactly
+      # the case the gate would stay silent about. It still exits non-zero on residue, so it fails the
+      # job on its own - `always()` does not make it advisory.
       - name: no test residue (any filename)
+        if: always()
         run: |
-          residue="$(git status --porcelain --ignored -- config/chains project history)"
+          residue="$(git status --porcelain --ignored -- config/chains project history batches)"
           if [ -n "$residue" ]; then
             echo "$residue"
-            echo "test residue: a green forge test must leave the store inventory unchanged"
+            echo "test residue: a forge test run must leave the store inventory unchanged"
             exit 1
           fi
 
@@ -152,7 +168,11 @@ jobs:
       # Every committed config/chains + project file must already be in its exact canonical form
       # (config: jq -S + trailing newline; project: jq -S, no trailing newline). A hand edit in the
       # wrong form otherwise surfaces later as a phantom diff on the next sync/deploy.
+      # Also `always()`: this is a tree-state check, and a test-tooling.sh run that aborts mid-case is
+      # precisely when a fixture can be left behind in a non-canonical form. Exits non-zero via
+      # `git diff --exit-code`, so it still fails the job.
       - name: canonical form (fmt-config is a no-op on a clean tree)
+        if: always()
         run: |
           make fmt-config
           git diff --exit-code -- config/chains project
