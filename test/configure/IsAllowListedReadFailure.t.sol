@@ -58,32 +58,40 @@ contract IsAllowListedReadFailureTest is Test {
     address internal constant SENDER = address(0xBEEF);
     uint256 internal constant SEPOLIA_CHAIN_ID = 11155111;
 
+    /// @dev The inputs go through the parameterised `runWith(address,address)` rather than
+    /// `POOL_HOOKS` / `CHECK_ADDRESS`. `vm.setEnv` mutates the whole forge PROCESS environment and
+    /// forge runs suites in parallel, so writing a non-zero `POOL_HOOKS` here would race every
+    /// fixture built by `BaseForkTest` (which pins the same key to zero) - the mock would leak into
+    /// another suite's pool. The resolution `run()` performs is covered without a
+    /// process-wide write by `RegistryResolutionExtrasTest` in `test/config/RegistryResolution.t.sol`,
+    /// on a scratch chain no other suite touches; its natspec records why the bare-alias rung is
+    /// asserted nowhere.
     function setUp() public {
         // No fork needed: nothing here reads chain state. The id only has to be one HelperConfig
         // recognises, so the script gets past its network lookup and reaches the allowlist read.
         vm.chainId(SEPOLIA_CHAIN_ID);
         script = new IsAllowListed();
-        vm.setEnv("CHECK_ADDRESS", vm.toString(SENDER));
     }
 
     /// A real SenderNotAllowed IS the answer: the script reports it and exits cleanly.
     function test_senderNotAllowed_isAVerdict() public {
-        vm.setEnv("POOL_HOOKS", vm.toString(address(new MockHooksNotAllowed())));
-        script.run();
+        script.runWith(address(new MockHooksNotAllowed()), SENDER);
     }
 
     /// A revert with EMPTY data is not an answer either. bytes4("") is 0x00000000, which must not be
     /// read as a selector match - an out-of-gas would otherwise report a definite "not allowlisted".
+    /// @dev The mock is deployed BEFORE `expectRevert`: the cheatcode arms the very NEXT call, and a
+    /// `new` in argument position would consume it.
     function test_emptyRevertData_refusesRatherThanMatchingASelector() public {
-        vm.setEnv("POOL_HOOKS", vm.toString(address(new MockHooksEmptyRevert())));
+        address hooks = address(new MockHooksEmptyRevert());
         vm.expectRevert(bytes("checkAllowList() did not answer - membership is UNKNOWN, not negative"));
-        script.run();
+        script.runWith(hooks, SENDER);
     }
 
     /// Any other revert is NOT an answer, and must not be reported as one.
     function test_unreadableCheck_refusesRatherThanReportingNotAllowlisted() public {
-        vm.setEnv("POOL_HOOKS", vm.toString(address(new MockHooksUnreadable())));
+        address hooks = address(new MockHooksUnreadable());
         vm.expectRevert(bytes("checkAllowList() did not answer - membership is UNKNOWN, not negative"));
-        script.run();
+        script.runWith(hooks, SENDER);
     }
 }
