@@ -1443,6 +1443,12 @@ run_case "doctor lanes rung prints its SKIP without an RPC (run INCOMPLETE)" non
     "lanes: on-chain reconciliation needs an RPC" -- \
     env FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN"
 
+# 28c. same for the ON-CHAIN rung (code at the ccip{} addresses). It used to return silently without a
+#      fork, so the verdict counted a rung that printed nothing at all.
+run_case "doctor on-chain rung prints its SKIP without an RPC (run INCOMPLETE)" nonzero \
+    "\[SKIP\] UNVERIFIED on-chain: code checks need an RPC" -- \
+    env FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" "$TMP_CHAIN"
+
 # 29. BOTH=1 writes the reciprocal entry on the remote's file in the same invocation
 rm_fixture_config "$TMP_FILE" "$TMP_FILE_B"
 python3 -c "

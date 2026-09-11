@@ -423,7 +423,8 @@ contract VerifyChain is Script {
         if (isEvm) {
             _checkApi(name, json);
             bool rpcOk = _checkRpc(json);
-            if (rpcOk) _checkOnChainCode(name, json);
+            // Called unconditionally: the rung self-gates on the fork so a failed RPC still gets a line.
+            _checkOnChainCode(name, json);
             _checkRegistryAndExtras(name, json);
             _checkMesh(name, json, projectJson);
             _checkLanesOnChain(name, json, projectJson);
@@ -869,7 +870,12 @@ contract VerifyChain is Script {
 
     // ---------------------------------------------------------------- 5. ON-CHAIN
     function _checkOnChainCode(string memory name, string memory json) private {
-        if (!s_forked) return;
+        if (!s_forked) {
+            _skipUnverified(
+                "on-chain: code checks need an RPC (no fork) - router/rmnProxy/tokenAdminRegistry/registryModuleOwnerCustom/link not read"
+            );
+            return;
+        }
         string[5] memory keys = ["router", "rmnProxy", "tokenAdminRegistry", "registryModuleOwnerCustom", "link"];
         uint256 bad = 0;
         for (uint256 i = 0; i < keys.length; i++) {
@@ -1456,11 +1462,12 @@ contract VerifyChain is Script {
         return s_skips;
     }
 
-    /// @notice Test hook: drives the three RPC-gated rungs in their no-fork state and returns the
+    /// @notice Test hook: drives the four RPC-gated rungs in their no-fork state and returns the
     /// unverified-gap count, so each counted site is pinned individually (a regression demoting one
     /// back to a designed skip fails this). `rolesJson` must declare `.roles.token` so the roles rung
     /// reaches its RPC gate rather than the designed no-roles skip. Not used by any production path.
     function rpcGatedSkipsForTest(string memory rolesJson) public returns (uint256 skipsOut) {
+        _checkOnChainCode("zz-tt-rpcgaps", "{}");
         _reconcilePoolWithTar(address(1), address(1), address(1));
         _checkRoles("zz-tt-rpcgaps", rolesJson, false);
         _checkLanesOnChain("zz-tt-rpcgaps", "", "{}");
@@ -1473,6 +1480,13 @@ contract VerifyChain is Script {
     function nonEvmRungSkipsForTest() public returns (uint256 skipsOut) {
         _skipNonEvmRungs();
         return s_skips;
+    }
+    
+    /// @notice Test hook: runs the on-chain rung with no fork and then the verdict, so a test can
+    /// prove that rung reports its gap instead of vanishing. Not used by any production path.
+    function onChainNoForkVerdictForTest(string memory name) public {
+        _checkOnChainCode(name, "{}");
+        _verdict(name);
     }
 
     /// @notice Test hook: seeds the outcome counters and runs `_verdict`, so the three-outcome
