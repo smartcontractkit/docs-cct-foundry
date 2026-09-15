@@ -73,7 +73,17 @@ contract VerifyChainVerdictTest is Test {
     function test_RpcGatedRungs_EachCountsOneUnverifiedGap() public {
         uint256 skips = new VerifyChain()
             .rpcGatedSkipsForTest('{"roles":{"token":{"address":"0x0000000000000000000000000000000000000001"}}}');
-        assertEq(skips, 3, "registry TAR, roles, and lanes each count one unverified gap without an RPC");
+        assertEq(skips, 4, "on-chain, registry TAR, roles, and lanes each count one gap without an RPC");
+    }
+
+    /// @dev The on-chain rung used to return silently with no fork, so a run that read nothing on-chain
+    ///      still exited clean. It must report the gap and take the verdict to INCOMPLETE.
+    function test_OnChainRung_WithoutFork_IsIncompleteNotSilent() public {
+        try new VerifyChain().onChainNoForkVerdictForTest(NAME) {
+            assertTrue(false, "an unforked on-chain rung must not exit clean");
+        } catch Error(string memory reason) {
+            _assertContains(reason, string.concat("check-chain INCOMPLETE for ", NAME));
+        }
     }
 
     function _assertContains(string memory haystack, string memory needle) internal pure {
