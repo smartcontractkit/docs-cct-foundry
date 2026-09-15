@@ -2879,6 +2879,201 @@ JSON
     fi
 fi
 
+# ---------------------------------------------------------------- Makefile family guards (offline)
+# 33. The targets that FORK a chain refuse a non-EVM chainFamily before forge is handed an endpoint.
+#     Before this, `make deploy-token CHAIN=<a solana chain>` with the RPC set sent eth_chainId to a
+#     Solana node and died on `error code -32601: Method not found`.
+#     Every case binds its own fixture and asserts an exit code, so deleting a guard fails a case.
+#     deploy-new-chain is covered transitively: it is a $(MAKE) chain through deploy-token.
+if offline_enabled; then
+    FAM_SVM="zz-scratch-fam-svm"
+    FAM_EVM="zz-scratch-fam-evm"
+    FAM_NOKEY="zz-scratch-fam-nokey"
+    FAM_BROKEN="zz-scratch-fam-broken"
+    FAM_APTOS="zz-scratch-fam-aptos"
+    FAM_UPPER="zz-scratch-fam-upper"
+    FAM_PAD="zz-scratch-fam-pad"
+    jq --indent 2 -S '.name = "'"$FAM_SVM"'" | .chainNameIdentifier = "ZZ_SCRATCH_FAM_SVM"
+        | .rpcEnv = "ZZ_SCRATCH_FAM_SVM_RPC_URL" | .chainSelector = "9932100000000000021"' \
+        config/chains/solana-devnet.json > "config/chains/$FAM_SVM.json"
+    jq --indent 2 -S '.name = "'"$FAM_EVM"'" | .chainNameIdentifier = "ZZ_SCRATCH_FAM_EVM"
+        | .rpcEnv = "ZZ_SCRATCH_FAM_EVM_RPC_URL" | .chainSelector = "9932100000000000022"' \
+        config/chains/ethereum-testnet-sepolia.json > "config/chains/$FAM_EVM.json"
+    # A config that declares NO chainFamily: the resolver reads absence as evm, so a schema gap never
+    # becomes a family refusal - it stays the doctor's schema rung to report.
+    jq --indent 2 -S 'del(.chainFamily) | .name = "'"$FAM_NOKEY"'"
+        | .chainNameIdentifier = "ZZ_SCRATCH_FAM_NOKEY" | .rpcEnv = "ZZ_SCRATCH_FAM_NOKEY_RPC_URL"
+        | .chainSelector = "9932100000000000023"' \
+        config/chains/ethereum-testnet-sepolia.json > "config/chains/$FAM_NOKEY.json"
+    # A family that is neither evm nor svm: the guard must key on "is it evm", not "is it svm".
+    # aptos ships in config/chains and ChainHandlers supports it.
+    jq --indent 2 -S '.name = "'"$FAM_APTOS"'" | .chainNameIdentifier = "ZZ_SCRATCH_FAM_APTOS"
+        | .rpcEnv = "ZZ_SCRATCH_FAM_APTOS_RPC_URL" | .chainSelector = "9932100000000000024"' \
+        config/chains/aptos-testnet.json > "config/chains/$FAM_APTOS.json"
+    # Declarations the resolver must normalize: a refusal here would be fail-CLOSED, blocking an EVM
+    # chain whose path works. One fixture per transform so dropping either is named.
+    jq --indent 2 -S '.chainFamily = "EVM" | .name = "'"$FAM_UPPER"'"
+        | .chainNameIdentifier = "ZZ_SCRATCH_FAM_UPPER" | .rpcEnv = "ZZ_SCRATCH_FAM_UPPER_RPC_URL"
+        | .chainSelector = "9932100000000000025"' \
+        config/chains/ethereum-testnet-sepolia.json > "config/chains/$FAM_UPPER.json"
+    jq --indent 2 -S '.chainFamily = " evm\t" | .name = "'"$FAM_PAD"'"
+        | .chainNameIdentifier = "ZZ_SCRATCH_FAM_PAD" | .rpcEnv = "ZZ_SCRATCH_FAM_PAD_RPC_URL"
+        | .chainSelector = "9932100000000000026"' \
+        config/chains/ethereum-testnet-sepolia.json > "config/chains/$FAM_PAD.json"
+
+    # 33a. chain-family.sh - the one resolver every caller uses, including its fail-open cases.
+    printf '{not json' > "config/chains/$FAM_BROKEN.json"
+    fam_ok=1
+    fam_detail=""
+    for pair in "$FAM_SVM:svm" "$FAM_APTOS:aptos" "$FAM_EVM:evm" "$FAM_UPPER:evm" "$FAM_PAD:evm" \
+        "$FAM_NOKEY:evm" "$FAM_BROKEN:evm" "doesnotexist:evm" ":evm"; do
+        got="$(bash script/config/chain-family.sh "${pair%%:*}")"
+        [ "$got" = "${pair##*:}" ] || { fam_ok=0; fam_detail="$fam_detail ${pair%%:*}=>$got"; }
+    done
+    rm_fixture_config "config/chains/$FAM_BROKEN.json"
+    if [ $fam_ok -eq 1 ]; then
+        pass=$((pass + 1))
+        echo "[PASS] chain-family.sh: svm and aptos read through; case and padding normalize; unknown, absent and unparseable fail open to evm"
+    else
+        fail=$((fail + 1))
+        failures+=("chain-family.sh resolver")
+        echo "[FAIL] chain-family.sh resolver ($fam_detail)"
+    fi
+
+    # 33b. the deploy path, with the RPC and keystore BOUND so the guard is demonstrably what stops
+    #      the run - without it this reaches forge and dies on the endpoint instead.
+    run_case "deploy-token refuses a non-EVM chain by family" nonzero \
+        "deploy-token: $FAM_SVM is chainFamily 'svm' - this target is EVM-only" -- \
+        env ZZ_SCRATCH_FAM_SVM_RPC_URL="http://127.0.0.1:1" KEYSTORE_NAME="zz-scratch-fam-none" \
+        make deploy-token CHAIN="$FAM_SVM"
+    run_case "deploy-token's refusal names the adopt path" nonzero \
+        "make adopt-token CHAIN=$FAM_SVM TOKEN_B58=" -- \
+        env ZZ_SCRATCH_FAM_SVM_RPC_URL="http://127.0.0.1:1" KEYSTORE_NAME="zz-scratch-fam-none" \
+        make deploy-token CHAIN="$FAM_SVM"
+    run_case "deploy-pool refuses a non-EVM chain by family" nonzero \
+        "deploy-pool: $FAM_SVM is chainFamily 'svm' - this target is EVM-only" -- \
+        env ZZ_SCRATCH_FAM_SVM_RPC_URL="http://127.0.0.1:1" KEYSTORE_NAME="zz-scratch-fam-none" \
+        make deploy-pool CHAIN="$FAM_SVM"
+    run_case "deploy-lockbox refuses a non-EVM chain by family" nonzero \
+        "deploy-lockbox: $FAM_SVM is chainFamily 'svm' - this target is EVM-only" -- \
+        env ZZ_SCRATCH_FAM_SVM_RPC_URL="http://127.0.0.1:1" KEYSTORE_NAME="zz-scratch-fam-none" \
+        make deploy-lockbox CHAIN="$FAM_SVM"
+    run_case "deploy-lockrelease-pool refuses a non-EVM chain by family" nonzero \
+        "deploy-lockrelease-pool: $FAM_SVM is chainFamily 'svm' - this target is EVM-only" -- \
+        env ZZ_SCRATCH_FAM_SVM_RPC_URL="http://127.0.0.1:1" KEYSTORE_NAME="zz-scratch-fam-none" \
+        make deploy-lockrelease-pool CHAIN="$FAM_SVM"
+    run_case "adopt-token TOKEN= on a non-EVM chain names the adopt path" nonzero \
+        "TOKEN= is an EVM address - pass this family's own form" -- \
+        env ZZ_SCRATCH_FAM_SVM_RPC_URL="http://127.0.0.1:1" KEYSTORE_NAME="zz-scratch-fam-none" \
+        make adopt-token CHAIN="$FAM_SVM" \
+        TOKEN=0x1111111111111111111111111111111111111111
+    # Not svm: the guard asks "is it evm", so every other family is refused the same way.
+    run_case "deploy-token refuses an aptos chain, not just svm" nonzero \
+        "deploy-token: $FAM_APTOS is chainFamily 'aptos' - this target is EVM-only" -- \
+        env ZZ_SCRATCH_FAM_APTOS_RPC_URL="http://127.0.0.1:1" KEYSTORE_NAME="zz-scratch-fam-none" \
+        make deploy-token CHAIN="$FAM_APTOS"
+
+    # 33c. no -32601: the whole point is that the refusal is a config answer, not a transport failure.
+    fam_out="$(env ZZ_SCRATCH_FAM_SVM_RPC_URL="https://api.devnet.solana.com" \
+        KEYSTORE_NAME="zz-scratch-fam-none" make deploy-token CHAIN="$FAM_SVM" 2>&1)"
+    fam_status=$?
+    if [ $fam_status -ne 0 ] && ! grep -q "32601" <<< "$fam_out" &&
+        ! grep -q "chain ID from fork endpoint" <<< "$fam_out"; then
+        pass=$((pass + 1))
+        echo "[PASS] the family refusal replaces the -32601 fork failure (real Solana endpoint bound)"
+    else
+        fail=$((fail + 1))
+        failures+=("family guard still reaches the endpoint")
+        echo "[FAIL] family guard still reaches the endpoint (exit=$fam_status)"
+        echo "$fam_out" | tail -6 | sed 's/^/       | /'
+    fi
+
+    # 33d. the family answer beats the RPC/keystore prerequisites: an operator with no endpoint set
+    #      should not be told to configure one for a chain that can never be deployed to.
+    fam_out="$(env -u ZZ_SCRATCH_FAM_SVM_RPC_URL -u KEYSTORE_NAME \
+        make deploy-token CHAIN="$FAM_SVM" 2>&1)"
+    fam_status=$?
+    if [ $fam_status -ne 0 ] && grep -q "this target is EVM-only" <<< "$fam_out" &&
+        ! grep -q "RPC URL not set" <<< "$fam_out"; then
+        pass=$((pass + 1))
+        echo "[PASS] the family refusal precedes the RPC/keystore prerequisites"
+    else
+        fail=$((fail + 1))
+        failures+=("family guard ordering")
+        echo "[FAIL] family guard ordering (exit=$fam_status)"
+        echo "$fam_out" | tail -6 | sed 's/^/       | /'
+    fi
+
+    # 33e. the non-EVM path that DOES exist is untouched: adopt-token TOKEN_B58= still records.
+    run_case "adopt-token TOKEN_B58= still works on a non-EVM chain" zero "$FAM_SVM" -- \
+        make adopt-token CHAIN="$FAM_SVM" TOKEN_B58="BPympxtoS3GZmNcGiTxqsH6kyRgKiS9QFjfviSLaqxRE"
+
+    # 33f. the EVM side is untouched. An evm chain AND a config with no chainFamily both walk past
+    #      the guard and fail for their own reason (no RPC), never by family.
+    fam_evm_ok=1
+    fam_detail=""
+    for c in "$FAM_EVM" "$FAM_NOKEY" "$FAM_UPPER" "$FAM_PAD"; do
+        fam_out="$(env -u ZZ_SCRATCH_FAM_EVM_RPC_URL -u ZZ_SCRATCH_FAM_NOKEY_RPC_URL \
+            -u ZZ_SCRATCH_FAM_UPPER_RPC_URL -u ZZ_SCRATCH_FAM_PAD_RPC_URL \
+            make deploy-token CHAIN="$c" 2>&1)"
+        grep -q "EVM-only" <<< "$fam_out" && { fam_evm_ok=0; fam_detail="$fam_detail $c:refused"; }
+        grep -q "RPC URL not set" <<< "$fam_out" || { fam_evm_ok=0; fam_detail="$fam_detail $c:no-rpc-msg"; }
+    done
+    if [ $fam_evm_ok -eq 1 ]; then
+        pass=$((pass + 1))
+        echo "[PASS] deploy-token is not family-refused on an evm chain, a chainFamily-less config, or a mixed-case/padded evm declaration"
+    else
+        fail=$((fail + 1))
+        failures+=("family guard hits an EVM chain")
+        echo "[FAIL] family guard hits an EVM chain, a chainFamily-less config or a normalizable evm declaration ($fam_detail)"
+    fi
+
+    # 33g. roles-check is a READ path: a named non-EVM chain SKIPs (exit 0). It used to reach forge
+    #      and be classified as ROLES_DRIFT - an absent surface reported as a verdict.
+    run_case "roles-check SKIPs a named non-EVM chain instead of failing" zero \
+        "$FAM_SVM: SKIP (non-EVM)" -- \
+        make roles-check CHAIN="$FAM_SVM"
+    # CI calls the script directly for the exit-code contract, so assert it there: all-SKIP is CLEAN
+    # (exit 0), where naming the chain used to return ROLES_DRIFT (exit 1).
+    run_case "roles-check exits CLEAN when every named chain SKIPped" zero \
+        "roles-check: CLEAN - nothing to reconcile" -- \
+        bash script/config/roles-check.sh "$FAM_SVM"
+
+    # 33h. `make tools`: the family-specific part hangs off the chain argument, so with no chain, and
+    #      on an EVM chain, the output is the single baseline line it has always been.
+    if offline_enabled; then
+        tools_ok=1
+        tools_detail=""
+        fam_bare="$(make tools 2>&1)"
+        [ "$fam_bare" = "tools: forge, curl and jq are all present" ] ||
+            { tools_ok=0; tools_detail="bare='$fam_bare'"; }
+        for arg in "CHAIN=$FAM_EVM" "LOCAL=$FAM_EVM" "CHAIN=$FAM_NOKEY" "CHAIN=doesnotexist"; do
+            fam_out="$(make tools "$arg" 2>&1)"
+            [ "$fam_out" = "$fam_bare" ] || { tools_ok=0; tools_detail="$tools_detail $arg='$fam_out'"; }
+        done
+        if [ $tools_ok -eq 1 ]; then
+            pass=$((pass + 1))
+            echo "[PASS] make tools is unchanged with no chain argument and on every EVM-resolving chain"
+        else
+            fail=$((fail + 1))
+            failures+=("make tools EVM output")
+            echo "[FAIL] make tools EVM output ($tools_detail)"
+        fi
+    fi
+    run_case "make tools names the family for a non-EVM chain and asks for nothing extra" zero \
+        "$FAM_SVM is chainFamily 'svm' - destination-only here, no extra toolchain required" -- \
+        make tools CHAIN="$FAM_SVM"
+    run_case "make tools reads the family from LOCAL for the lane targets" zero \
+        "$FAM_SVM is chainFamily 'svm' - destination-only here" -- \
+        make tools LOCAL="$FAM_SVM"
+
+    rm_fixture_config "config/chains/$FAM_SVM.json" "config/chains/$FAM_EVM.json" \
+        "config/chains/$FAM_NOKEY.json" "config/chains/$FAM_APTOS.json" \
+        "config/chains/$FAM_UPPER.json" "config/chains/$FAM_PAD.json"
+    rm -f "project/$FAM_SVM.json" "project/$FAM_EVM.json" "project/$FAM_NOKEY.json" \
+        "project/$FAM_APTOS.json" "project/$FAM_UPPER.json" "project/$FAM_PAD.json"
+fi
+
 assert_configs_intact
 
 echo ""

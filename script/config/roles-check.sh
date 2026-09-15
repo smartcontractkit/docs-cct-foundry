@@ -6,7 +6,8 @@
 # with its group. With no chain args it checks every EVM chain whose group project store
 # (project/[<group>/]<name>.json) DECLARES a roles{} block (chains without one are listed as SKIP —
 # bootstrap them with `make snapshot-chain CHAIN=<name>`). With explicit chain args the run stays in
-# the selected (or default) group — re-run per group to cover siblings. Chain family comes from
+# the selected (or default) group — re-run per group to cover siblings — and a named non-EVM chain
+# SKIPs, same as in the sweep. Chain family comes from
 # config/chains; the declared roles{} lives in the project store. Classifies the forge
 # output into the CI-ready exit-code contract (the contract belongs to THIS SCRIPT — GNU make remaps any
 # recipe failure to exit 2, so `make roles-check` is pass/fail only; CI calls the script directly, the
@@ -85,8 +86,17 @@ fi
 # Build the (group, chain) work list. Explicit chain args stay in the requested (or default) group; with
 # no args, discover every chain that DECLARES roles{} in each scanned group.
 declare -a pair_group=() pair_chain=()
+skipped=0
 if [ "$#" -gt 0 ]; then
     for name in "$@"; do
+        # Same SKIP the no-args sweep has always applied: roles{} is an EVM authority surface, and a
+        # read path reports an absent surface as SKIP, never as drift. Naming the chain used to end
+        # in a forge revert classified as ROLES_DRIFT.
+        if [ "$(bash script/config/chain-family.sh "$name")" != "evm" ]; then
+            echo ">> roles-check [group: $(group_label "$requested_group")] $name: SKIP (non-EVM)"
+            skipped=$((skipped + 1))
+            continue
+        fi
         pair_group+=("$requested_group")
         pair_chain+=("$name")
     done
@@ -96,7 +106,7 @@ else
             name="$(basename "$f" .json)"
             # Skip the gitignored zz-scratch-* files the test suites write here (fake selectors).
             case "$name" in zz-scratch-*) continue ;; esac
-            if [ "$(jq -r '.chainFamily' "$f")" != "evm" ]; then
+            if [ "$(bash script/config/chain-family.sh "$name")" != "evm" ]; then
                 echo ">> roles-check [group: $(group_label "$g")] $name: SKIP (non-EVM)"
                 continue
             fi
@@ -114,7 +124,11 @@ else
 fi
 
 if [ ${#pair_chain[@]} -eq 0 ]; then
-    echo "roles-check: CLEAN - no chain declares a roles{} block yet (bootstrap with make snapshot-chain)"
+    if [ "$skipped" -gt 0 ]; then
+        echo "roles-check: CLEAN - nothing to reconcile (every named chain SKIPped)"
+    else
+        echo "roles-check: CLEAN - no chain declares a roles{} block yet (bootstrap with make snapshot-chain)"
+    fi
     exit 0
 fi
 

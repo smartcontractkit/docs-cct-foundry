@@ -728,6 +728,13 @@ source). `config/chains/solana-devnet.json` keeps the same shape but:
   from the doctor's reciprocity rung), but `make add-lane LOCAL=solana-devnet ...` is refused (no lanes to
   write). Its `addresses{}` subtree DOES apply, holding the Solana token/pool as **base58 strings** (see
   below).
+- **The EVM-only make targets refuse a non-EVM chain by family.** `deploy-token`, `deploy-pool`,
+  `deploy-lockbox`, `deploy-lockrelease-pool` (and `deploy-new-chain` through them) and `adopt-token
+  TOKEN=` name the family and point at the `adopt-token` path instead of handing forge an endpoint that
+  speaks no EVM JSON-RPC. The read paths are unaffected: `sync` and `detect-evm-version` SKIP,
+  `roles-check` SKIPs, `doctor` reports the unverifiable rungs, `probe-chain` and `verify-args` refuse
+  by family with their own message. `make tools CHAIN=<solana-chain>` names the family and asks for
+  nothing extra to install, because this repo has no non-EVM write path.
 - **A non-EVM token/pool is stored as base58 and feeds `applyChainUpdates` from the store.** Adopt it with
   `make adopt-token CHAIN=<solana-chain> TOKEN_B58=<base58> [POOL_B58=<base58>]` (the `runNonEvm` path),
   which family-validates each value (base58 decodes to exactly 32 bytes) and writes
