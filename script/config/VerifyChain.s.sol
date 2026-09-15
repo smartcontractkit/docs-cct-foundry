@@ -1481,7 +1481,7 @@ contract VerifyChain is Script {
         _skipNonEvmRungs();
         return s_skips;
     }
-    
+
     /// @notice Test hook: runs the on-chain rung with no fork and then the verdict, so a test can
     /// prove that rung reports its gap instead of vanishing. Not used by any production path.
     function onChainNoForkVerdictForTest(string memory name) public {
