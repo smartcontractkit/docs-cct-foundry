@@ -76,6 +76,10 @@ doctor` end to end. Every make target documents the raw `forge script` it wraps 
   leaves the `TokenAdminRegistry` pointing at the old pool until rewired).
 - **Test scratch discipline:** test write targets use `zz-scratch-*` / `zz-tt-*` / `local-*` names only,
   never a real chain name; a green run leaves zero residue.
+- **Comments and docs:** concise, accurate, human-sounding. A comment earns its place by saying what
+  the code cannot - a why, a measured fact, a constraint, a hazard. If it narrates the next line,
+  delete it. One or two lines beats a paragraph; multi-paragraph natspec needs a reason. Same rule for
+  docs, commit messages, `make help` text and test names.
 
 ## Where to look
 
