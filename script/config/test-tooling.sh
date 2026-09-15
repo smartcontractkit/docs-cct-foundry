@@ -81,6 +81,21 @@ DRYRUN_PROJECT="project/${DRYRUN_CHAIN}.json"
 DRYRUN_HIST="history/tokens/${DRYRUN_CHAIN}"
 DRYRUN_PORT=8599
 anvil_pid=""
+# probe-chain.sh exit-code cases: gitignored zz-scratch configs (in cleanup()'s glob) plus a second
+# anvil, on its own port so it never collides with the deploy dry-run one.
+PROBE_NORPC_CHAIN="zz-scratch-probe-norpc"
+PROBE_NORPC_FILE="config/chains/${PROBE_NORPC_CHAIN}.json"
+PROBE_DEAD_CHAIN="zz-scratch-probe-dead"
+PROBE_DEAD_FILE="config/chains/${PROBE_DEAD_CHAIN}.json"
+PROBE_ANVIL_CHAIN="zz-scratch-probe-anvil"
+PROBE_ANVIL_FILE="config/chains/${PROBE_ANVIL_CHAIN}.json"
+PROBE_WRONGID_CHAIN="zz-scratch-probe-wrongid"
+PROBE_WRONGID_FILE="config/chains/${PROBE_WRONGID_CHAIN}.json"
+# Named to contain forge's wrong-endpoint wording; spaces and all, since a config file may carry them.
+PROBE_SPOOF_CHAIN="zz-scratch-probe wrong endpoint for this chain"
+PROBE_SPOOF_FILE="config/chains/${PROBE_SPOOF_CHAIN}.json"
+PROBE_PORT=8601
+probe_anvil_pid=""
 MANUAL_CHAIN="zz-scratch-manual-plane"
 MANUAL_FILE="config/chains/${MANUAL_CHAIN}.json"
 MANUAL_PROJECT="project/${MANUAL_CHAIN}.json"
@@ -176,6 +191,7 @@ cleanup() {
     # Onboarding-guard scratch configs (section 12e): glob every zz-scratch config + project file.
     rm -f config/chains/zz-scratch-*.json project/zz-scratch-*.json
     [ -n "$anvil_pid" ] && kill "$anvil_pid" 2> /dev/null
+    [ -n "$probe_anvil_pid" ] && kill "$probe_anvil_pid" 2> /dev/null
     rm -rf "$DRYRUN_HIST"
     rm -rf "$SL_PROBE"
     [ -n "$server_pid" ] && kill "$server_pid" 2> /dev/null
@@ -634,7 +650,9 @@ print('SKELETON_OK')
         failures+=("non-EVM skeleton shape")
         echo "[FAIL] non-EVM skeleton shape: $out"
     fi
-    run_case "doctor ends VERIFIED on the freshly add-chain'd non-EVM config" zero "check-chain $SVMO_CHAIN: VERIFIED" -- \
+    # INCOMPLETE, not VERIFIED: the schema and selectorName rungs pass, but a non-EVM chain's
+    # on-chain state has no EVM JSON-RPC path, so nothing on-chain was read.
+    run_case "doctor ends INCOMPLETE on the freshly add-chain'd non-EVM config" nonzero "check-chain INCOMPLETE for $SVMO_CHAIN" -- \
         env CCIP_API_BASE="http://127.0.0.1:$port" bash -c \
         "FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig 'run(string)' $SVMO_CHAIN"
     rm_fixture_config "$SVMO_FILE"
@@ -1103,14 +1121,153 @@ if offline_enabled; then
     rm_fixture_config "$TMP_FILE"
 fi
 
+# ---------------------------------------------------------------- probe-chain.sh (exit-code contract)
+
+# ProbeChain reports every rung and exits 0 even while printing `[FAIL] router: NO CODE at 0x...`, so
+# the wrapper is the only thing CI can gate on: 0 READABLE / 1 UNREADABLE / 2 UNRESOLVED. Every case
+# asserts the exact code, not just nonzero - the whole point is that 1 and 2 differ.
+probe_exit_case() {
+    local name="$1" want="$2" pattern="$3"
+    shift 3
+    local out rc
+    out="$(_with_timeout "$@" 2>&1)"
+    rc=$?
+    if [ -n "$TIMEOUT_TOOL" ] && [ $rc -eq 124 ] && [ "$want" != 124 ]; then
+        fail=$((fail + 1))
+        failures+=("$name")
+        echo "[FAIL] $name (TIMEOUT after 600s)"
+        return
+    fi
+    if [ "$rc" = "$want" ] && grep -q -- "$pattern" <<< "$out"; then
+        pass=$((pass + 1))
+        echo "[PASS] $name"
+    else
+        fail=$((fail + 1))
+        failures+=("$name")
+        echo "[FAIL] $name (exit=$rc, expected $want + /$pattern/)"
+        echo "$out" | tail -6 | sed 's/^/       | /'
+    fi
+}
+
+if offline_enabled; then
+    BASH_BIN="$(command -v bash)"
+
+    probe_exit_case "probe-chain.sh with no argument is UNRESOLVED" 2 "usage: probe-chain.sh" \
+        bash script/config/probe-chain.sh
+    probe_exit_case "probe-chain.sh on an unknown chain is UNRESOLVED" 2 "unknown chain 'doesnotexist'" \
+        bash script/config/probe-chain.sh doesnotexist
+    probe_exit_case "probe-chain.sh on a non-EVM chain is UNRESOLVED" 2 "chainFamily 'svm'" \
+        bash script/config/probe-chain.sh solana-devnet
+
+    # A missing forge is a tooling problem, never a verdict. PATH is emptied via an absolute bash so
+    # the case cannot pass vacuously on a machine that happens to have forge installed.
+    PROBE_STUBS="$(mktemp -d)"
+    probe_exit_case "probe-chain.sh without forge is UNRESOLVED" 2 "forge is required" \
+        env "PATH=$PROBE_STUBS" "$BASH_BIN" script/config/probe-chain.sh ethereum-testnet-sepolia
+
+    # A forge that exits 0 without running the script leaves no summary line. Silence is not READABLE.
+    cat > "$PROBE_STUBS/forge" << 'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+    chmod +x "$PROBE_STUBS/forge"
+    probe_exit_case "probe-chain.sh treats a run with no summary line as UNRESOLVED" 2 "without a summary line" \
+        env "PATH=$PROBE_STUBS:$PATH" bash script/config/probe-chain.sh ethereum-testnet-sepolia
+    rm -rf "$PROBE_STUBS"
+
+    # An unset RPC var and an endpoint that never answers are both UNRESOLVED: nothing was read, so
+    # nothing may be concluded. The dead endpoint is 127.0.0.1:1 - refused locally, no network needed.
+    jq --indent 2 -S '.rpcEnv = "ZZ_SCRATCH_ABSENT_RPC_URL"' config/chains/ethereum-testnet-sepolia.json > "$PROBE_NORPC_FILE"
+    probe_exit_case "probe-chain.sh with the rpcEnv var unset is UNRESOLVED" 2 "ZZ_SCRATCH_ABSENT_RPC_URL unset" \
+        env -u ZZ_SCRATCH_ABSENT_RPC_URL bash script/config/probe-chain.sh "$PROBE_NORPC_CHAIN"
+    rm_fixture_config "$PROBE_NORPC_FILE"
+
+    jq --indent 2 -S '.rpcEnv = "ZZ_SCRATCH_DEAD_RPC_URL"' config/chains/ethereum-testnet-sepolia.json > "$PROBE_DEAD_FILE"
+    probe_exit_case "probe-chain.sh on an unreachable endpoint is UNRESOLVED" 2 "UNRESOLVED" \
+        env ZZ_SCRATCH_DEAD_RPC_URL="http://127.0.0.1:1" bash script/config/probe-chain.sh "$PROBE_DEAD_CHAIN"
+    rm_fixture_config "$PROBE_DEAD_FILE"
+
+    # The 1-vs-2 split is read off a marker ProbeChain emits, not off forge's prose, because forge
+    # echoes the chain name back: a config NAMED after the wrong-chain message must still be
+    # UNRESOLVED here, since this endpoint never answered.
+    jq --indent 2 -S '.rpcEnv = "ZZ_SCRATCH_DEAD_RPC_URL"' config/chains/ethereum-testnet-sepolia.json > "$PROBE_SPOOF_FILE"
+    probe_exit_case "probe-chain.sh keeps a chain named after the wrong-endpoint message UNRESOLVED" 2 "UNRESOLVED" \
+        env ZZ_SCRATCH_DEAD_RPC_URL="http://127.0.0.1:1" bash script/config/probe-chain.sh "$PROBE_SPOOF_CHAIN"
+    rm_fixture_config "$PROBE_SPOOF_FILE"
+
+    # The UNREADABLE and READABLE codes need an endpoint that answers, so they run against a local
+    # anvil: every declared CCIP address is codeless there until anvil_setCode plants bytecode.
+    if ! command -v anvil > /dev/null 2>&1; then
+        skip=$((skip + 1))
+        echo "[SKIP] probe-chain.sh READABLE/UNREADABLE cases (anvil not found)"
+    else
+        anvil --port "$PROBE_PORT" --chain-id 31337 --silent &
+        probe_anvil_pid=$!
+        for _ in $(seq 1 50); do
+            cast block-number --rpc-url "http://127.0.0.1:$PROBE_PORT" > /dev/null 2>&1 && break
+            sleep 0.2
+        done
+        export ZZ_SCRATCH_PROBE_RPC_URL="http://127.0.0.1:$PROBE_PORT"
+
+        python3 -c "
+import json
+d = json.load(open('config/chains/ethereum-testnet-sepolia.json'))
+d['chainId'] = '31337'; d['rpcEnv'] = 'ZZ_SCRATCH_PROBE_RPC_URL'; d['configSource'] = 'manual'
+d['name'] = '$PROBE_ANVIL_CHAIN'
+json.dump(d, open('$PROBE_ANVIL_FILE','w'), indent=2, sort_keys=True)
+d['name'] = '$PROBE_WRONGID_CHAIN'; d['chainId'] = '1'
+json.dump(d, open('$PROBE_WRONGID_FILE','w'), indent=2, sort_keys=True)
+"
+        # The defect this whole wrapper exists for: the script itself reports the codeless contracts
+        # and still exits 0.
+        probe_exit_case "ProbeChain itself exits 0 while reporting codeless contracts" 0 "NO CODE at" \
+            env FOUNDRY_PROFILE=sync forge script script/config/ProbeChain.s.sol --tc ProbeChain --sig "run(string)" "$PROBE_ANVIL_CHAIN"
+        probe_exit_case "probe-chain.sh turns codeless contracts into UNREADABLE" 1 "UNREADABLE" \
+            bash script/config/probe-chain.sh "$PROBE_ANVIL_CHAIN"
+
+        # An endpoint answering for another chain is a verdict about the endpoint, not a flake.
+        probe_exit_case "probe-chain.sh on a wrong-chain endpoint is UNREADABLE" 1 "answers for a different chain" \
+            bash script/config/probe-chain.sh "$PROBE_WRONGID_CHAIN"
+
+        # Exactly one codeless contract is the realistic shape, and the only one that pins the
+        # wrapper's `unreadable != 0` test: with all five missing, a `> 1` threshold still says
+        # UNREADABLE. Everything but the router gets code here.
+        for _addr in $(jq -r '.ccip | to_entries[] | select(.key != "router") | .value | select(type == "string") | select(test("^0x[0-9a-fA-F]{40}$"))' "$PROBE_ANVIL_FILE"); do
+            cast rpc --rpc-url "http://127.0.0.1:$PROBE_PORT" anvil_setCode "$_addr" 0x00 > /dev/null 2>&1
+        done
+        probe_exit_case "probe-chain.sh is UNREADABLE when exactly one declared contract is codeless" 1 "1 declared contract(s) have no code" \
+            bash script/config/probe-chain.sh "$PROBE_ANVIL_CHAIN"
+
+        # Plant code at every declared address to reach READABLE. STOP is enough: probe-chain asks for
+        # code presence, and the typeAndVersion read is a [note], not a rung.
+        for _addr in $(jq -r '.ccip | to_entries[] | .value | select(type == "string") | select(test("^0x[0-9a-fA-F]{40}$"))' "$PROBE_ANVIL_FILE"); do
+            cast rpc --rpc-url "http://127.0.0.1:$PROBE_PORT" anvil_setCode "$_addr" 0x00 > /dev/null 2>&1
+        done
+        probe_exit_case "probe-chain.sh is READABLE when every declared contract has code" 0 "READABLE" \
+            bash script/config/probe-chain.sh "$PROBE_ANVIL_CHAIN"
+
+        kill "$probe_anvil_pid" 2> /dev/null
+        probe_anvil_pid=""
+        unset ZZ_SCRATCH_PROBE_RPC_URL
+        rm_fixture_config "$PROBE_ANVIL_FILE" "$PROBE_WRONGID_FILE"
+    fi
+fi
+
+# A real chain over the real RPC: the one case that proves the READABLE path end to end.
+run_case_live "make probe-chain on sepolia is READABLE" zero "READABLE" -- \
+    make probe-chain CHAIN=ethereum-testnet-sepolia
+
 # ---------------------------------------------------------------- check-chain doctor
 
 # 14. unknown chain -> attributed FAIL + nonzero verdict
 run_case "check-chain unknown chain FAILs with the add-chain hint" nonzero "config: no config/chains/doesnotexist" -- \
     env FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" doesnotexist
 
-# 15. non-EVM chain -> schema parse only, ends VERIFIED
-run_case_live "check-chain on solana-devnet ends VERIFIED (non-EVM path)" zero "check-chain solana-devnet: VERIFIED" -- \
+# 15. non-EVM chain -> schema + selectorName only, so the run is INCOMPLETE: the EVM rungs have no
+#     JSON-RPC path here, and VERIFIED would claim on-chain state the doctor never read.
+run_case_live "check-chain on solana-devnet ends INCOMPLETE (non-EVM path)" nonzero "check-chain INCOMPLETE for solana-devnet" -- \
+    env FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" solana-devnet
+run_case_live "check-chain tags the non-EVM rungs UNVERIFIED" nonzero "\[SKIP\] UNVERIFIED rpc/on-chain/registry: non-EVM chain" -- \
     env FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig "run(string)" solana-devnet
 
 # 16. EVM chain with rpcEnv unset -> rpc SKIP (not FAIL), and the run is INCOMPLETE, not clean: the

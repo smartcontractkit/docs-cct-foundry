@@ -27,3 +27,8 @@ investigated), `make roles-check` at exit 0, every contract verified on its expl
 smoke transfer each way. A doctor run that ends INCOMPLETE checked less than it claims - close the
 `[SKIP] UNVERIFIED` gaps (usually an unset RPC env) before reading anything into it. Anything less is a
 launch blocker, not a warning to note and move past.
+
+One exception: a non-EVM chain (`solana-devnet` and friends) always ends INCOMPLETE. Its schema and
+selectorName are checked, but this toolkit has no EVM JSON-RPC path to its on-chain state, so there is
+no gap to close - that is the honest ceiling, not a fault. Verify a non-EVM deployment with that
+chain's own tooling.

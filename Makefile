@@ -228,10 +228,10 @@ verify: tools ## Source-verify an already-deployed contract on <CHAIN>'s explore
 	$(if $(CONTRACT),,$(error CONTRACT is required - e.g. CONTRACT=src/CrossChainToken.sol:CrossChainToken))
 	@bash script/config/verify-contract.sh "$(CHAIN)" "$(ADDRESS)" "$(CONTRACT)" $(if $(CONSTRUCTOR_ARGS),"$(CONSTRUCTOR_ARGS)",)
 
-probe-chain: tools ## Read a chain's CCIP wiring over plain JSON-RPC without forking it (CHAIN= required; read-only, reports rather than verifies; works where doctor's fork cannot reach the chain)
+probe-chain: tools ## Read a chain's CCIP wiring over plain JSON-RPC without forking it (CHAIN= required; read-only, reports rather than verifies; works where doctor's fork cannot reach the chain; pass/fail only - CI uses the script for 0/1/2)
 	$(if $(CHAIN),,$(error CHAIN is required: make probe-chain CHAIN=<name>))
 	$(require-chain-config)
-	FOUNDRY_PROFILE=sync forge script script/config/ProbeChain.s.sol --tc ProbeChain --sig "run(string)" "$(CHAIN)"
+	@bash script/config/probe-chain.sh "$(CHAIN)"
 
 doctor: tools ## Layered verification of one chain's config (CHAIN= required; GROUP= scopes to one token group)
 	$(if $(CHAIN),,$(error CHAIN is required: make doctor CHAIN=<name>))

@@ -38,7 +38,10 @@ command, the fix, and a self-verify. Start from the error you see.
   `make probe-chain CHAIN=<chain>`, which pins no block. It reports rather than verifies, so `doctor`
   stays unavailable for that chain.
 - **Verify.** `make probe-chain CHAIN=<chain>` prints `[ ok ] rpc: reachable` and the core contract
-  lines. See [the decision record](../decisions/0002-eip-1898-fork-reads.md).
+  lines. To gate on the result, call `bash script/config/probe-chain.sh <chain>` for its exit codes:
+  0 READABLE, 1 UNREADABLE (a declared contract has no code, or the endpoint answers as another
+  chain), 2 UNRESOLVED (nothing was read, so nothing may be concluded). See
+  [the decision record](../decisions/0002-eip-1898-fork-reads.md).
 
 ## `ccip-cli` exits immediately with a yargs / strict-parser error
 

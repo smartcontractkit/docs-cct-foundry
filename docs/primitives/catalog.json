@@ -1079,7 +1079,7 @@
     },
     {
       "target": "probe-chain",
-      "help": "Read a chain's CCIP wiring over plain JSON-RPC without forking it (CHAIN= required; read-only, reports rather than verifies; works where doctor's fork cannot reach the chain)"
+      "help": "Read a chain's CCIP wiring over plain JSON-RPC without forking it (CHAIN= required; read-only, reports rather than verifies; works where doctor's fork cannot reach the chain; pass/fail only - CI uses the script for 0/1/2)"
     },
     {
       "target": "doctor",
