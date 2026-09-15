@@ -96,6 +96,10 @@ PROBE_SPOOF_CHAIN="zz-scratch-probe wrong endpoint for this chain"
 PROBE_SPOOF_FILE="config/chains/${PROBE_SPOOF_CHAIN}.json"
 PROBE_PORT=8601
 probe_anvil_pid=""
+# discover-tokens fixture config: joined BY SELECTOR by the token listing, so it cannot be a
+# zz-scratch- name (that class is skipped as fake-selector test residue).
+DT_CHAIN="tooling-dt"
+DT_FILE="config/chains/${DT_CHAIN}.json"
 MANUAL_CHAIN="zz-scratch-manual-plane"
 MANUAL_FILE="config/chains/${MANUAL_CHAIN}.json"
 MANUAL_PROJECT="project/${MANUAL_CHAIN}.json"
@@ -174,6 +178,7 @@ cleanup() {
     fi
     rm_fixture_config "$MANUAL_FILE" "$XPLANE_API_FILE"
     rm -f "$MANUAL_PROJECT" "project/$XPLANE_API_CHAIN.json"
+    rm_fixture_config "$DT_FILE"
     rm_fixture_config "$TYPO_FILE"
     rm -f "project/$TYPO_CHAIN.json"
     rm -rf "$CLEANX_GRPDIR" "$CLEANX_HISTDIR"
@@ -1092,6 +1097,198 @@ STUB
     fi
     rm -rf "$dsc_bin" "$dsc_url"
 fi
+
+# ---------------------------------------------------------------- discover-tokens
+
+# GET /tokens defaults `reviewedOnly` to TRUE (reviewed projects only) and `expand` to FALSE (no
+# per-lane `status`). Both defaults are wrong for an operator: measured, an admin= filter under the
+# default returns a confident, well-formed, HTTP-200 totalCount 0 for an address that has 169 tokens.
+# The stub below answers DIFFERENTLY with and without each parameter, so dropping either turns these
+# cases red instead of leaving them vacuously green. A static http.server cannot do this - it ignores
+# the query string entirely (same reason the discover section stubs curl).
+if offline_enabled; then
+    dt_bin="$(mktemp -d)"
+    # Its OWN throwaway config (in cleanup()'s rm-list), and deliberately NOT a zz-scratch- name:
+    # the discover tooling skips zz-scratch-* configs (fake selectors), so a scratch-named fixture
+    # could never join. Reusing $TMP_FILE would couple this section to the sections around it.
+    dt_chain="$DT_CHAIN"
+    dt_file="$DT_FILE"
+    dt_selector="99999999999999999901"
+    # Second token lives on a chain with NO local config, pinning the other half of the join.
+    dt_selector_b="99999999999999999902"
+
+    cat > "$dt_bin/curl" << STUB
+#!/usr/bin/env bash
+# Query-string-aware CCIP API stub: /chains always answers; /tokens answers only what the query earns.
+out=""; url=""
+for a in "\$@"; do
+    case "\$prev" in -o) out="\$a" ;; esac
+    case "\$a" in http*) url="\$a" ;; esac
+    prev="\$a"
+done
+body=''
+case "\$url" in
+    *"/chains"*)
+        body='{"chains":[{"name":"zz-dt-home","chainSelector":$dt_selector,"chainFamily":"EVM","environment":"testnet","chainId":1},{"name":"zz-dt-remote","chainSelector":$dt_selector_b,"chainFamily":"EVM","environment":"testnet","chainId":2}]}'
+        ;;
+    *"/tokens"*)
+        # reviewedOnly defaults to true -> the reviewed subset, which is EMPTY for this operator.
+        case "\$url" in
+            *"reviewedOnly=false"*) ;;
+            *)
+                body='{"data":[],"pagination":{"limit":1000,"hasNextPage":false,"totalCount":0,"isCountCapped":false,"cursor":null}}'
+                printf '%s' "\$body" > "\$out"; printf '200'; exit 0 ;;
+        esac
+        # A 200 is the ONLY success: a 5xx and an unreadable body must each name themselves rather
+        # than degrade into "no tokens".
+        case "\$url" in
+            *"symbol=zz-dt-500"*) printf '' > "\$out"; printf '500'; exit 0 ;;
+            *"symbol=zz-dt-garbage"*) printf 'not json at all' > "\$out"; printf '200'; exit 0 ;;
+        esac
+        # An operator whose mesh is not fully wired yet is simply absent from the catalog.
+        case "\$url" in
+            *"symbol=zz-dt-none"*)
+                body='{"data":[],"pagination":{"limit":1000,"hasNextPage":false,"totalCount":0,"isCountCapped":false,"cursor":null}}'
+                printf '%s' "\$body" > "\$out"; printf '200'; exit 0 ;;
+        esac
+        # expand defaults to false -> remoteChains entries carry NO status, so no lane can be counted.
+        case "\$url" in
+            *"expand=true"*) rc1='{"remoteChainSelector":"$dt_selector_b","status":"CONNECTED"},{"remoteChainSelector":"1","status":"CONNECTED"},{"remoteChainSelector":"2","status":"DISCONNECTED"}' ;;
+            *) rc1='{"remoteChainSelector":"$dt_selector_b"},{"remoteChainSelector":"1"},{"remoteChainSelector":"2"}' ;;
+        esac
+        # Keyset paging: page 2 is reachable only by following pagination.cursor.
+        case "\$url" in
+            *"cursor=DTPAGE2"*)
+                body='{"data":[{"chainSelector":"$dt_selector_b","address":"0xDT0000000000000000000000000000000000000B","symbol":"DTPAGE2TOKEN","groupId":null,"remoteChains":[]}],"pagination":{"limit":1,"hasNextPage":false,"totalCount":2,"isCountCapped":false,"cursor":null}}' ;;
+            *)
+                body='{"data":[{"chainSelector":"$dt_selector","address":"0xDT0000000000000000000000000000000000000A","symbol":"DTPAGE1TOKEN","groupId":"dt-group-1","remoteChains":['"\$rc1"']}],"pagination":{"limit":1,"hasNextPage":true,"totalCount":2,"isCountCapped":false,"cursor":"DTPAGE2"}}' ;;
+        esac
+        ;;
+esac
+printf '%s' "\$body" > "\$out"
+printf '200'
+STUB
+    chmod +x "$dt_bin/curl"
+
+    # A local config for the home chain only: the join is BY SELECTOR, as in sync-discover.
+    jq --indent 2 -S --arg n "$dt_chain" --argjson s "$dt_selector" \
+        '.name = $n | .chainSelector = $s' config/chains/ethereum-testnet-sepolia.json > "$dt_file"
+
+    dt_run() { env -u ADMIN -u SYMBOL -u CHAIN_SELECTOR -u ENVIRONMENT PATH="$dt_bin:$PATH" \
+        bash script/config/discover-tokens.sh 2>&1; }
+    dt_out="$(dt_run)"
+    dt_rc=$?
+
+    dt_assert() { # name <pattern>
+        if grep -q -- "$2" <<< "$dt_out"; then
+            pass=$((pass + 1))
+            echo "[PASS] $1"
+        else
+            fail=$((fail + 1))
+            failures+=("$1")
+            echo "[FAIL] $1 (exit=$dt_rc, no /$2/)"
+            echo "$dt_out" | tail -6 | sed 's/^/       | /'
+        fi
+    }
+
+    # THE phase-0 regression guard: without reviewedOnly=false the stub answers an empty, well-formed
+    # 200 and this listing becomes "No tokens match".
+    dt_assert "discover-tokens sends reviewedOnly=false (the default hides an operator's own tokens)" \
+        "DTPAGE1TOKEN"
+    # Without expand=true no remoteChains entry carries a status, so the count collapses to 0.
+    dt_assert "discover-tokens sends expand=true so CONNECTED lanes can be counted" \
+        "DTPAGE1TOKEN.*dt-group-1  *2 "
+    # Page 2 is reachable only by following pagination.cursor.
+    dt_assert "discover-tokens follows the pagination cursor past page 1" "DTPAGE2TOKEN"
+    dt_assert "discover-tokens joins the local chain config by selector" "configured($dt_chain)"
+    dt_assert "discover-tokens marks a token whose chain has no local config" "no local config"
+    dt_assert "discover-tokens reports the API totalCount and page count" "2 page(s)"
+    if [ $dt_rc -eq 0 ]; then
+        pass=$((pass + 1))
+        echo "[PASS] discover-tokens exits 0 on a successful listing"
+    else
+        fail=$((fail + 1))
+        failures+=("discover-tokens exits 0 on a successful listing")
+        echo "[FAIL] discover-tokens exits 0 on a successful listing (exit=$dt_rc)"
+    fi
+
+    # An empty result is a NORMAL answer (the API lists a token only once its mesh is fully wired),
+    # so it must exit 0 and never imply the operator's setup is broken.
+    dt_out="$(env -u ADMIN -u CHAIN_SELECTOR -u ENVIRONMENT PATH="$dt_bin:$PATH" \
+        SYMBOL=zz-dt-none bash script/config/discover-tokens.sh 2>&1)"
+    dt_rc=$?
+    dt_assert "discover-tokens calls an empty result a normal answer" "normal answer, not a failure"
+    dt_assert "discover-tokens names the manual path when nothing matches" "make adopt-token"
+    if [ $dt_rc -eq 0 ]; then
+        pass=$((pass + 1))
+        echo "[PASS] discover-tokens exits 0 on an empty result"
+    else
+        fail=$((fail + 1))
+        failures+=("discover-tokens exits 0 on an empty result")
+        echo "[FAIL] discover-tokens exits 0 on an empty result (exit=$dt_rc)"
+    fi
+    dt_code_case() { # name expected-exit pattern symbol
+        local out status
+        out="$(env -u ADMIN -u CHAIN_SELECTOR -u ENVIRONMENT PATH="$dt_bin:$PATH" \
+            SYMBOL="$4" bash script/config/discover-tokens.sh 2>&1)"
+        status=$?
+        if [ "$status" = "$2" ] && grep -q -- "$3" <<< "$out"; then
+            pass=$((pass + 1))
+            echo "[PASS] $1"
+        else
+            fail=$((fail + 1))
+            failures+=("$1")
+            echo "[FAIL] $1 (exit=$status want $2, /$3/)"
+        fi
+    }
+    dt_code_case "discover-tokens calls a 5xx API_UNREACHABLE (exit 5), not an empty result" \
+        5 "API_UNREACHABLE: HTTP 500" zz-dt-500
+    dt_code_case "discover-tokens calls an unreadable body BAD_BODY (exit 6), not an empty result" \
+        6 "BAD_BODY" zz-dt-garbage
+
+    rm_fixture_config "$dt_file"
+    rm -rf "$dt_bin"
+fi
+
+# Both BAD_ARG cases point CCIP_API_BASE at a dead port: the argument must be refused BEFORE any
+# request, so a regressed guard reports API_UNREACHABLE instead and fails the pattern. Also what keeps
+# the offline partition off the network.
+run_case "discover-tokens refuses an unrecognised ENVIRONMENT before any request" nonzero "BAD_ARG: ENVIRONMENT" -- \
+    env CCIP_API_BASE=http://127.0.0.1:1 ENVIRONMENT=all bash script/config/discover-tokens.sh
+run_case "discover-tokens refuses a non-numeric CHAIN_SELECTOR before any request" nonzero "BAD_ARG: CHAIN_SELECTOR" -- \
+    env -u ENVIRONMENT CCIP_API_BASE=http://127.0.0.1:1 CHAIN_SELECTOR=not-a-selector bash script/config/discover-tokens.sh
+run_case "discover-tokens names API_UNREACHABLE rather than reporting no tokens" nonzero "API_UNREACHABLE" -- \
+    env -u ENVIRONMENT CCIP_API_BASE=http://127.0.0.1:1 bash script/config/discover-tokens.sh
+
+# The interface is env-driven, so `--admin 0x...` used to be dropped and list the ENTIRE catalog
+# unfiltered at exit 0. Pins the exact BAD_ARG code, not just non-zero, plus the message that names
+# the env vars - the dead port again proves it is refused before any request.
+if offline_enabled; then
+    dtarg_name="discover-tokens refuses an unrecognised argument with BAD_ARG (exit 3)"
+    dtarg_out="$(env -u ENVIRONMENT CCIP_API_BASE=http://127.0.0.1:1 \
+        bash script/config/discover-tokens.sh --admin 0xdeadbeef 2>&1)"
+    dtarg_rc=$?
+    if [ $dtarg_rc -eq 3 ] && grep -q "BAD_ARG: unexpected argument '--admin'" <<< "$dtarg_out" \
+        && grep -q "ADMIN= SYMBOL= CHAIN_SELECTOR= ENVIRONMENT=" <<< "$dtarg_out"; then
+        pass=$((pass + 1))
+        echo "[PASS] $dtarg_name"
+    else
+        fail=$((fail + 1))
+        failures+=("$dtarg_name")
+        echo "[FAIL] $dtarg_name (exit=$dtarg_rc want 3)"
+        echo "$dtarg_out" | tail -6 | sed 's/^/       | /'
+    fi
+fi
+
+# Live: the phase-0 bug end to end. This repo's own testnet deployer administers tokens that the
+# API's default reviewedOnly=true hides completely (measured: 169 vs a confident totalCount 0).
+run_case_live "discover-tokens finds the repo deployer's unreviewed testnet tokens" zero "token(s) listed" -- \
+    env -u SYMBOL -u CHAIN_SELECTOR ENVIRONMENT=testnet \
+    ADMIN=0x9d087fC03ae39b088326b67fA3C788236645b717 bash script/config/discover-tokens.sh
+# An operator with nothing is a normal answer, not a failure.
+run_case_live "discover-tokens exits 0 when an admin has no tokens" zero "normal answer, not a failure" -- \
+    env -u SYMBOL -u CHAIN_SELECTOR -u ENVIRONMENT \
+    ADMIN=0x000000000000000000000000000000000000dEaD bash script/config/discover-tokens.sh
 
 # ---------------------------------------------------------------- probe-chain (non-forking reader)
 

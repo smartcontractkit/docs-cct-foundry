@@ -12,6 +12,7 @@
 # until a mainnet token could not be found through it - `make add-chain` was never restricted (it
 # fetches /chains/<selector> directly), so the chain was addable all along, just invisible here.
 #
+# Spec (read it before changing a query): docs/reference/ccip-api.md
 # Exit codes: 0 OK | 2 MISSING_TOOL | 3 BAD_ARG | 5 API_UNREACHABLE
 set -euo pipefail
 

@@ -23,6 +23,7 @@
 #   5  API_UNREACHABLE  network error / timeout / 5xx (flake, NOT drift — retry later)
 #   6  BAD_BODY         200 but chainConfig lacks an active entry (partial/unsupported chain)
 #
+# Spec (read it before changing a query): docs/reference/ccip-api.md
 # The API base URL can be overridden with the non-secret CCIP_API_BASE env var (see .env.example).
 set -euo pipefail
 
