@@ -9,6 +9,13 @@
     "tokenAdminRegistry": "0x0000000000000000000000000000000000000000",
     "tokenPoolFactory": "0x0000000000000000000000000000000000000000"
   },
+  "ccipNative": {
+    "feeQuoter": "0xc748085bd02022a9696dfa2058774f92a07401208bbd34cfd0c6d0ac0287ee45",
+    "link": "0x3d5d565c271d6b9c52f1a963f2b7bddad3453b0de2ace5e254b8db6549cc335e",
+    "rmnProxy": "0xc748085bd02022a9696dfa2058774f92a07401208bbd34cfd0c6d0ac0287ee45",
+    "router": "0xc748085bd02022a9696dfa2058774f92a07401208bbd34cfd0c6d0ac0287ee45",
+    "tokenAdminRegistry": "0xc748085bd02022a9696dfa2058774f92a07401208bbd34cfd0c6d0ac0287ee45"
+  },
   "chainFamily": "aptos",
   "chainId": "0",
   "chainNameIdentifier": "APTOS_TESTNET",
@@ -17,6 +24,7 @@
   "environment": "testnet",
   "explorerUrl": "https://explorer.aptoslabs.com/?network=testnet",
   "name": "aptos-testnet",
+  "nativeChainId": "2",
   "nativeCurrencySymbol": "APT",
   "rpcEnv": "APTOS_TESTNET_RPC_URL"
 }

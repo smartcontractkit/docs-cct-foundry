@@ -32,6 +32,9 @@ SEPOLIA_SELECTOR="16015286601757825753"
 # Committed API body for solana-devnet: serves the non-EVM metadata fetch offline (section 12d).
 SVM_FIXTURE="test/fixtures/ccip-api/chain-16423721717087811551.json"
 SVM_META_SELECTOR="16423721717087811551"
+# Committed API body for aptos-testnet: the THIRD chain shape (32-byte hex, HAS tokenAdminRegistry,
+# LACKS registryModule and tokenPoolPrograms) - the ccipNative{} writer must emit absent keys, not zeros.
+APTOS_FIXTURE="test/fixtures/ccip-api/chain-743186221051783445.json"
 # A real, non-bundled chain used by the add-chain print-names case; its generated config is a
 # throwaway removed on exit (never committed).
 FUJI_CHAIN="avalanche-testnet-fuji"
@@ -609,6 +612,12 @@ if offline_enabled; then
     SVM_SEL="9900030000000000003"
     SVMO_CHAIN="zz-scratch-svm-onboard"
     SVMO_FILE="config/chains/$SVMO_CHAIN.json"
+    APT_SEL="9900030000000000004"
+    APTO_CHAIN="zz-scratch-aptos-onboard"
+    APTO_FILE="config/chains/$APTO_CHAIN.json"
+    SVMR_SEL="9900030000000000005"
+    SVMR_CHAIN="zz-scratch-svm-norouter"
+    SVMR_FILE="config/chains/$SVMR_CHAIN.json"
     python3 -c "
 import json
 sep = json.load(open('$FIXTURE')); sol = json.load(open('$SVM_FIXTURE'))
@@ -622,8 +631,30 @@ core['chainConfig']['router'] = []                   # core contract absent -> a
 json.dump(core, open('$server_dir/chains/$CORE_SEL','w'))
 svm = json.loads(json.dumps(sol))
 svm['chain']['name'] = '$SVMO_CHAIN'; svm['chain']['chainSelector'] = '$SVM_SEL'
+# Inactive decoy AHEAD of the real router: the router literal asserted below then proves pick()
+# prefers isActive over index 0 (no non-EVM fixture otherwise carries an inactive entry).
+svm['chainConfig']['router'] = [dict(svm['chainConfig']['router'][0],
+    address='DecoyRouter1111111111111111111111111111111', isActive=False)] + svm['chainConfig']['router']
 json.dump(svm, open('$server_dir/chains/$SVM_SEL','w'))
+apt = json.load(open('$APTOS_FIXTURE'))
+apt['chain']['name'] = '$APTO_CHAIN'; apt['chain']['chainSelector'] = '$APT_SEL'
+json.dump(apt, open('$server_dir/chains/$APT_SEL','w'))
+svmr = json.loads(json.dumps(sol))
+svmr['chain']['name'] = '$SVMR_CHAIN'; svmr['chain']['chainSelector'] = '$SVMR_SEL'
+svmr['chainConfig']['router'] = []                   # native CORE contract absent -> add-chain refuses
+json.dump(svmr, open('$server_dir/chains/$SVMR_SEL','w'))
 "
+    # Vacuity guard: the ccipNative assertions below are only meaningful if the fixture SERVER is the
+    # source. Prove the body with the pool programs is actually being served before running them.
+    if curl -sf "http://127.0.0.1:$port/chains/$SVM_SEL" \
+        | jq -e '.chainConfig.tokenPoolPrograms.burnMint[0].address' > /dev/null; then
+        pass=$((pass + 1))
+        echo "[PASS] fixture server serves the SVM body with tokenPoolPrograms (assertions below are not vacuous)"
+    else
+        fail=$((fail + 1))
+        failures+=("svm fixture not served")
+        echo "[FAIL] fixture server is not serving $SVM_SEL - the ccipNative cases below would be vacuous"
+    fi
     # A freshly add-chain'd non-EVM chain gets the 8-key zeroed ccip skeleton and passes doctor.
     rm_fixture_config "$SVMO_FILE"
     run_case "add-chain non-EVM generates the config" zero "generated config/chains/$SVMO_CHAIN.json" -- \
@@ -646,20 +677,113 @@ print('SKELETON_OK')
         failures+=("non-EVM skeleton shape")
         echo "[FAIL] non-EVM skeleton shape: $out"
     fi
+    # The native plane: real API values in ccipNative{}, BOTH pool programs, and chainId still the
+    # "0" sentinel (the real base58 genesis hash there makes the chain vanish from HelperConfig).
+    out="$(python3 -c "
+import json
+c = json.load(open('$SVMO_FILE'))
+n = c['ccipNative']
+assert n['router'] == 'Ccip842gzYHhvdDkSyi2YVCoAWPbYJoApMFzSxQroE9C', n['router']
+assert n['rmnProxy'] == 'RmnXLft1mSEwDgMKu2okYuHkiazxntFFcZFrrcXxYg7', n['rmnProxy']
+assert n['feeQuoter'] == 'FeeQPGkKDeRV1MgoYfMH6L8o3KeuYjwUZrgn4LRKfjHi', n['feeQuoter']
+assert n['link'] == 'LinkhB3afbBKb2EQQu7s7umdZceV3wcvAUJhQAfQ23L', n['link']
+p = n['tokenPoolPrograms']
+assert p['burnMint'] == '41FGToCmdaWa1dgZLKFAjvmx6e6AjVTX7SVRibvsMGVB', p['burnMint']
+assert p['lockRelease'] == '8eqh8wppT9c5rw4ERqNCffvU6cNFJWff9WmkcYtmGiqC', p['lockRelease']
+assert p['lockRelease'] != p['burnMint'], 'burnMint copied into lockRelease'
+assert 'tokenAdminRegistry' not in n, 'SVM serves no tokenAdminRegistry'
+assert c['nativeChainId'] == 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG', c['nativeChainId']
+assert c['chainId'] == '0', ('chainId sentinel overwritten', c['chainId'])
+print('NATIVE_OK')
+" 2>&1)"
+    if grep -q NATIVE_OK <<< "$out"; then
+        pass=$((pass + 1))
+        echo "[PASS] add-chain SVM writes real ccipNative{} (both pool programs) + nativeChainId, chainId still 0"
+    else
+        fail=$((fail + 1))
+        failures+=("svm ccipNative shape")
+        echo "[FAIL] svm ccipNative shape: $out"
+    fi
+
     # INCOMPLETE, not VERIFIED: the schema and selectorName rungs pass, but a non-EVM chain's
     # on-chain state has no EVM JSON-RPC path, so nothing on-chain was read.
     run_case "doctor ends INCOMPLETE on the freshly add-chain'd non-EVM config" nonzero "check-chain INCOMPLETE for $SVMO_CHAIN" -- \
         env CCIP_API_BASE="http://127.0.0.1:$port" bash -c \
         "FOUNDRY_PROFILE=sync forge script script/config/VerifyChain.s.sol --tc VerifyChain --sig 'run(string)' $SVMO_CHAIN"
+
+    # The native plane is drift-checked, not just written: a stale ccipNative value is CONFIG_DRIFT.
+    # This is the guard that makes a schema change without a config backfill fail in the PR rather
+    # than in the nightly.
+    svmo_tmp="$(mktemp)" && jq '.ccipNative.router = "StaleRouter11111111111111111111111111111111"' "$SVMO_FILE" > "$svmo_tmp" && mv "$svmo_tmp" "$SVMO_FILE"
+    run_case "sync-check flags a stale ccipNative value as drift" nonzero "DRIFT $SVMO_CHAIN .ccipNative.router" -- \
+        env CCIP_API_BASE="http://127.0.0.1:$port" bash -c \
+        "FOUNDRY_PROFILE=sync forge script script/config/SyncCcipConfig.s.sol --sig 'check(string)' $SVMO_CHAIN"
     rm_fixture_config "$SVMO_FILE"
     rm -f "project/$SVMO_CHAIN.json"
+
+    # The third shape: Aptos has a tokenAdminRegistry and NO registryModule/tokenPoolPrograms, so the
+    # family-generic writer must omit those keys rather than write zeros for them. The values are
+    # pinned as literals because sync-check compares the transform against itself and so cannot catch
+    # a transform bug; Aptos is the only fixture where feeTokens[0] is NOT link, so the link literal
+    # is what fails a dropped `tokenSymbol == "LINK"` filter by name.
+    rm_fixture_config "$APTO_FILE"
+    run_case "add-chain Aptos generates the config" zero "generated config/chains/$APTO_CHAIN.json" -- \
+        env CCIP_API_BASE="http://127.0.0.1:$port" bash -c \
+        "FOUNDRY_PROFILE=sync forge script script/config/SyncCcipConfig.s.sol --sig 'init(string,uint256)' $APTO_CHAIN $APT_SEL"
+    out="$(python3 -c "
+import json
+c = json.load(open('$APTO_FILE'))
+n = c['ccipNative']
+pkg = '0xc748085bd02022a9696dfa2058774f92a07401208bbd34cfd0c6d0ac0287ee45'
+assert n['router'] == pkg, n['router']
+assert n['rmnProxy'] == pkg, n['rmnProxy']
+assert n['feeQuoter'] == pkg, n['feeQuoter']
+assert n['link'] == '0x3d5d565c271d6b9c52f1a963f2b7bddad3453b0de2ace5e254b8db6549cc335e', n['link']
+tar = n['tokenAdminRegistry']
+assert tar == pkg, tar
+assert tar.startswith('0x') and len(tar) == 66, ('not 32-byte hex', tar)
+assert 'tokenPoolPrograms' not in n, 'Aptos serves no tokenPoolPrograms'
+assert 'registryModule' not in n and 'registryModuleOwnerCustom' not in n, 'Aptos serves no registryModule'
+assert c['nativeChainId'] == '2', c['nativeChainId']
+assert c['chainId'] == '0', ('chainId sentinel overwritten', c['chainId'])
+print('APTOS_OK')
+" 2>&1)"
+    if grep -q APTOS_OK <<< "$out"; then
+        pass=$((pass + 1))
+        echo "[PASS] add-chain Aptos writes the third shape with the real API values (link is NOT feeTokens[0])"
+    else
+        fail=$((fail + 1))
+        failures+=("aptos ccipNative shape")
+        echo "[FAIL] aptos ccipNative shape: $out"
+    fi
+    rm_fixture_config "$APTO_FILE"
+    rm -f "project/$APTO_CHAIN.json"
+
+    # A non-EVM chain whose API row carries NO router entry at all cannot be onboarded: refuse by name
+    # and leave no partial file (the same no-orphan contract the EVM CORE split has). An inactive entry
+    # is still onboardable - pick() prefers isActive but falls back to it, as the EVM act() does.
+    rm_fixture_config "$SVMR_FILE"
+    run_case "add-chain refuses a non-EVM chain whose API row has no router entry" nonzero "serves no router entry" -- \
+        env CCIP_API_BASE="http://127.0.0.1:$port" bash -c \
+        "FOUNDRY_PROFILE=sync forge script script/config/SyncCcipConfig.s.sol --sig 'init(string,uint256)' $SVMR_CHAIN $SVMR_SEL"
+    if [ ! -f "$SVMR_FILE" ]; then
+        pass=$((pass + 1))
+        echo "[PASS] no-orphan: a router-less non-EVM add-chain failure leaves NO config file"
+    else
+        fail=$((fail + 1))
+        failures+=("orphan on native router-missing")
+        echo "[FAIL] orphan check: a router-less non-EVM add-chain left an orphan $SVMR_FILE"
+        rm_fixture_config "$SVMR_FILE"
+    fi
 
     # Optional contract absent: a missing tokenPoolFactory syncs to 0x0 AND emits the [sync] WARN.
     rm_fixture_config "$OPT_FILE"
     out="$(env CCIP_API_BASE="http://127.0.0.1:$port" FOUNDRY_PROFILE=sync \
         forge script script/config/SyncCcipConfig.s.sol --sig "init(string,uint256)" "$OPT_CHAIN" "$OPT_SEL" 2>&1)"
     tpf="$(jq -r '.ccip.tokenPoolFactory' "$OPT_FILE" 2> /dev/null)"
+    # ... and the native plane stays OFF an EVM chain: its addresses are EVM-typed in ccip{}.
     if grep -q "\[sync\] WARN $OPT_CHAIN: no active tokenPoolFactory" <<< "$out" \
+        && jq -e 'has("ccipNative") or has("nativeChainId") | not' "$OPT_FILE" > /dev/null \
         && [ "$tpf" = "0x0000000000000000000000000000000000000000" ]; then
         pass=$((pass + 1))
         echo "[PASS] optional contract: a missing tokenPoolFactory syncs to 0x0 + emits the [sync] WARN"

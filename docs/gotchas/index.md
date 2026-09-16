@@ -143,6 +143,19 @@ link to.
   peer's project store, so a peer store you do not keep locally is reported as unchecked, not as clean,
   and the on-chain lane itself is only removed by `RemoveChain`.
 
+<a id="non-evm-addresses-stay-out-of-ccip"></a>
+- **A non-EVM address in `ccip{}` breaks scripts on UNRELATED chains, and no guard catches it.**
+  `HelperConfig` scans every `config/chains/*.json` and parses each one's `.ccip.*` as an EVM address, so
+  one base58 or Move value anywhere aborts the scan for everybody: a run against Fuji dies with
+  ``vm.parseJsonAddress: failed parsing "Ccip842gz..." as type `address`: invalid string length``, naming
+  the value but not the file it came from. Measured: `make doctor` still reports VERIFIED on both the
+  offending chain and the unrelated one, because `VerifyChain` never builds a `HelperConfig`. Non-EVM
+  addresses belong in the sibling `ccipNative{}` block, which the sync owns; `ccip{}` stays the all-zero
+  EVM skeleton every `.ccip.*` reader needs. The same applies to the id: the chain's real one goes in
+  `nativeChainId` and `chainId` keeps its `"0"` sentinel, which several `HelperConfig` paths key off -
+  and the schema rung does not catch a violation there either, since it asserts the values are quoted
+  strings, not that they are decimal.
+
 <a id="a-successful-call-can-still-revert-your-frame"></a>
 - **A successful call can still revert your frame.** `try C(a).f() returns (string memory)` routes a
   REVERT to its catch, but the return data is decoded in the CALLER's frame after the call already

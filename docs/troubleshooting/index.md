@@ -226,6 +226,20 @@ after a `forge script` run, with no `--broadcast`.
   DEST_CHAIN=<dst> TOKEN=<token> AMOUNT=<wei> RECEIVER=<addr>` reproduces the revert before a real send.
 - **Verify.** The same `make preflight` returns `GO:`, and `make doctor CHAIN=<siloed chain>` is VERIFIED.
 
+## `vm.parseJsonAddress: failed parsing "..." as type `address`
+
+- **Diagnosis.** Some chain config holds a non-EVM value in `ccip{}`, and `HelperConfig`'s constructor
+  parses every configured file's `.ccip.*` as an EVM address - so the run that fails is usually against a
+  DIFFERENT, healthy chain, and the message names the value but not the file. Find the culprit:
+  `jq -r 'select((.ccip | to_entries | map(.value | strings | startswith("0x") | not) | any)) | input_filename' config/chains/*.json`.
+  `make doctor` will NOT find it: `VerifyChain` builds no `HelperConfig`, so both chains still verify.
+- **Fix.** Non-EVM addresses live in the sibling `ccipNative{}` block (base58 on SVM, 32-byte hex on
+  Aptos) and the chain's real id in `nativeChainId`; `ccip{}` keeps the all-zero EVM skeleton and
+  `chainId` its `"0"` sentinel. Both are API-owned: `make sync CHAIN=<chain>` rewrites them, so the
+  repair is a sync, not a hand edit.
+- **Verify.** The failing script runs again, and `make sync-check CHAIN=<chain>` reports
+  `CLEAN ... identity metadata + ccipNative match the live API`.
+
 ## Advanced forensics: a leg that failed then recovered
 
 The REST API and `ccip-cli show` report only the final `SUCCESS` and hide an earlier failed attempt. To
