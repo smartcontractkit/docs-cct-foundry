@@ -19,6 +19,7 @@
 # non-EVM selectorName rung) via vm.tryFfi — config-file generation stays Foundry-side
 # (vm.serialize* + vm.writeFile / vm.writeJson); this script only fetches + selects.
 #
+# Spec (read it before changing a query): docs/reference/ccip-api.md
 # Exit-code contract (stderr becomes the Solidity revert reason):
 #   0 OK | 2 MISSING_TOOL | 4 NOT_FOUND (no chain for this selector) | 5 API_UNREACHABLE
 set -euo pipefail

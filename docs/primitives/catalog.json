@@ -3,7 +3,7 @@
   "note": "Generated from the script/ tree and the Makefile. Do not edit by hand; run `npm run docs:catalog`.",
   "counts": {
     "primitives": 61,
-    "makeTargets": 28
+    "makeTargets": 29
   },
   "primitives": [
     {
@@ -1024,6 +1024,10 @@
     {
       "target": "discover",
       "help": "List the CCIP API chain catalog vs local configs, both planes (FILTER=<term> narrows; ENVIRONMENT=<testnet|mainnet> narrows the plane)"
+    },
+    {
+      "target": "discover-tokens",
+      "help": "List the CCIP API token catalog for an operator (ADMIN=, SYMBOL=, CHAIN_SELECTOR=, ENVIRONMENT= all narrow; unreviewed tokens included)"
     },
     {
       "target": "add-chain",

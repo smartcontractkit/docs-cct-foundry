@@ -43,6 +43,7 @@ Multi-step flows with a machine-readable manifest each, under [`docs/workflows/`
 - [Pool-version behavior deltas](reference/pool-behavior-matrix.md) - rate-limit validation, pause, decimals metering, and fast-finality differences, each fixture-backed.
 - [Config and project-store schema](config-schema.md) - every field of `config/chains` and `project/`.
 - [Config architecture](config-architecture.md) - the layering, sync data-flow, and writers.
+- [The CCIP REST API v2 spec](reference/ccip-api.md) - the source of truth for the `script/config/` API callers, and why an omitted filter is a silent wrong answer.
 - [Deployed addresses](deployed-addresses.md) - the project store, resolution ladder, and redeploy guard.
 - [Reading a write script's outcome line](reference/script-output.md) - what `SENDING` and the two `NOT SENT` lines mean, and what actually confirms the state.
 

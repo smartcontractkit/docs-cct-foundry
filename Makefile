@@ -43,7 +43,7 @@ evm-version-flag = --evm-version $(call evm-version,$(1))
 GROUP_DIR := $(if $(GROUP),$(GROUP)/,)
 
 .DEFAULT_GOAL := help
-.PHONY: probe-chain adopt-token help tools discover add-chain add-lane remove-lane sync sync-preview sync-all sync-check doctor fmt-config clean-scratch snapshot-chain roles-check roles-check-all deploy-token deploy-pool deploy-lockbox deploy-lockrelease-pool deploy-new-chain preflight verify verify-args verify-execution
+.PHONY: probe-chain adopt-token help tools discover discover-tokens add-chain add-lane remove-lane sync sync-preview sync-all sync-check doctor fmt-config clean-scratch snapshot-chain roles-check roles-check-all deploy-token deploy-pool deploy-lockbox deploy-lockrelease-pool deploy-new-chain preflight verify verify-args verify-execution
 
 # Deploy-time parameters are read by the forge scripts from the environment (vm.env*). Forward a value
 # passed on the make command line (make deploy-token TOKEN_NAME=...) to the forge subprocess; a value
@@ -98,6 +98,9 @@ tools: ## Check the required tools are installed (forge, curl, jq)
 
 discover: tools ## List the CCIP API chain catalog vs local configs, both planes (FILTER=<term> narrows; ENVIRONMENT=<testnet|mainnet> narrows the plane)
 	@FILTER="$(FILTER)" ENVIRONMENT="$(ENVIRONMENT)" bash script/config/sync-discover.sh
+
+discover-tokens: tools ## List the CCIP API token catalog for an operator (ADMIN=, SYMBOL=, CHAIN_SELECTOR=, ENVIRONMENT= all narrow; unreviewed tokens included)
+	@ADMIN="$(ADMIN)" SYMBOL="$(SYMBOL)" CHAIN_SELECTOR="$(CHAIN_SELECTOR)" ENVIRONMENT="$(ENVIRONMENT)" bash script/config/discover-tokens.sh
 
 add-chain: tools ## Generate config/chains/<CHAIN>.json from the live API (CHAIN= and SELECTOR= required)
 	$(if $(CHAIN),,$(error CHAIN is required: make add-chain CHAIN=<selectorName> SELECTOR=<selector> - both from the make discover API NAME + SELECTOR columns))
