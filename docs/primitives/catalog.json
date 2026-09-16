@@ -1019,7 +1019,7 @@
     },
     {
       "target": "tools",
-      "help": "Check the required tools are installed (forge, curl, jq)"
+      "help": "Check the required tools are installed (forge, curl, jq; CHAIN= adds that chain's family-specific check)"
     },
     {
       "target": "discover",

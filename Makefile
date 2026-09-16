@@ -68,6 +68,25 @@ define require-chain-config
 		exit 1; }
 endef
 
+# Recipe-time guard for the targets that FORK the chain: refuse a non-EVM chainFamily before forge is
+# handed an endpoint. Without it, `make deploy-token CHAIN=<a solana chain>` sends eth_chainId to a
+# Solana node and dies on `error code -32601: Method not found` - a transport-looking failure for a
+# config-level answer. The other family-sensitive targets (add-lane, snapshot-chain, sync, doctor,
+# probe-chain, verify-args, detect-evm-version) already answer by family in their own script.
+# $(1) = chain name, $(2) = where the operator should go instead.
+# Only an EXPLICIT non-evm declaration fires: chain-family.sh reads an absent or unparseable
+# declaration as `evm`, so a broken config is still reported by the target that owns it.
+define require-evm-chain
+	@fam="$$(bash script/config/chain-family.sh "$(1)")"; \
+	test "$$fam" = "evm" || { \
+		echo "$@: $(1) is chainFamily '$$fam' - this target is EVM-only."; \
+		echo "$(2)"; \
+		exit 1; }
+endef
+
+# Non-EVM chains are destination-only here (docs/config-schema.md, "Non-EVM (Solana) chain file").
+NON_EVM_DEPLOY_HINT = Deploy it with that chain's own tooling, then record it: make adopt-token CHAIN=$(CHAIN) TOKEN_B58=<that chain's address> [POOL_B58=<that chain's address>]
+
 # Canonical JSON format for config/chains/*.json: `jq --indent 2 -S .` (2-space indent, sorted keys,
 # trailing newline — jq always emits one). The committed files use this exact style, and every target
 # that writes a config re-canonicalizes it as its last step, so a no-drift `make sync` produces ZERO
@@ -90,11 +109,24 @@ help: ## List the available targets
 	@echo "Chain-config tooling golden path (raw commands: README.md > Chain config tooling):"
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z][a-z-]*:.*## / {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-tools: ## Check the required tools are installed (forge, curl, jq)
+# The chain this invocation targets, if any: CHAIN for the single-chain targets, LOCAL for the lane
+# targets. Recursive (`=`) so it expands when the recipe runs.
+TOOLS_CHAIN = $(or $(CHAIN),$(LOCAL))
+
+tools: ## Check the required tools are installed (forge, curl, jq; CHAIN= adds that chain's family-specific check)
 	@command -v forge > /dev/null || { echo "missing: forge - install Foundry: https://book.getfoundry.sh/getting-started/installation"; exit 2; }
 	@command -v curl > /dev/null || { echo "missing: curl - install it (usually preinstalled; else brew install curl / apt install curl)"; exit 2; }
 	@command -v jq > /dev/null || { echo "missing: jq - install it (e.g. brew install jq / apt install jq)"; exit 2; }
 	@echo "tools: forge, curl and jq are all present"
+	@# forge/curl/jq are the baseline for every family - the config tooling itself is forge-based and
+	@# still runs against a non-EVM chain (sync SKIPs, doctor checks the schema). Anything
+	@# family-specific hangs off the chain argument, so an EVM-only user never sees another family's
+	@# stack, and never pays for the lookup. svm needs nothing extra TODAY: this repo has no non-EVM
+	@# write path, and the Solana CLI the docs mention is advisory, never installed or invoked here.
+	@test -z "$(TOOLS_CHAIN)" || { \
+		fam="$$(bash script/config/chain-family.sh "$(TOOLS_CHAIN)")"; \
+		test "$$fam" = "evm" || \
+			echo "tools: $(TOOLS_CHAIN) is chainFamily '$$fam' - destination-only here, no extra toolchain required (docs/config-schema.md)"; }
 
 discover: tools ## List the CCIP API chain catalog vs local configs, both planes (FILTER=<term> narrows; ENVIRONMENT=<testnet|mainnet> narrows the plane)
 	@FILTER="$(FILTER)" ENVIRONMENT="$(ENVIRONMENT)" bash script/config/sync-discover.sh
@@ -167,6 +199,7 @@ ifdef TOKEN_B58
 	FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script script/config/AdoptToken.s.sol $(call evm-version-flag,$(CHAIN)) --sig "runNonEvm(string,string,string)" "$(CHAIN)" "$(TOKEN_B58)" "$(POOL_B58)"
 else
 	$(if $(TOKEN),,$(error TOKEN is required - the externally deployed token address to adopt (or TOKEN_B58 for a non-EVM chain)))
+	$(call require-evm-chain,$(CHAIN),TOKEN= is an EVM address - pass this family's own form: make adopt-token CHAIN=$(CHAIN) TOKEN_B58=<that chain's address> [POOL_B58=<that chain's address>])
 	@FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" bash script/config/forge-fork.sh "$(CHAIN)" -- forge script script/config/AdoptToken.s.sol $(call evm-version-flag,$(CHAIN)) --sig "run(string,address,address)" "$(CHAIN)" "$(TOKEN)" "$(or $(TOKEN_POOL),0x0000000000000000000000000000000000000000)"
 endif
 
@@ -293,21 +326,25 @@ endef
 deploy-token: tools ## Deploy a cross-chain token on <CHAIN> (CHAIN= + KEYSTORE_NAME= required; token params via env TOKEN_NAME= TOKEN_SYMBOL= ...; VERIFY=1 source-verifies; FORCE_REDEPLOY=1 overrides the redeploy guard; GROUP= scopes to a token group)
 	$(if $(CHAIN),,$(error CHAIN is required: make deploy-token CHAIN=<name> (token params via env: TOKEN_NAME= TOKEN_SYMBOL= TOKEN_DECIMALS= ...)))
 	$(require-chain-config)
+	$(call require-evm-chain,$(CHAIN),$(NON_EVM_DEPLOY_HINT))
 	$(call run-deploy,script/deploy/DeployToken.s.sol)
 
 deploy-pool: tools ## Deploy a BurnMint token pool on <CHAIN> (CHAIN= + KEYSTORE_NAME= required; token resolved from the registry, else TOKEN=; opt POOL_HOOKS=; VERIFY=1; FORCE_REDEPLOY=1; GROUP= scopes to a token group)
 	$(if $(CHAIN),,$(error CHAIN is required: make deploy-pool CHAIN=<name>))
 	$(require-chain-config)
+	$(call require-evm-chain,$(CHAIN),$(NON_EVM_DEPLOY_HINT))
 	$(call run-deploy,script/deploy/DeployBurnMintTokenPool.s.sol)
 
 deploy-lockbox: tools ## Deploy an ERC20 LockBox on <CHAIN> for the LockRelease liquidity model (CHAIN= + KEYSTORE_NAME= required; token from the registry, else TOKEN=; opt AUTHORIZED_CALLERS=; VERIFY=1; GROUP= scopes to a token group)
 	$(if $(CHAIN),,$(error CHAIN is required: make deploy-lockbox CHAIN=<name>))
 	$(require-chain-config)
+	$(call require-evm-chain,$(CHAIN),$(NON_EVM_DEPLOY_HINT))
 	$(call run-deploy,script/deploy/DeployERC20LockBox.s.sol)
 
 deploy-lockrelease-pool: tools ## Deploy a LockRelease token pool on <CHAIN> (CHAIN= + KEYSTORE_NAME= required; token + lock box from the registry, else TOKEN= LOCK_BOX=; opt POOL_HOOKS=; VERIFY=1; FORCE_REDEPLOY=1; GROUP= scopes to a token group)
 	$(if $(CHAIN),,$(error CHAIN is required: make deploy-lockrelease-pool CHAIN=<name>))
 	$(require-chain-config)
+	$(call require-evm-chain,$(CHAIN),$(NON_EVM_DEPLOY_HINT))
 	$(call run-deploy,script/deploy/DeployLockReleaseTokenPool.s.sol)
 
 deploy-new-chain: tools ## Guided deploy: add-chain -> deploy-token -> deploy-pool -> doctor (CHAIN= SELECTOR= + KEYSTORE_NAME= required; token params + VERIFY= via env). Register, set-pool, and wire-lane come next - see docs/workflows/greenfield-deploy.md; a green run means deployed, not yet cross-chain-live
