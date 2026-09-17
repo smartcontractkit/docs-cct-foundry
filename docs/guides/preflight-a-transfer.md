@@ -65,7 +65,9 @@ counterpart to the static [health check](health-check.md).
    So a project that already keeps a key in `.env` gets a sender-scoped estimate with no extra flag. To
    scope it to a keystore account instead, set `WALLET=foundry:<account>` together with
    `FOUNDRY_KEYSTORE_PASSWORD` (the wrapper requires the password up front, because `--no-interactive`
-   makes `ccip-cli` swallow the failure and quietly estimate with no sender at all). With none of them the
+   makes `ccip-cli` swallow the failure and quietly estimate with no sender at all). A passwordless keystore
+is `FOUNDRY_KEYSTORE_PASSWORD=` (empty); ccip-cli 1.13.0 and earlier cannot open one without a terminal,
+so the wrapper refuses it on those versions - use the `.env` key there. With none of them the
    estimate still runs, unscoped, and the wrapper says so. There is no way to scope it to an address you
    hold no key for: `--wallet` takes a wallet, not an address.
 

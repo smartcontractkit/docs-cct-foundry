@@ -162,7 +162,7 @@ contract AdoptTokenForkTest is Test {
             revert("unknown-version pool unexpectedly adopted");
         } catch Error(string memory reason) {
             assertTrue(_contains(reason, "UnsupportedPoolVersion"), reason);
-            assertTrue(_contains(reason, "1.5.0, 1.5.1, 1.6.1, 2.0.0"), reason);
+            assertTrue(_contains(reason, "1.6.0 (SiloedLockReleaseTokenPool only), 1.6.1, 2.0.0"), reason);
         }
     }
 

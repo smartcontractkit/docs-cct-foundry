@@ -293,6 +293,10 @@ contract RolesSnapshot {
         // forge-lint: disable-next-line(unused-return) - vm.serializeX accumulator; only the final return is used
         if (bytes(sub).length != 0) VM.serializeString(root, "lockbox", sub);
 
+        sub = _siloedLockboxesBlock(c.name, c.pool);
+        // forge-lint: disable-next-line(unused-return) - vm.serializeX accumulator; only the final return is used
+        if (bytes(sub).length != 0) VM.serializeString(root, "lockboxes", sub);
+
         sub = _hooksBlock(c.name, json, c.pool, c.isV2);
         // forge-lint: disable-next-line(unused-return) - vm.serializeX accumulator; only the final return is used
         if (bytes(sub).length != 0) VM.serializeString(root, "hooks", sub);
@@ -752,6 +756,25 @@ contract RolesSnapshot {
         string memory out = VM.serializeAddress(obj, "address", lockbox);
         out = _putAddr(obj, "lockbox", "owner", out, lockbox, "owner()");
         out = _putAddrArray(obj, "lockbox", "authorizedCallers", out, lockbox, "getAllAuthorizedCallers()");
+        return out;
+    }
+
+    /// @dev A Siloed 2.0 pool's boxes, keyed by box address (one per silo, shared boxes once).
+    function _siloedLockboxesBlock(string memory name, address pool) private returns (string memory) {
+        (bool siloed, address[] memory boxes) = RolesProbes._trySiloedLockBoxes(pool);
+        if (!siloed || boxes.length == 0) return "";
+        string memory map = string.concat("roles-lockboxes-", name);
+        string memory out;
+        for (uint256 i = 0; i < boxes.length; i++) {
+            string memory key = VM.toString(boxes[i]);
+            string memory obj = string.concat("roles-lockboxes-", name, "-", key);
+            string memory entry = "{}";
+            entry = _putAddr(obj, string.concat("lockboxes.", key), "owner", entry, boxes[i], "owner()");
+            entry = _putAddrArray(
+                obj, string.concat("lockboxes.", key), "authorizedCallers", entry, boxes[i], "getAllAuthorizedCallers()"
+            );
+            out = VM.serializeString(map, key, entry);
+        }
         return out;
     }
 

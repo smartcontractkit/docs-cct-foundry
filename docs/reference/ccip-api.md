@@ -44,6 +44,12 @@ finds a parameter you did not think to try. That is how `reviewedOnly` was misse
 | `GET /chains` | [`sync-discover.sh`](../../script/config/sync-discover.sh) | `environment` only (unset = both planes). No paging. |
 | `GET /chains/{selector}` | [`ccip-config-source.sh`](../../script/config/ccip-config-source.sh), [`ccip-chain-meta.sh`](../../script/config/ccip-chain-meta.sh) | none accepted. |
 | `GET /tokens` | [`discover-tokens.sh`](../../script/config/discover-tokens.sh) | `chainSelector`, `remoteChainSelector`, `groupId`, `symbol`, `address`, `admin`, `environment`, `reviewedOnly`, `expand`, `limit`, `cursor`. |
+| `GET /tokens/{chainSelector}/{tokenAddress}` | [`discover-tokens.sh`](../../script/config/discover-tokens.sh) with `POOL=1` | none accepted. |
+
+Only the token detail route describes the pool: `pool.type` is an API enum (`SILOED_LOCK_RELEASE`,
+`BURN_MINT`, ...) and `pool.version` a version number that is `null` for a dev build. No route returns the
+contract's own `typeAndVersion()`; read it on-chain when the exact string matters. The list route carries
+no pool fields even with `expand=true`, and the group route carries pool addresses only.
 
 `GET /tokens` pages by **keyset, not offset**: `page` and `offset` are rejected with a 400. Follow
 `pagination.cursor` while `pagination.hasNextPage` is true. Filters may travel with the cursor only if

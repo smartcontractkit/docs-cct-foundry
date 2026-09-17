@@ -31,11 +31,16 @@ the message distinguishes "no contract at" from "did not answer".
 ## The catalog
 
 ```
-UNKNOWN < 1.5.0 < 1.5.1 < 1.6.1 < 2.0.0
+UNKNOWN < 1.5.0 < 1.5.1 < 1.6.0 < 1.6.1 < 2.0.0
 ```
 
+- `1.6.0` is accepted only on `SiloedLockReleaseTokenPool`, the one type released with that stamp (npm
+  1.6.0 stamps its BurnMint pool `1.5.1`). It has 1.6.1's callable surface with 1.5.x rate-limit
+  validation.
+
 - `UNKNOWN` is the zero-value sentinel: a default-initialized version can never dispatch.
-- There is no `1.6.0` pool in the wild; the audited 1.6-generation stamp is `1.6.1`.
+- Apart from the Siloed pool, there is no `1.6.0` pool in the wild; the audited 1.6-generation stamp is
+  `1.6.1`.
 - The `1.6.2`-`1.6.4` source tags stamp `-dev` strings (`1.6.3-dev`, `1.6.x-dev`); they are
   unaudited development builds and are refused (see [dev builds](#dev-builds)).
 
@@ -64,11 +69,13 @@ exists on.
 | `setRouter` / `setRateLimitAdmin`    | `[1.5.0, 2.0.0)`     |
 | `setDynamicConfig`                   | `[2.0.0, infinity)`  |
 | `applyAllowListUpdates` (pool-level) | `[1.5.0, 2.0.0)`     |
+| Siloed silo surface (Siloed only)    | `[1.6.0, 2.0.0)`     |
+| `configureLockBoxes` (Siloed only)   | `[2.0.0, infinity)`  |
 
 The table in `src/PoolVersions.sol` is authoritative; this rendering mirrors it for reading.
 
 The catalog and ranges are validated live, not only against source: every cataloged version
-(1.5.0, 1.5.1, 1.6.1, 2.0.0) was exercised against real testnet pools of that version through the
+(1.5.0, 1.5.1, 1.6.1, 2.0.0; Siloed 1.6.0 and 1.6.1 on the v2 staging plane) was exercised against real testnet pools of that version through the
 repo scripts (adoption, lane updates including the 1.5.0 encoding, rate-limit updates, read-backs),
 including end-to-end cross-chain token transfers per version in both directions over the same lane.
 
@@ -175,7 +182,8 @@ If a genuinely new pool release appears, extend the catalog: see
 ## Foreign pool types
 
 Version tokens are only comparable within the standard TokenPool lineage: `BurnMintTokenPool`,
-`BurnFromMintTokenPool`, `BurnWithFromMintTokenPool`, `LockReleaseTokenPool`. Specialized pools
+`BurnFromMintTokenPool`, `BurnWithFromMintTokenPool`, `LockReleaseTokenPool`, and
+`SiloedLockReleaseTokenPool` (which subclasses the TokenPool of its release). Specialized pools
 (for example `USDCTokenPool`) version independently; their `1.5.1` is not TokenPool `1.5.1` and
 must not dispatch as such. The resolver refuses any type prefix outside the lineage with
 `UnsupportedPoolType`. If you have verified a foreign pool's ABI against a cataloged version, the
@@ -222,8 +230,8 @@ POOL_VERSION_OVERRIDE=0xPoolAddress=2.0.0
 
 ## What this doctrine does NOT cover
 
-- **The deploy-time equality guard.** `DeployBurnMintTokenPool` / `DeployLockReleaseTokenPool`
-  assert the deployed contract's `typeAndVersion()` equals the expected exact string. That is a
+- **The deploy-time equality guard.** `DeployBurnMintTokenPool` / `DeployLockReleaseTokenPool` /
+  `DeploySiloedLockReleaseTokenPool` assert the deployed contract's `typeAndVersion()` equals the expected exact string. That is a
   pinned-dependency check, not dispatch; converting it to a range comparison would destroy its
   point. It stays an exact string.
 - **Registry keying.** The address registry keys pool entries by the full on-chain

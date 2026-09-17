@@ -23,6 +23,8 @@ import {OutcomeLog} from "../../src/base/OutcomeLog.sol";
  * Environment variables:
  *   AUTHORIZED_CALLERS   - (optional) CSV or JSON array of addresses to authorize immediately
  *                          (e.g. deployer/token issuer for initial liquidity management)
+ *   SILO                 - (optional) label for one of a siloed pool's boxes (e.g. fuji). Recorded as
+ *                          {symbol}_LockBox_{SILO} without repointing active.lockBox, so several coexist.
  */
 contract DeployERC20LockBox is Script {
     HelperConfig public helperConfig;
@@ -67,8 +69,9 @@ contract DeployERC20LockBox is Script {
 
         // Refuse to redeploy over a live registry entry (FORCE_REDEPLOY=true overrides). Keyed on the
         // unique per-symbol deployment name so distinct tokens on one chain never collide.
+        string memory silo = vm.envOr("SILO", string(""));
         RegistryWriter._guard(
-            selectorName, DeploymentRecorder._lockBoxName(DeploymentUtils._getSymbol(vm, tokenAddress))
+            selectorName, DeploymentRecorder._lockBoxName(DeploymentUtils._getSymbol(vm, tokenAddress), silo)
         );
 
         vm.startBroadcast();
@@ -99,9 +102,13 @@ contract DeployERC20LockBox is Script {
         console.log(string.concat("ERC20LockBox Address: ", vm.toString(lockBoxAddress)));
         console.log(helperConfig.getExplorerUrl(chainId, "/address/", lockBoxAddress));
         console.log("");
-        // Single writer: one call emits the detailed ledger file AND records the address in the
-        // registry (deployments[{symbol}_LockBox] + active.lockBox).
-        DeploymentRecorder._recordLockBox(vm, selectorName, chainNameId, lockBoxAddress, tokenAddress);
+        // Single writer: ledger file + deployments[{symbol}_LockBox] + active.lockBox, or for a silo box
+        // deployments[{symbol}_LockBox_{silo}] alone.
+        if (bytes(silo).length == 0) {
+            DeploymentRecorder._recordLockBox(vm, selectorName, chainNameId, lockBoxAddress, tokenAddress);
+        } else {
+            DeploymentRecorder._recordSiloLockBox(vm, selectorName, chainNameId, lockBoxAddress, tokenAddress, silo);
+        }
         console.log("");
         if (!DeploymentRecorder._recorded()) {
             DeploymentRecorder._logNothingRecorded();
@@ -115,7 +122,19 @@ contract DeployERC20LockBox is Script {
         if (DeploymentRecorder._recorded() && authorizedCallers.length == 0) {
             console.log("");
             console.log("Next Steps:");
-            console.log(string.concat("  1. Deploy a LockReleaseTokenPool with LOCK_BOX=", vm.toString(lockBoxAddress)));
+            if (bytes(silo).length == 0) {
+                console.log(
+                    string.concat("  1. Deploy a LockReleaseTokenPool with LOCK_BOX=", vm.toString(lockBoxAddress))
+                );
+            } else {
+                console.log(
+                    string.concat(
+                        "  1. Map it on the siloed pool: LOCK_BOXES=<chain>=",
+                        vm.toString(lockBoxAddress),
+                        " configure/siloed/ConfigureLockBoxes.s.sol"
+                    )
+                );
+            }
             console.log("  2. Authorize the pool on the lockbox:");
             console.log(
                 string.concat(

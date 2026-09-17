@@ -18,6 +18,7 @@ Script to deploy an ERC20LockBox for use with a LockReleaseTokenPool
 | Env var | Description |
 | --- | --- |
 | `AUTHORIZED_CALLERS` | See the script header. |
+| `SILO` | See the script header. |
 
 ## Reference
 

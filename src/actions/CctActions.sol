@@ -15,6 +15,7 @@ import {RateLimiter} from "@chainlink/contracts-ccip/contracts/libraries/RateLim
 import {IAdvancedPoolHooks} from "@chainlink/contracts-ccip/contracts/interfaces/IAdvancedPoolHooks.sol";
 import {AdvancedPoolHooks} from "@chainlink/contracts-ccip/contracts/pools/AdvancedPoolHooks.sol";
 import {ERC20LockBox} from "@chainlink/contracts-ccip/contracts/pools/ERC20LockBox.sol";
+import {SiloedLockReleaseTokenPool} from "@chainlink/contracts-ccip/contracts/pools/SiloedLockReleaseTokenPool.sol";
 import {AuthorizedCallers} from "@chainlink/contracts/src/v0.8/shared/access/AuthorizedCallers.sol";
 import {IBurnMintERC20} from "@chainlink/contracts-ccip/contracts/interfaces/IBurnMintERC20.sol";
 import {IERC20} from "@openzeppelin/contracts@5.3.0/token/ERC20/IERC20.sol";
@@ -66,6 +67,26 @@ interface ILockReleaseV1Liquidity {
     function provideLiquidity(uint256 amount) external;
     function withdrawLiquidity(uint256 amount) external;
     function getToken() external view returns (IERC20);
+}
+
+/// @notice Minimal view of the SiloedLockReleaseTokenPool 1.6.0/1.6.1 silo surface (identical in both). Liquidity
+///         lives on the pool, accounted per siloed chain plus one shared bucket for unsiloed chains; the
+///         rebalancer of a chain is its silo's rebalancer when siloed, the pool rebalancer otherwise. 2.0.0
+///         replaced all of it with per-chain lock boxes, so the vendored package does not declare it.
+interface ISiloedLockReleaseV16 {
+    struct SiloConfigUpdate {
+        uint64 remoteChainSelector;
+        address rebalancer;
+    }
+
+    function updateSiloDesignations(uint64[] calldata removes, SiloConfigUpdate[] calldata adds) external;
+    function setSiloRebalancer(uint64 remoteChainSelector, address newRebalancer) external;
+    function provideSiloedLiquidity(uint64 remoteChainSelector, uint256 amount) external;
+    function withdrawSiloedLiquidity(uint64 remoteChainSelector, uint256 amount) external;
+    function isSiloed(uint64 remoteChainSelector) external view returns (bool);
+    function getChainRebalancer(uint64 remoteChainSelector) external view returns (address);
+    function getAvailableTokens(uint64 remoteChainSelector) external view returns (uint256);
+    function getUnsiloedLiquidity() external view returns (uint256);
 }
 
 /// @notice Minimal view of the CCIP-admin setter (`setCCIPAdmin`). Present on `CrossChainToken`
@@ -549,6 +570,60 @@ library CctActions {
     ///         its balance is below `amount`. Removed in 2.0.0.
     function _withdrawLiquidity(address pool, uint256 amount) internal pure returns (Call[] memory) {
         return _one(pool, abi.encodeCall(ILockReleaseV1Liquidity.withdrawLiquidity, (amount)));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // SiloedLockRelease: 1.6.x silos (pool-held) and 2.0.0 lock boxes
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// @notice Unsilo `removes` (their balance moves to the shared bucket) and silo `adds` (each starts at
+    ///         zero, so existing shared liquidity is NOT carried into a new silo). onlyOwner.
+    function _updateSiloDesignations(
+        address pool,
+        uint64[] memory removes,
+        ISiloedLockReleaseV16.SiloConfigUpdate[] memory adds
+    ) internal pure returns (Call[] memory) {
+        return _one(pool, abi.encodeCall(ISiloedLockReleaseV16.updateSiloDesignations, (removes, adds)));
+    }
+
+    /// @notice onlyOwner; the chain must already be siloed.
+    function _setSiloRebalancer(address pool, uint64 remoteChainSelector, address rebalancer)
+        internal
+        pure
+        returns (Call[] memory)
+    {
+        return _one(pool, abi.encodeCall(ISiloedLockReleaseV16.setSiloRebalancer, (remoteChainSelector, rebalancer)));
+    }
+
+    /// @notice `approve(pool, amount)` then `provideSiloedLiquidity`; the caller must be the silo's rebalancer.
+    function _provideSiloedLiquidity(address pool, address token, uint64 remoteChainSelector, uint256 amount)
+        internal
+        pure
+        returns (Call[] memory)
+    {
+        return _concat(
+            _approve(token, pool, amount),
+            _one(pool, abi.encodeCall(ISiloedLockReleaseV16.provideSiloedLiquidity, (remoteChainSelector, amount)))
+        );
+    }
+
+    /// @notice Tokens go to the caller, who must be the silo's rebalancer.
+    function _withdrawSiloedLiquidity(address pool, uint64 remoteChainSelector, uint256 amount)
+        internal
+        pure
+        returns (Call[] memory)
+    {
+        return _one(pool, abi.encodeCall(ISiloedLockReleaseV16.withdrawSiloedLiquidity, (remoteChainSelector, amount)));
+    }
+
+    /// @notice Set-only: an entry can be overwritten, never removed. onlyOwner. The pool must separately be an
+    ///         authorized caller on each lock box; `configureLockBoxes` does not check it.
+    function _configureLockBoxes(address pool, SiloedLockReleaseTokenPool.LockBoxConfig[] memory configs)
+        internal
+        pure
+        returns (Call[] memory)
+    {
+        return _one(pool, abi.encodeCall(SiloedLockReleaseTokenPool.configureLockBoxes, (configs)));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

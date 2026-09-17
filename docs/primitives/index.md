@@ -31,6 +31,7 @@ at [`catalog.json`](catalog.json). These pages are generated from the scripts an
 ## config-plane
 
 - [AdoptToken](config-plane/AdoptToken.md) - Adopts an externally deployed token (and optionally its pool) into the address registry, so contracts this repo did NOT deploy resolve exactly like the ones it did (the zero-export `active.<role>` ladder). _(write)_
+- [ForgetDeployment](config-plane/ForgetDeployment.md) - Removes one retired entry from `addresses.deployments` in the project store, typically the old pool after a migration. _(write)_
 - [ProbeChain](config-plane/ProbeChain.md) - Read a chain's CCIP wiring over plain JSON-RPC, WITHOUT forking it. _(write)_
 - [RolesCheck](config-plane/RolesCheck.md) - **`make roles-check CHAIN=<name>` - READ-ONLY reconcile of the declared `roles{}` against the live chain.** It never writes a file and never broadcasts; the only outputs are the aligned [PASS]/[FAIL]/[WARN]/[SKIP] lines from `RolesAuditor` and the exit status. _(write)_
 - [SnapshotChain](config-plane/SnapshotChain.md) - **`make snapshot-chain CHAIN=<name>` - backfill the DECLARED authority state FROM chain.** Reads the live role surface (owner/defaultAdmin/getCCIPAdmin/hasRole/TAR getTokenConfig/ dual-generation pool admins/getAllAuthorizedCallers/getAllowList/...) through `RolesSnapshot` and writes the `roles{}` subtree of `project/<selectorName>.json` (preserve-and-replace, the same single-subtree pattern as the `ccip{}` sync). _(write)_
@@ -46,6 +47,7 @@ at [`catalog.json`](catalog.json). These pages are generated from the scripts an
 - [DeployBurnMintTokenPool](deploy/DeployBurnMintTokenPool.md) - Deploys a BurnMint token pool for a token and records it in the address registry. _(write)_
 - [DeployERC20LockBox](deploy/DeployERC20LockBox.md) - Script to deploy an ERC20LockBox for use with a LockReleaseTokenPool _(write)_
 - [DeployLockReleaseTokenPool](deploy/DeployLockReleaseTokenPool.md) - Deploys a LockRelease token pool (paired with an ERC20 LockBox) and records it in the registry. _(write)_
+- [DeploySiloedLockReleaseTokenPool](deploy/DeploySiloedLockReleaseTokenPool.md) - Deploys a SiloedLockRelease token pool and records it in the registry. _(write)_
 - [DeployToken](deploy/DeployToken.md) - Deploys a cross-chain ERC20 token (CrossChainToken) and records it in the address registry. _(write)_
 
 ## dynamic-config
@@ -104,6 +106,15 @@ at [`catalog.json`](catalog.json). These pages are generated from the scripts an
 - [GetRemotePools](remote-pools/GetRemotePools.md) - Reads and displays the remote pool addresses configured on a TokenPool for a given remote chain. _(read-only)_
 - [GetRemoteToken](remote-pools/GetRemoteToken.md) - Reads and displays the remote token configured on a TokenPool for a given remote chain. _(read-only)_
 - [RemoveRemotePool](remote-pools/RemoveRemotePool.md) - Removes a remote pool address from a TokenPool for a given remote chain. _(write, destructive)_
+
+## siloed
+
+- [ConfigureLockBoxes](siloed/ConfigureLockBoxes.md) - Maps remote chains to lock boxes on a SiloedLockReleaseTokenPool 2.0.0 (`configureLockBoxes`, onlyOwner). _(read-only)_
+- [GetSiloedPoolState](siloed/GetSiloedPoolState.md) - Reads where a SiloedLockReleaseTokenPool keeps its liquidity, per remote chain. _(read-only)_
+- [ProvideSiloedLiquidity](siloed/ProvideSiloedLiquidity.md) - Adds liquidity to one silo of a SiloedLockReleaseTokenPool 1.6.x: `approve` then `provideSiloedLiquidity`, as the silo's rebalancer. _(read-only)_
+- [SetSiloRebalancer](siloed/SetSiloRebalancer.md) - Sets the rebalancer of one silo on a SiloedLockReleaseTokenPool 1.6.x (onlyOwner). _(read-only)_
+- [UpdateSiloDesignations](siloed/UpdateSiloDesignations.md) - Silos or unsilos remote chains on a SiloedLockReleaseTokenPool 1.6.x (`updateSiloDesignations`, onlyOwner). _(read-only)_
+- [WithdrawSiloedLiquidity](siloed/WithdrawSiloedLiquidity.md) - Withdraws liquidity from one silo of a SiloedLockReleaseTokenPool 1.6.x to the silo rebalancer. _(read-only)_
 
 ## token-admin-registry
 

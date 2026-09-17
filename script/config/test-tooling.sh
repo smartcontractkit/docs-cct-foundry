@@ -781,6 +781,7 @@ if offline_enabled; then
         printf 'ZZ_SUBST=$(touch zz-scratch-dotenv-pwned)\n'
         printf 'ZZ_CRLF=crlf\r\n'
         printf 'ZZ_CRLFQ="cq"\r\n'
+        printf 'ZZ_EMPTY=\n'
         printf 'ZZ_NOEOL=noeol'
     } > "$dotenv_fx"
 
@@ -820,6 +821,26 @@ if offline_enabled; then
     # as set (matching Foundry and the Makefile), so an intentional blank is not overwritten from .env.
     dg_case "dotenv-get: exported value beats .env"       "from-env"         ZZ_PLAIN ZZ_PLAIN=from-env
     dg_case "dotenv-get: exported empty value beats .env" ""                 ZZ_PLAIN ZZ_PLAIN=
+    # --is-set separates "set to empty" (a passwordless keystore) from "absent", which the value form cannot.
+    dg_isset_case() { # name expected-exit key [env-assignment...]
+        local name="$1" expected="$2" key="$3" rc
+        shift 3
+        env DOTENV_FILE="$dotenv_fx" "$@" bash script/config/dotenv-get.sh --is-set "$key" > /dev/null
+        rc=$?
+        if [ "$rc" = "$expected" ]; then
+            pass=$((pass + 1))
+            echo "[PASS] $name"
+        else
+            fail=$((fail + 1))
+            failures+=("$name")
+            echo "[FAIL] $name (exit $rc, want $expected)"
+        fi
+    }
+    dg_isset_case "dotenv-get --is-set: empty value in .env is set"  0 ZZ_EMPTY
+    dg_isset_case "dotenv-get --is-set: absent key is not set"       1 ZZ_ABSENT
+    dg_isset_case "dotenv-get --is-set: exported empty value is set" 0 ZZ_ABSENT ZZ_ABSENT=
+    dg_isset_case "dotenv-get --is-set: missing .env is not set"     1 ZZ_PLAIN DOTENV_FILE=/nonexistent
+
     # The file is data, never code: reading a value must not run what it contains.
     DOTENV_FILE="$dotenv_fx" bash script/config/dotenv-get.sh ZZ_SUBST > /dev/null 2>&1
     if [ -e zz-scratch-dotenv-pwned ]; then
@@ -838,6 +859,7 @@ if offline_enabled; then
 case "$*" in
     *"decimals()"*) echo 18 ;;
     "to-unit "*) echo 1 ;;
+    "wallet address "*) case "$*" in *"--password bad"*) exit 1 ;; *) echo 0x00000000000000000000000000000000000000A1 ;; esac ;;
     *) exit 1 ;;
 esac
 STUB
@@ -845,6 +867,7 @@ STUB
 #!/usr/bin/env bash
 # Mirrors the real stream split: the estimate object on stdout, diagnostics on stderr.
 printf '%s\n' "\$STUB_STDOUT"
+[ "\$1" = "--version" ] && { echo "\${STUB_CLI_VERSION:-1.13.0-stub}" >&2; exit 0; }
 printf '%s\n' "\$STUB_ERR" >&2
 exit \${STUB_RC:-1}
 STUB
@@ -958,6 +981,17 @@ STUB
     pf_sender_case "preflight: keystore + password proceeds to the estimate" 0 "GO:" \
         WALLET=foundry:zz-scratch-acct FOUNDRY_DIR="$(dirname "$ks_dir")" \
         FOUNDRY_KEYSTORE_PASSWORD=zz-scratch-pw
+    pf_sender_case "preflight: a password that does not open the keystore is refused" 2 \
+        "does not open with the configured password" WALLET=foundry:zz-scratch-acct \
+        FOUNDRY_DIR="$(dirname "$ks_dir")" FOUNDRY_KEYSTORE_PASSWORD=bad
+    # ccip-cli <= 1.13.0 rejects an empty password without a TTY and swallows the error into an
+    # unscoped estimate, so a passwordless keystore is refused there and accepted once fixed.
+    pf_sender_case "preflight: a passwordless keystore is refused on ccip-cli 1.13.0" 2 \
+        "cannot open the passwordless keystore" WALLET=foundry:zz-scratch-acct \
+        FOUNDRY_DIR="$(dirname "$ks_dir")" FOUNDRY_KEYSTORE_PASSWORD= STUB_CLI_VERSION=1.13.0-abc
+    pf_sender_case "preflight: a passwordless keystore proceeds on a fixed ccip-cli" 0 "GO:" \
+        WALLET=foundry:zz-scratch-acct FOUNDRY_DIR="$(dirname "$ks_dir")" FOUNDRY_KEYSTORE_PASSWORD= \
+        STUB_CLI_VERSION=1.13.1
     # With no wallet and no key anywhere, a GO must not imply a sender-scoped answer it did not give.
     pf_sender_case "preflight: an unscoped estimate says so" 0 "not scoped to a sender"
     rm -rf "$(dirname "$ks_dir")"
@@ -1131,6 +1165,12 @@ case "\$url" in
     *"/chains"*)
         body='{"chains":[{"name":"zz-dt-home","chainSelector":$dt_selector,"chainFamily":"EVM","environment":"testnet","chainId":1},{"name":"zz-dt-remote","chainSelector":$dt_selector_b,"chainFamily":"EVM","environment":"testnet","chainId":2}]}'
         ;;
+    *"/tokens/$dt_selector/"*)
+        body='{"chainSelector":"$dt_selector","pool":{"address":"0xDTPOOL000000000000000000000000000000000A","type":"SILOED_LOCK_RELEASE","version":"2.0.0"}}'
+        ;;
+    *"/tokens/$dt_selector_b/"*)
+        # A detail that fails must show as unknown, never abort the listing.
+        printf '' > "\$out"; printf '500'; exit 0 ;;
     *"/tokens"*)
         # reviewedOnly defaults to true -> the reviewed subset, which is EMPTY for this operator.
         case "\$url" in
@@ -1210,6 +1250,24 @@ STUB
         fail=$((fail + 1))
         failures+=("discover-tokens exits 0 on a successful listing")
         echo "[FAIL] discover-tokens exits 0 on a successful listing (exit=$dt_rc)"
+    fi
+
+    dt_assert "discover-tokens leaves the pool columns out unless POOL is set" "LANES  *LOCAL CONFIG"
+    # POOL=1 adds the detail endpoint's pool, type and version; a failed detail reads as unknown.
+    dt_out="$(env -u ADMIN -u SYMBOL -u CHAIN_SELECTOR -u ENVIRONMENT PATH="$dt_bin:$PATH" POOL=1 \
+        bash script/config/discover-tokens.sh 2>&1)"
+    dt_rc=$?
+    dt_assert "discover-tokens POOL=1 adds the pool columns" "POOL TYPE  *POOL VERSION"
+    dt_assert "discover-tokens POOL=1 shows the API pool type and version" \
+        "0xDTPOOL000000000000000000000000000000000A  *SILOED_LOCK_RELEASE  *2.0.0"
+    dt_assert "discover-tokens POOL=1 marks a failed detail as unknown and keeps listing" "DTPAGE2TOKEN.*?  *?  *?"
+    if [ $dt_rc -eq 0 ]; then
+        pass=$((pass + 1))
+        echo "[PASS] discover-tokens POOL=1 exits 0"
+    else
+        fail=$((fail + 1))
+        failures+=("discover-tokens POOL=1 exits 0")
+        echo "[FAIL] discover-tokens POOL=1 exits 0 (exit=$dt_rc)"
     fi
 
     # An empty result is a NORMAL answer (the API lists a token only once its mesh is fully wired),
@@ -2935,6 +2993,8 @@ fi
 # Offline cases only: the live GO/NO-GO needs two RPCs and a funded lane. What is checkable without a
 # network is the contract this script owns - argument validation, unknown chains, and the exit code 2
 # that means "I could not ask", which callers must not read as a verdict.
+run_case "forget-deployment without NAME names the key it needs" nonzero "NAME is required" -- \
+    make forget-deployment CHAIN=ethereum-testnet-sepolia
 run_case "preflight without args prints usage" nonzero "usage: preflight-transfer.sh" -- \
     ./script/config/preflight-transfer.sh
 
@@ -3159,6 +3219,10 @@ if offline_enabled; then
         "deploy-lockrelease-pool: $FAM_SVM is chainFamily 'svm' - this target is EVM-only" -- \
         env ZZ_SCRATCH_FAM_SVM_RPC_URL="http://127.0.0.1:1" KEYSTORE_NAME="zz-scratch-fam-none" \
         make deploy-lockrelease-pool CHAIN="$FAM_SVM"
+    run_case "deploy-siloed-pool refuses a non-EVM chain by family" nonzero \
+        "deploy-siloed-pool: $FAM_SVM is chainFamily 'svm' - this target is EVM-only" -- \
+        env ZZ_SCRATCH_FAM_SVM_RPC_URL="http://127.0.0.1:1" KEYSTORE_NAME="zz-scratch-fam-none" \
+        make deploy-siloed-pool CHAIN="$FAM_SVM"
     run_case "adopt-token TOKEN= on a non-EVM chain names the adopt path" nonzero \
         "TOKEN= is an EVM address - pass this family's own form" -- \
         env ZZ_SCRATCH_FAM_SVM_RPC_URL="http://127.0.0.1:1" KEYSTORE_NAME="zz-scratch-fam-none" \

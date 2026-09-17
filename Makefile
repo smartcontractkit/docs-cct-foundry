@@ -38,12 +38,12 @@ evm-version-flag = --evm-version $(call evm-version,$(1))
 # (project/<group>/<selectorName>.json); unset is the flat default (project/<selectorName>.json). It
 # threads to the scripts as PROJECT_GROUP; GROUP_DIR locates the same file for the jq repair steps here.
 # Honored by the project targets (add-lane, remove-lane, adopt-token, snapshot-chain, doctor,
-# roles-check) and the deploy targets (deploy-token/pool/lockbox/lockrelease-pool, deploy-new-chain); the
+# roles-check) and the deploy targets (deploy-token/pool/lockbox/lockrelease-pool/siloed-pool, deploy-new-chain); the
 # chain-facts targets (add-chain, sync*) ignore it (config/chains is group-independent).
 GROUP_DIR := $(if $(GROUP),$(GROUP)/,)
 
 .DEFAULT_GOAL := help
-.PHONY: probe-chain adopt-token help tools discover discover-tokens add-chain add-lane remove-lane sync sync-preview sync-all sync-check doctor fmt-config clean-scratch snapshot-chain roles-check roles-check-all deploy-token deploy-pool deploy-lockbox deploy-lockrelease-pool deploy-new-chain preflight verify verify-args verify-execution
+.PHONY: probe-chain adopt-token forget-deployment help tools discover discover-tokens add-chain add-lane remove-lane sync sync-preview sync-all sync-check doctor fmt-config clean-scratch snapshot-chain roles-check roles-check-all deploy-token deploy-pool deploy-lockbox deploy-lockrelease-pool deploy-siloed-pool deploy-new-chain preflight verify verify-args verify-execution
 
 # Deploy-time parameters are read by the forge scripts from the environment (vm.env*). Forward a value
 # passed on the make command line (make deploy-token TOKEN_NAME=...) to the forge subprocess; a value
@@ -57,7 +57,7 @@ GROUP_DIR := $(if $(GROUP),$(GROUP)/,)
 # still apply.
 DEPLOY_VARS := TOKEN_NAME TOKEN_SYMBOL TOKEN_DECIMALS TOKEN_MAX_SUPPLY TOKEN_PRE_MINT \
 	TOKEN_PRE_MINT_RECIPIENT CCIP_ADMIN_ADDRESS ROLES_RECIPIENT TOKEN TOKEN_POOL LOCK_BOX DECIMALS \
-	POOL_HOOKS AUTHORIZED_CALLERS FORCE_REDEPLOY REANCHOR
+	POOL_HOOKS AUTHORIZED_CALLERS FORCE_REDEPLOY REANCHOR SILO
 $(foreach v,$(DEPLOY_VARS),$(if $(strip $($(v))),$(eval export $(v))))
 
 # Recipe-time guard: the CHAIN's config file must exist (helpful list + add-chain hint on a miss).
@@ -131,8 +131,8 @@ tools: ## Check the required tools are installed (forge, curl, jq; CHAIN= adds t
 discover: tools ## List the CCIP API chain catalog vs local configs, both planes (FILTER=<term> narrows; ENVIRONMENT=<testnet|mainnet> narrows the plane)
 	@FILTER="$(FILTER)" ENVIRONMENT="$(ENVIRONMENT)" bash script/config/sync-discover.sh
 
-discover-tokens: tools ## List the CCIP API token catalog for an operator (ADMIN=, SYMBOL=, CHAIN_SELECTOR=, ENVIRONMENT= all narrow; unreviewed tokens included)
-	@ADMIN="$(ADMIN)" SYMBOL="$(SYMBOL)" CHAIN_SELECTOR="$(CHAIN_SELECTOR)" ENVIRONMENT="$(ENVIRONMENT)" bash script/config/discover-tokens.sh
+discover-tokens: tools ## List the CCIP API token catalog for an operator (ADMIN=, SYMBOL=, CHAIN_SELECTOR=, ENVIRONMENT= all narrow; unreviewed tokens included; POOL=1 adds the pool, its API type and version, one request per row)
+	@ADMIN="$(ADMIN)" SYMBOL="$(SYMBOL)" CHAIN_SELECTOR="$(CHAIN_SELECTOR)" ENVIRONMENT="$(ENVIRONMENT)" POOL="$(POOL)" bash script/config/discover-tokens.sh
 
 add-chain: tools ## Generate config/chains/<CHAIN>.json from the live API (CHAIN= and SELECTOR= required)
 	$(if $(CHAIN),,$(error CHAIN is required: make add-chain CHAIN=<selectorName> SELECTOR=<selector> - both from the make discover API NAME + SELECTOR columns))
@@ -202,6 +202,12 @@ else
 	$(call require-evm-chain,$(CHAIN),TOKEN= is an EVM address - pass this family's own form: make adopt-token CHAIN=$(CHAIN) TOKEN_B58=<that chain's address> [POOL_B58=<that chain's address>])
 	@FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" bash script/config/forge-fork.sh "$(CHAIN)" -- forge script script/config/AdoptToken.s.sol $(call evm-version-flag,$(CHAIN)) --sig "run(string,address,address)" "$(CHAIN)" "$(TOKEN)" "$(or $(TOKEN_POOL),0x0000000000000000000000000000000000000000)"
 endif
+
+forget-deployment: tools ## Remove a retired entry from project/[<GROUP>/]<CHAIN>.json deployments{} (CHAIN= NAME=<deployments key> required; refuses an active, registered, still-laned or funded artifact; PREVIEW=1 changes nothing; local edit, nothing sent)
+	$(if $(CHAIN),,$(error CHAIN is required: make forget-deployment CHAIN=<name> NAME=<deployments key>))
+	$(if $(NAME),,$(error NAME is required - the addresses.deployments key to remove, e.g. WBTC_BurnMintTokenPool_1.5.1))
+	$(require-chain-config)
+	@FOUNDRY_PROFILE=sync PROJECT_GROUP="$(GROUP)" forge script script/config/ForgetDeployment.s.sol $(call evm-version-flag,$(CHAIN)) --sig "run(string,string,bool)" "$(CHAIN)" "$(NAME)" $(if $(PREVIEW),true,false)
 
 sync: tools ## Refresh <CHAIN>'s ccip{} block from the live API (CHAIN= required)
 	$(if $(CHAIN),,$(error CHAIN is required: make sync CHAIN=<name>))
@@ -346,6 +352,12 @@ deploy-lockrelease-pool: tools ## Deploy a LockRelease token pool on <CHAIN> (CH
 	$(require-chain-config)
 	$(call require-evm-chain,$(CHAIN),$(NON_EVM_DEPLOY_HINT))
 	$(call run-deploy,script/deploy/DeployLockReleaseTokenPool.s.sol)
+
+deploy-siloed-pool: tools ## Deploy a SiloedLockRelease token pool on <CHAIN>, no lock box (CHAIN= + KEYSTORE_NAME= required; token from the registry, else TOKEN=; opt POOL_HOOKS=; VERIFY=1; FORCE_REDEPLOY=1; GROUP=). Then deploy-lockbox SILO=<label> per silo and configure/siloed/ConfigureLockBoxes
+	$(if $(CHAIN),,$(error CHAIN is required: make deploy-siloed-pool CHAIN=<name>))
+	$(require-chain-config)
+	$(call require-evm-chain,$(CHAIN),$(NON_EVM_DEPLOY_HINT))
+	$(call run-deploy,script/deploy/DeploySiloedLockReleaseTokenPool.s.sol)
 
 deploy-new-chain: tools ## Guided deploy: add-chain -> deploy-token -> deploy-pool -> doctor (CHAIN= SELECTOR= + KEYSTORE_NAME= required; token params + VERIFY= via env). Register, set-pool, and wire-lane come next - see docs/workflows/greenfield-deploy.md; a green run means deployed, not yet cross-chain-live
 	$(if $(CHAIN),,$(error CHAIN is required: make deploy-new-chain CHAIN=<selectorName> SELECTOR=<selector> (token params via env)))

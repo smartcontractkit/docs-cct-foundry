@@ -1,6 +1,10 @@
 forge-std/=node_modules/@chainlink/contracts/src/v0.8/vendor/forge-std/src/
 
 @chainlink/contracts-ccip/contracts/=node_modules/@chainlink/contracts-ccip/contracts/
+@chainlink/contracts-ccip-1.6.0/=node_modules/@chainlink/contracts-ccip-1.6.0/
+@chainlink/contracts-ccip-1.6.1/=node_modules/@chainlink/contracts-ccip-1.6.1/
+node_modules/@chainlink/contracts-ccip-1.6.0/:@chainlink/contracts/=node_modules/@chainlink/contracts-ccip-1.6.0/node_modules/@chainlink/contracts/
+node_modules/@chainlink/contracts-ccip-1.6.1/:@chainlink/contracts/=node_modules/@chainlink/contracts-ccip-1.6.1/node_modules/@chainlink/contracts/
 @chainlink/contracts@1.4.0/=node_modules/@chainlink/contracts/
 @chainlink/contracts/=node_modules/@chainlink/contracts
 @chainlink/policy-management/=node_modules/@chainlink/ace/packages/policy-management/src/

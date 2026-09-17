@@ -43,14 +43,19 @@ single registry entry (see [what adopt-token validates](#what-adopt-token-valida
 ## Scenario 2: existing token and pool
 
 When another toolchain (or an earlier version of this repo) deployed both contracts, adopt them
-together:
+together. To find what is already registered, and which pool type and version each chain runs,
+`make discover-tokens SYMBOL=<sym> POOL=1` lists it from the CCIP API (the API's type and version, not the
+on-chain `typeAndVersion()` string, which adoption reads itself):
 
 ```bash
 make adopt-token CHAIN=ethereum-testnet-sepolia TOKEN=0xYourToken TOKEN_POOL=0xYourPool
 ```
 
 The pool is resolved through the [pool-version catalog](pool-versions.md) and cross-checked against
-the token before anything is written. After a successful adoption the day-2 scripts work with zero
+the token before anything is written. A 2.0 LockRelease pool's lock box is recorded too
+(`{symbol}_LockBox` + `active.lockBox`), and a Siloed 2.0 pool's boxes as `{symbol}_LockBox_<chain>`, named
+after the first remote chain each one serves. A 1.6.x Siloed pool holds its own liquidity, so there is no
+box to record. After a successful adoption the day-2 scripts work with zero
 exports, exactly as if this repo had deployed the contracts. The command prints the next steps that
 still apply to your token: registration (`ClaimAdmin` + `AcceptAdminRole`) if the token is not
 registered yet, `SetPool` if the TokenAdminRegistry does not point at this pool, lane wiring, and

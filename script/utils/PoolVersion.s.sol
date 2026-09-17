@@ -85,7 +85,7 @@ library PoolVersion {
         _requireKnownTypePrefix(pool, full, typePrefix);
         _requireNoDevBuild(pool, full, token);
 
-        version = PoolVersions._fromVersionToken(token);
+        version = _versionFor(typePrefix, token);
         if (version == PoolVersions.Version.UNKNOWN) {
             revert(
                 string.concat(
@@ -147,7 +147,7 @@ library PoolVersion {
         }
 
         if (!_isKnownTypePrefix(typePrefix)) return (false, PoolVersions.Version.UNKNOWN, full);
-        version = PoolVersions._fromVersionToken(token);
+        version = _versionFor(typePrefix, token);
         if (version == PoolVersions.Version.UNKNOWN) return (false, PoolVersions.Version.UNKNOWN, full);
         return (true, version, full);
     }
@@ -160,6 +160,7 @@ library PoolVersion {
     ///      liquidity to manage, and specialized pools version independently, so the fence is scoped to
     ///      the standard LockRelease lineage.
     string internal constant LOCK_RELEASE_TYPE = "LockReleaseTokenPool";
+    string internal constant SILOED_LOCK_RELEASE_TYPE = "SiloedLockReleaseTokenPool";
 
     /// @notice Fences a MUTATING v1.x LockRelease liquidity operation on both axes and returns the
     ///         resolved version (< 2.0.0) so the caller can build the write. The check is two-dimensional:
@@ -180,7 +181,7 @@ library PoolVersion {
         (version, full) = _resolve(pool);
         (string memory typePrefix,) = _splitTypeAndVersion(full);
 
-        if (keccak256(bytes(typePrefix)) != keccak256(bytes(LOCK_RELEASE_TYPE))) {
+        if (!_isLockReleaseFamily(typePrefix)) {
             revert(
                 string.concat(
                     "UnsupportedPoolTypeForLiquidity: liquidity management is only on LockRelease pools; this is a ",
@@ -200,6 +201,9 @@ library PoolVersion {
             revert(
                 string.concat(
                     "LiquidityManagedByLockBox: on 2.0.0 LockRelease pools, liquidity is managed via the external lock box",
+                    _isSiloed(typePrefix)
+                        ? " (one per remote chain on a Siloed pool - read them with configure/GetLockBox.s.sol)"
+                        : "",
                     " - use operations/DepositToLockBox.s.sol / WithdrawFromLockBox.s.sol (pool ",
                     VM.toString(pool),
                     ", on-chain \"",
@@ -210,6 +214,39 @@ library PoolVersion {
         }
 
         PoolVersions._requireSupports(PoolVersions.Op.PROVIDE_LIQUIDITY, version, pool);
+    }
+
+    /// @notice Fences a Siloed-only operation: the pool must be a `SiloedLockReleaseTokenPool` and its
+    ///         version inside `op`'s range. Returns the resolved version.
+    function _requireSiloed(address pool, PoolVersions.Op op)
+        internal
+        view
+        returns (PoolVersions.Version version, string memory full)
+    {
+        (version, full) = _resolve(pool);
+        (string memory typePrefix,) = _splitTypeAndVersion(full);
+        if (!_isSiloed(typePrefix)) {
+            revert(
+                string.concat(
+                    "NotASiloedPool: ",
+                    PoolVersions._opName(op),
+                    " exists only on SiloedLockReleaseTokenPool; pool ",
+                    VM.toString(pool),
+                    " reports \"",
+                    full,
+                    "\"."
+                )
+            );
+        }
+        PoolVersions._requireSupports(op, version, pool);
+    }
+
+    function _isSiloed(string memory typePrefix) internal pure returns (bool) {
+        return keccak256(bytes(typePrefix)) == keccak256(bytes(SILOED_LOCK_RELEASE_TYPE));
+    }
+
+    function _isLockReleaseFamily(string memory typePrefix) internal pure returns (bool) {
+        return keccak256(bytes(typePrefix)) == keccak256(bytes(LOCK_RELEASE_TYPE)) || _isSiloed(typePrefix);
     }
 
     /// @notice The type prefix of a raw `typeAndVersion()` string (everything before the last space), for
@@ -323,13 +360,21 @@ library PoolVersion {
         return string(out);
     }
 
-    /// @dev The standard TokenPool lineage whose version tokens are comparable in the catalog.
-    ///      Specialized pools (USDCTokenPool, siloed or hybrid variants, forks with renamed types)
+    /// @dev The TokenPool lineage whose version tokens are comparable in the catalog. Siloed
+    ///      LockRelease subclasses the TokenPool of the same release, so its token compares too.
+    ///      Other specialized pools (USDCTokenPool, hybrid variants, forks with renamed types)
     ///      version independently and must not dispatch as TokenPool versions.
     function _isKnownTypePrefix(string memory typePrefix) private pure returns (bool) {
         bytes32 h = keccak256(bytes(typePrefix));
         return h == keccak256(bytes("BurnMintTokenPool")) || h == keccak256(bytes("BurnFromMintTokenPool"))
-            || h == keccak256(bytes("BurnWithFromMintTokenPool")) || h == keccak256(bytes("LockReleaseTokenPool"));
+            || h == keccak256(bytes("BurnWithFromMintTokenPool")) || h == keccak256(bytes(LOCK_RELEASE_TYPE))
+            || h == keccak256(bytes(SILOED_LOCK_RELEASE_TYPE));
+    }
+
+    /// @dev 1.6.0 was only ever stamped on the Siloed pool; any other type claiming it is not a release.
+    function _versionFor(string memory typePrefix, string memory token) private pure returns (PoolVersions.Version v) {
+        v = PoolVersions._fromVersionToken(token);
+        if (v == PoolVersions.Version.V1_6_0 && !_isSiloed(typePrefix)) return PoolVersions.Version.UNKNOWN;
     }
 
     function _requireKnownTypePrefix(address pool, string memory full, string memory typePrefix) private pure {
@@ -341,7 +386,8 @@ library PoolVersion {
                 " reports \"",
                 full,
                 "\". Version tokens are only comparable within the standard TokenPool lineage ",
-                "(BurnMintTokenPool, BurnFromMintTokenPool, BurnWithFromMintTokenPool, LockReleaseTokenPool); \"",
+                "(BurnMintTokenPool, BurnFromMintTokenPool, BurnWithFromMintTokenPool, LockReleaseTokenPool, ",
+                "SiloedLockReleaseTokenPool); \"",
                 typePrefix,
                 "\" versions independently, so its version token must not dispatch as a TokenPool version. ",
                 "If you have verified this pool's ABI matches a cataloged version, set ",

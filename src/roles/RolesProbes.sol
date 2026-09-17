@@ -13,6 +13,11 @@ import {TolerantCall} from "../utils/TolerantCall.sol";
 /// `MINTER_ROLE()`/`BURNER_ROLE()`/`BURN_MINT_ADMIN_ROLE()` getters take precedence when exposed
 /// (`roleIdOrDefault`), so a token that renames its role ids still reconciles.
 library RolesProbes {
+    struct LockBoxConfigView {
+        uint64 remoteChainSelector;
+        address lockBox;
+    }
+
     /// @notice The four token templates the roles engine dispatches on (`roles.token.type`).
     /// The admin MODEL differs per template, so nothing is assumed from a single variant:
     ///   - `CrossChainToken` (`"crosschain"`): OZ `AccessControlDefaultAdminRules` - single-holder
@@ -84,6 +89,38 @@ library RolesProbes {
         // only - a dirty address word still trips solc's own validator.
         if (s && TolerantCall._decodesAsDynamic(ret, 32)) return (true, abi.decode(ret, (address[])));
         return (false, new address[](0));
+    }
+
+    /// @dev A Siloed 2.0 pool's distinct lock boxes, from `getAllLockBoxConfigs()` ((uint64,address)[],
+    /// 64 bytes per element). `ok` is false for any other pool.
+    function _trySiloedLockBoxes(address pool) internal view returns (bool ok, address[] memory boxes) {
+        (bool s, bytes memory ret) = pool.staticcall(abi.encodeWithSignature("getAllLockBoxConfigs()"));
+        if (!s || !TolerantCall._decodesAsDynamic(ret, 64)) return (false, new address[](0));
+        (, address[] memory raw) = _splitConfigs(ret);
+        address[] memory uniq = new address[](raw.length);
+        uint256 n = 0;
+        for (uint256 i = 0; i < raw.length; i++) {
+            bool seen = false;
+            for (uint256 j = 0; j < n; j++) {
+                if (uniq[j] == raw[i]) seen = true;
+            }
+            if (!seen) uniq[n++] = raw[i];
+        }
+        boxes = new address[](n);
+        for (uint256 i = 0; i < n; i++) {
+            boxes[i] = uniq[i];
+        }
+        return (true, boxes);
+    }
+
+    function _splitConfigs(bytes memory ret) private pure returns (uint64[] memory sels, address[] memory boxes) {
+        LockBoxConfigView[] memory cfg = abi.decode(ret, (LockBoxConfigView[]));
+        sels = new uint64[](cfg.length);
+        boxes = new address[](cfg.length);
+        for (uint256 i = 0; i < cfg.length; i++) {
+            sels[i] = cfg[i].remoteChainSelector;
+            boxes[i] = cfg[i].lockBox;
+        }
     }
 
     // ---------------------------------------------------------------- token template dispatch

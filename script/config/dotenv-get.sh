@@ -20,20 +20,28 @@
 # strings for exactly that reason, so honouring the distinction keeps the two consistent.
 set -uo pipefail
 
+# `--is-set <KEY>` prints nothing and exits 0 when the key is set (even to ""), 1 otherwise. The value form
+# cannot tell those apart, and a passwordless keystore is exactly an empty password that IS set.
+is_set=
+if [ "${1:-}" = "--is-set" ]; then
+    is_set=1
+    shift
+fi
+
 key="${1:-}"
 [ -n "$key" ] || {
-    echo "usage: dotenv-get.sh <KEY>" >&2
+    echo "usage: dotenv-get.sh [--is-set] <KEY>" >&2
     exit 2
 }
 
 # `${!key+x}` is set-ness, not non-emptiness: an exported empty value still wins over the file.
 if [ -n "${!key+x}" ]; then
-    printf '%s' "${!key}"
+    [ -n "$is_set" ] || printf '%s' "${!key}"
     exit 0
 fi
 
 env_file="${DOTENV_FILE:-$(dirname "$0")/../../.env}"
-[ -r "$env_file" ] || exit 0
+[ -r "$env_file" ] || exit ${is_set:+1}
 
 # `|| [ -n "$line" ]` so a final line with no trailing newline is still read.
 while IFS= read -r line || [ -n "$line" ]; do
@@ -58,6 +66,11 @@ while IFS= read -r line || [ -n "$line" ]; do
             ;;
     esac
     found="$value" # keep scanning: last assignment wins, as dotenv does
+    found_any=1
 done < "$env_file"
 
+if [ -n "$is_set" ]; then
+    [ -n "${found_any:-}" ]
+    exit
+fi
 printf '%s' "${found:-}"

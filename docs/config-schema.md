@@ -665,6 +665,9 @@ engine never assumes one:
     "address": "0xLockbox...", "owner": "0xGov...",
     "authorizedCallers": ["0xPool..."]       // enumerable → full two-sided set compare
   },
+  "lockboxes": {                             // Siloed 2.0 only: one entry per distinct box, keyed by address
+    "0xBoxA...": { "owner": "0xGov...", "authorizedCallers": ["0xPool..."] }
+  },                                         // two-sided: every declared box is mapped, every mapped box declared
   "hooks": {                                 // the CCV/allowlist authority (security-critical)
     "address": "0xHooks...", "owner": "0xGov...", "policyEngine": "0xPolicy...",
     "allowlistEnabled": false,               // immutable (set at deploy)

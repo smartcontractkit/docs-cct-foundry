@@ -2,6 +2,7 @@
 pragma solidity 0.8.24;
 
 import {Script, console} from "forge-std/Script.sol";
+import {VmSafe} from "forge-std/Vm.sol";
 import {TokenPool} from "@chainlink/contracts-ccip/contracts/pools/TokenPool.sol";
 import {TokenAdminRegistry} from "@chainlink/contracts-ccip/contracts/tokenAdminRegistry/TokenAdminRegistry.sol";
 import {IGetCCIPAdmin} from "@chainlink/contracts-ccip/contracts/interfaces/IGetCCIPAdmin.sol";
@@ -10,6 +11,8 @@ import {PoolVersion} from "../utils/PoolVersion.s.sol";
 import {DeploymentUtils} from "../utils/DeploymentUtils.s.sol";
 import {RegistryWriter} from "../../src/utils/RegistryWriter.sol";
 import {ProjectStore} from "../../src/utils/ProjectStore.sol";
+import {TolerantCall} from "../../src/utils/TolerantCall.sol";
+import {PoolVersions} from "../../src/PoolVersions.sol";
 
 /// @notice Adopts an externally deployed token (and optionally its pool) into the address registry,
 /// so contracts this repo did NOT deploy resolve exactly like the ones it did (the zero-export
@@ -39,6 +42,13 @@ contract AdoptToken is Script {
         string tokenSymbol;
         string adminPath; // "getCCIPAdmin()", "owner()", or "" when self-registration is unavailable
         string poolTypeAndVersion; // full typeAndVersion() string; empty when no pool is adopted
+        address[] lockBoxes; // a 2.0 LockRelease pool's box, or a Siloed pool's distinct boxes
+        uint64[] lockBoxFirstChain; // Siloed: the first remote chain mapped to each box; empty otherwise
+    }
+
+    struct LockBoxConfigView {
+        uint64 remoteChainSelector;
+        address lockBox;
     }
 
     function run(string memory name, address token, address pool) external {
@@ -131,8 +141,11 @@ contract AdoptToken is Script {
             // foreign pool types, and uncataloged versions by name (POOL_VERSION_OVERRIDE is honored
             // with its cross-check; the registry always records the TRUE on-chain string below, and
             // an override used here shows only in the console output).
-            (, string memory full) = PoolVersion._resolve(pool);
+            (PoolVersions.Version version, string memory full) = PoolVersion._resolve(pool);
             plan.poolTypeAndVersion = full;
+            if (version >= PoolVersions.Version.V2_0_0) {
+                (plan.lockBoxes, plan.lockBoxFirstChain) = _lockBoxesOf(pool, PoolVersion._typePrefixOf(full));
+            }
             address poolToken = address(TokenPool(pool).getToken());
             require(
                 poolToken == token,
@@ -146,6 +159,9 @@ contract AdoptToken is Script {
                 )
             );
             console.log(string.concat("Pool:   ", vm.toString(pool), " (", plan.poolTypeAndVersion, ")"));
+            for (uint256 i = 0; i < plan.lockBoxes.length; i++) {
+                console.log(string.concat("LockBox: ", vm.toString(plan.lockBoxes[i])));
+            }
         }
 
         _reportRegistryState(json, token, pool);
@@ -167,6 +183,94 @@ contract AdoptToken is Script {
                 plan.pool
             );
         }
+        // The keys the deploy path writes: a single box is active.lockBox; siloed boxes are per-silo
+        // entries only, since no one of them is "the" lock box.
+        if (plan.lockBoxFirstChain.length == 0) {
+            if (plan.lockBoxes.length == 1) {
+                RegistryWriter._recordDeterministic(
+                    plan.selectorName, "lockBox", string.concat(plan.tokenSymbol, "_LockBox"), plan.lockBoxes[0]
+                );
+            }
+        } else {
+            for (uint256 i = 0; i < plan.lockBoxes.length; i++) {
+                RegistryWriter._setDeployment(
+                    plan.selectorName,
+                    string.concat(plan.tokenSymbol, "_LockBox_", _selectorLabel(plan.lockBoxFirstChain[i])),
+                    plan.lockBoxes[i]
+                );
+            }
+        }
+    }
+
+    /// @dev A 2.0 LockRelease pool's single box (`getLockBox()`), or a Siloed pool's distinct boxes with the
+    /// first chain each serves. Tolerant: a pool that does not answer yields no boxes. A 1.6.2-1.6.4
+    /// Siloed box has no getter at all, and those versions are not cataloged anyway.
+    function _lockBoxesOf(address pool, string memory typePrefix)
+        internal
+        view
+        returns (address[] memory boxes, uint64[] memory firstChain)
+    {
+        if (PoolVersion._isSiloed(typePrefix)) {
+            (bool s, bytes memory ret) = pool.staticcall(abi.encodeWithSignature("getAllLockBoxConfigs()"));
+            if (!s || !TolerantCall._decodesAsDynamic(ret, 64)) return (new address[](0), new uint64[](0));
+            LockBoxConfigView[] memory cfg = abi.decode(ret, (LockBoxConfigView[]));
+            address[] memory b = new address[](cfg.length);
+            uint64[] memory f = new uint64[](cfg.length);
+            uint256 n = 0;
+            for (uint256 i = 0; i < cfg.length; i++) {
+                bool seen = false;
+                for (uint256 j = 0; j < n; j++) {
+                    if (b[j] == cfg[i].lockBox) seen = true;
+                }
+                if (!seen) {
+                    b[n] = cfg[i].lockBox;
+                    f[n] = cfg[i].remoteChainSelector;
+                    n++;
+                }
+            }
+            boxes = new address[](n);
+            firstChain = new uint64[](n);
+            for (uint256 i = 0; i < n; i++) {
+                boxes[i] = b[i];
+                firstChain[i] = f[i];
+            }
+            return (boxes, firstChain);
+        }
+        if (keccak256(bytes(typePrefix)) == keccak256("LockReleaseTokenPool")) {
+            (bool s, bytes memory ret) = pool.staticcall(abi.encodeWithSignature("getLockBox()"));
+            if (s && ret.length >= 32) {
+                address box = abi.decode(ret, (address));
+                if (box != address(0)) {
+                    boxes = new address[](1);
+                    boxes[0] = box;
+                    return (boxes, new uint64[](0));
+                }
+            }
+        }
+        return (new address[](0), new uint64[](0));
+    }
+
+    /// @dev Test seam: `validateAdoption` reaches `_lockBoxesOf` only after a forked token/pool check.
+    function lockBoxesOfForTest(address pool, string memory typePrefix)
+        external
+        view
+        returns (address[] memory, uint64[] memory)
+    {
+        return _lockBoxesOf(pool, typePrefix);
+    }
+
+    /// @dev The config/chains name for a selector, or the selector itself.
+    function _selectorLabel(uint64 selector) internal view returns (string memory) {
+        VmSafe.DirEntry[] memory entries = vm.readDir(CONFIG_DIR);
+        string memory want = vm.toString(selector);
+        for (uint256 i = 0; i < entries.length; i++) {
+            string memory json = vm.readFile(entries[i].path);
+            if (!vm.keyExistsJson(json, ".chainSelector") || !vm.keyExistsJson(json, ".name")) continue;
+            if (keccak256(bytes(vm.parseJsonString(json, ".chainSelector"))) == keccak256(bytes(want))) {
+                return vm.parseJsonString(json, ".name");
+            }
+        }
+        return want;
     }
 
     /// @notice **Non-EVM (base58) adopt path** - declare a project's Solana-side (or other non-EVM)

@@ -198,8 +198,8 @@ contract RemoveChain is EoaExecutor {
             return CctActions._applyChainUpdatesV150(poolAddress, removals);
         }
         if (
-            version == PoolVersions.Version.V1_5_1 || version == PoolVersions.Version.V1_6_1
-                || version == PoolVersions.Version.V2_0_0
+            version == PoolVersions.Version.V1_5_1 || version == PoolVersions.Version.V1_6_0
+                || version == PoolVersions.Version.V1_6_1 || version == PoolVersions.Version.V2_0_0
         ) {
             uint64[] memory removes = new uint64[](1);
             removes[0] = remoteChainSelector;

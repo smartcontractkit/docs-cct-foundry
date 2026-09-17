@@ -39,4 +39,5 @@ concept page, or a dedicated guide. Grouping is for navigation only.
 - [Health-check a deployment before mainnet](health-check.md).
 - [Preflight a transfer before sending](preflight-a-transfer.md).
 - [Migrate a pool from v1 to v2](migrate-pool-v1-to-v2.md).
+- [Migrate a Siloed LockRelease pool from 1.6 to 2.0](migrate-siloed-pool.md).
 - [Send, track, manually execute, and diagnose a transfer](send-track-diagnose.md).
