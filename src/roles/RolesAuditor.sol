@@ -603,51 +603,109 @@ contract RolesAuditor {
     // ---------------------------------------------------------------- lockbox / hooks / rebalancer
 
     function _auditLockbox(string memory json, address pool) private {
+        _auditSiloedLockboxes(json, pool);
         if (!VM.keyExistsJson(json, ".roles.lockbox")) {
-            _skip("lockbox", "no lockbox block declared (no v2 LockRelease lockbox on this chain)");
+            if (!VM.keyExistsJson(json, ".roles.lockboxes")) {
+                _skip("lockbox", "no lockbox block declared (no v2 LockRelease lockbox on this chain)");
+            }
             return;
         }
         address declared = VM.parseJsonAddress(json, ".roles.lockbox.address");
         (bool has, address live) = RolesProbes._tryAddress(pool, "getLockBox()");
+        (bool siloed, address[] memory boxes) = RolesProbes._trySiloedLockBoxes(pool);
         if (has) {
             _checkAddress("lockbox.address", declared, live);
+        } else if (siloed) {
+            // A Siloed pool has one box per chain and no zero-argument getLockBox().
+            if (_containsAddr(boxes, declared)) {
+                _pass(
+                    "lockbox.address", string.concat(VM.toString(declared), " is one of the siloed pool's lock boxes")
+                );
+            } else {
+                _fail(
+                    "lockbox.address",
+                    string.concat(VM.toString(declared), " is not one of the siloed pool's lock boxes")
+                );
+            }
         } else {
             _fail("lockbox.address", "declared, but the pool did not answer getLockBox(), so it was not confirmed");
         }
-        (bool okOwner, address owner_) = RolesProbes._tryAddress(declared, "owner()");
+        _auditOneLockbox(json, ".roles.lockbox", "lockbox", declared);
+    }
+
+    /// @dev `roles.lockboxes` is keyed by box address and declares a Siloed pool's boxes. Two-sided: every
+    /// declared box must be the pool's, and every box the pool maps must be declared.
+    function _auditSiloedLockboxes(string memory json, address pool) private {
+        if (!VM.keyExistsJson(json, ".roles.lockboxes")) return;
+        (bool siloed, address[] memory live) = RolesProbes._trySiloedLockBoxes(pool);
+        if (!siloed) {
+            _fail("lockboxes", "declared, but the pool is not a Siloed 2.0 pool (no getAllLockBoxConfigs())");
+            return;
+        }
+        string[] memory keys = VM.parseJsonKeys(json, ".roles.lockboxes");
+        address[] memory declared = new address[](keys.length);
+        for (uint256 i = 0; i < keys.length; i++) {
+            declared[i] = VM.parseAddress(keys[i]);
+            string memory label = string.concat("lockboxes.", keys[i]);
+            if (!_containsAddr(live, declared[i])) {
+                _fail(label, "declared, but the pool does not map any chain to it");
+                continue;
+            }
+            _auditOneLockbox(json, string.concat(".roles.lockboxes.", keys[i]), label, declared[i]);
+        }
+        for (uint256 i = 0; i < live.length; i++) {
+            if (!_containsAddr(declared, live[i])) {
+                _fail("lockboxes", string.concat(VM.toString(live[i]), " is mapped by the pool but not declared"));
+            }
+        }
+    }
+
+    function _auditOneLockbox(string memory json, string memory path, string memory label, address box) private {
+        (bool okOwner, address owner_) = RolesProbes._tryAddress(box, "owner()");
         (bool okCallers, address[] memory callers) =
-            RolesProbes._tryAddressArray(declared, abi.encodeWithSignature("getAllAuthorizedCallers()"));
+            RolesProbes._tryAddressArray(box, abi.encodeWithSignature("getAllAuthorizedCallers()"));
         // The surface gate: a declared lockbox that answers neither getter cannot be audited at all,
         // and per-field refusals below it would only repeat the same fact. One FAIL, then stop.
         if (!okOwner && !okCallers) {
             _fail(
-                "lockbox.address",
+                string.concat(label, ".address"),
                 string.concat(
-                    VM.toString(declared),
+                    VM.toString(box),
                     " answers neither owner() nor getAllAuthorizedCallers(), so it cannot be audited as an ERC20LockBox"
                 )
             );
             return;
         }
-        if (VM.keyExistsJson(json, ".roles.lockbox.owner")) {
+        if (VM.keyExistsJson(json, string.concat(path, ".owner"))) {
             _checkReadAddress(
-                "lockbox.owner", "owner()", okOwner, VM.parseJsonAddress(json, ".roles.lockbox.owner"), owner_
+                string.concat(label, ".owner"),
+                "owner()",
+                okOwner,
+                VM.parseJsonAddress(json, string.concat(path, ".owner")),
+                owner_
             );
         } else {
-            _skip("lockbox.owner", "not declared - run snapshot-chain to backfill it");
+            _skip(string.concat(label, ".owner"), "not declared - run snapshot-chain to backfill it");
         }
-        _auditPendingOwner("lockbox", declared);
-        if (VM.keyExistsJson(json, ".roles.lockbox.authorizedCallers")) {
+        _auditPendingOwner(label, box);
+        if (VM.keyExistsJson(json, string.concat(path, ".authorizedCallers"))) {
             _checkReadSet(
-                "lockbox.authorizedCallers",
+                string.concat(label, ".authorizedCallers"),
                 "getAllAuthorizedCallers()",
                 okCallers,
-                VM.parseJsonAddressArray(json, ".roles.lockbox.authorizedCallers"),
+                VM.parseJsonAddressArray(json, string.concat(path, ".authorizedCallers")),
                 callers
             );
         } else {
-            _skip("lockbox.authorizedCallers", "not declared - run snapshot-chain to backfill it");
+            _skip(string.concat(label, ".authorizedCallers"), "not declared - run snapshot-chain to backfill it");
         }
+    }
+
+    function _containsAddr(address[] memory set, address a) private pure returns (bool) {
+        for (uint256 i = 0; i < set.length; i++) {
+            if (set[i] == a) return true;
+        }
+        return false;
     }
 
     function _auditHooks(string memory json) private {

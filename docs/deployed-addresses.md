@@ -35,7 +35,8 @@ Two terms, kept distinct throughout these docs:
 | Participant                            | Role                     | What it does                                                                                                                                                        |
 | -------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Deploy scripts (`--broadcast`)         | **Writer**               | Record each artifact via one `DeploymentRecorder` call → `history/` file + `addresses{}` entry                                                                      |
-| `make adopt-token`                     | **Writer / reconciler**  | Bring an externally deployed token/pool into `addresses{}` after on-chain validation; also the tool that repoints `active.<role>` to reconcile the store to reality |
+| `make adopt-token`                     | **Writer / reconciler**  | Bring an externally deployed token/pool into `addresses{}` after on-chain validation (a 2.0 pool's lock boxes too); also the tool that repoints `active.<role>` to reconcile the store to reality |
+| `make forget-deployment`               | **Remover**              | Drop one retired `deployments{}` entry (typically the old pool after a migration). Refuses an entry that is still `active`, still registered, still has lanes, or a lock box still holding tokens; `PREVIEW=1` changes nothing |
 | Env vars (`{CHAIN}_TOKEN`, `TOKEN`, …) | **Override (READ-ONLY)** | Win over `addresses.active.<role>` at resolution time only                                                                                                          |
 | Run-time divergence notice             | **Warner**               | When an env override differs from `active.<role>`, a broadcasting script prints both values + the exact `make adopt-token …` to reconcile                           |
 | `make doctor` TAR rung                 | **Warner**               | Compares `active.tokenPool` against the on-chain TokenAdminRegistry and WARNs on divergence                                                                         |
@@ -105,7 +106,12 @@ Per-artifact keys (`DeploymentRecorder`):
 | Token      | `{symbol}_Token`                         | `token`       |
 | Token pool | `{symbol}_{poolType}TokenPool_{version}` | `tokenPool`   |
 | LockBox    | `{symbol}_LockBox`                       | `lockBox`     |
+| Silo lock box (`SILO=<label>`) | `{symbol}_LockBox_{label}`  | none          |
 | Pool hooks | `{symbol}_{poolType}_PoolHooks`          | `poolHooks`   |
+
+A siloed pool has several boxes and none of them is "the" lock box, so silo boxes get a `deployments{}`
+entry only and every per-box script takes `LOCK_BOX=` explicitly. `adopt-token` names an adopted silo box
+after the first remote chain it serves (`{symbol}_LockBox_<chain>`).
 
 The pool key includes the pool's **type and version** so distinct artifacts never collide in storage. This
 is a mechanical keying property, not a migration workflow: the deploy scripts pin the version

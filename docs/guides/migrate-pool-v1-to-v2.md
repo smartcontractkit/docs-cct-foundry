@@ -40,6 +40,9 @@ so step 3 below is not performable there and that pool must be migrated by a dir
    not clear. This step is optional, and deferring it indefinitely is a valid choice, because a pool that
    is out of the `TokenAdminRegistry` is already inert.
 
+Once the old pool is fully retired, `make forget-deployment CHAIN=<name> NAME=<old pool key>` drops its
+`deployments{}` entry, which also clears doctor's two-pools warning.
+
 The removal in step 6 is per peer, not per pool: every pool that registered this chain's old pool has to
 drop it too, so the blast radius grows with the number of remotes.
 

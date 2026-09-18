@@ -110,6 +110,22 @@ library DeploymentRecorder {
         RegistryWriter._record(selectorName, "lockBox", _lockBoxName(symbol), lockBoxAddress);
     }
 
+    /// @notice Records one silo's lock box as `deployments[{symbol}_LockBox_{silo}]` only. `active.lockBox`
+    /// is left alone: a siloed pool has several boxes, so there is no single one to resolve implicitly.
+    function _recordSiloLockBox(
+        Vm vm,
+        string memory selectorName,
+        string memory chainNameIdentifier,
+        address lockBoxAddress,
+        address tokenAddress,
+        string memory silo
+    ) internal {
+        if (ForgeContext._sendsNothing()) return;
+        DeploymentUtils._saveLockBoxDeployment(vm, selectorName, chainNameIdentifier, lockBoxAddress, tokenAddress);
+        string memory symbol = DeploymentUtils._getSymbol(vm, tokenAddress);
+        RegistryWriter._setDeployment(selectorName, _lockBoxName(symbol, silo), lockBoxAddress);
+    }
+
     /// @notice Records pool hooks: ledger file + `deployments[{symbol}_{poolType}_PoolHooks]` +
     /// `active.poolHooks`. Hooks belong to a token's pool, so the key carries the token symbol (resolved
     /// from `tokenAddress`, `address(0)` → env `TOKEN_SYMBOL` / "unknown") and the pool type.
@@ -173,6 +189,10 @@ library DeploymentRecorder {
 
     function _lockBoxName(string memory symbol) internal pure returns (string memory) {
         return string.concat(symbol, "_LockBox");
+    }
+
+    function _lockBoxName(string memory symbol, string memory silo) internal pure returns (string memory) {
+        return bytes(silo).length == 0 ? _lockBoxName(symbol) : string.concat(symbol, "_LockBox_", silo);
     }
 
     function _hooksName(string memory symbol, string memory poolType) internal pure returns (string memory) {

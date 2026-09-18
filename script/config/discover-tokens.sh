@@ -12,6 +12,11 @@
 # CHAIN_SELECTOR (home chain), ENVIRONMENT (testnet|mainnet; unset lists both planes). There is no
 # flag interface: the script takes no arguments at all.
 #
+# POOL=1 adds POOL, POOL TYPE and POOL VERSION from the per-token detail endpoint, one extra request per
+# row, so narrow the listing first. These are the API's values: `type` is its enum (SILOED_LOCK_RELEASE),
+# not the contract name, and `version` is null for a dev build. The exact typeAndVersion() is on-chain only.
+# A detail request that fails shows `?` rather than aborting the listing.
+#
 # TWO PARAMETERS THIS SENDS EXPLICITLY, because their defaults are wrong for an operator:
 #   reviewedOnly=false  - defaults to TRUE, i.e. only Chainlink-Labs-reviewed projects. Measured:
 #                         ?environment=testnet returns 22 tokens, &reviewedOnly=false returns ~25,900,
@@ -61,6 +66,7 @@ ADMIN="${ADMIN:-}"
 SYMBOL="${SYMBOL:-}"
 CHAIN_SELECTOR="${CHAIN_SELECTOR:-}"
 ENVIRONMENT="${ENVIRONMENT:-}"
+POOL="${POOL:-}"
 
 uri() { jq -rn --arg v "$1" '$v | @uri'; }
 
@@ -151,6 +157,24 @@ done
 # Truncation must never be silent - that is the same failure as the reviewedOnly default.
 [ -z "$cursor" ] || err "WARNING: stopped at the ${pages}-page ceiling; the list below is INCOMPLETE - narrow it with ADMIN=/SYMBOL=/CHAIN_SELECTOR="
 
+if [ -n "$POOL" ]; then
+    detail_file="$(mktemp)"
+    enriched="$(mktemp)"
+    while IFS=$'\t' read -r sel addr sym grp lanes; do
+        pool='?' ptype='?' pver='?'
+        code="$(curl -sS --retry 2 --max-time 30 -o "$detail_file" -w '%{http_code}' \
+            "${BASE_URL}/tokens/${sel}/${addr}" 2> /dev/null)" || code=""
+        if [ "$code" = "200" ] && jq -e '.pool' "$detail_file" > /dev/null 2>&1; then
+            pool="$(jq -r '.pool.address // "?"' "$detail_file")"
+            ptype="$(jq -r '.pool.type // "?"' "$detail_file")"
+            pver="$(jq -r '.pool.version // "?"' "$detail_file")"
+        fi
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$sel" "$addr" "$sym" "$grp" "$lanes" "$pool" "$ptype" "$pver"
+    done < "$rows_file" > "$enriched"
+    mv "$enriched" "$rows_file"
+    rm -f "$detail_file"
+fi
+
 rows="$(wc -l < "$rows_file" | tr -d ' ')"
 scope="$([ -n "$ENVIRONMENT" ] && echo "$ENVIRONMENT" || echo "both planes")"
 filters="$(printf '%s' "${ADMIN:+ADMIN=$ADMIN }${SYMBOL:+SYMBOL=$SYMBOL }${CHAIN_SELECTOR:+CHAIN_SELECTOR=$CHAIN_SELECTOR }")"
@@ -169,12 +193,19 @@ if [ "$rows" -eq 0 ]; then
 fi
 
 {
-    printf 'CHAIN SELECTOR\tCHAIN\tTOKEN\tSYMBOL\tGROUP\tLANES\tLOCAL CONFIG\n'
+    if [ -n "$POOL" ]; then
+        printf 'CHAIN SELECTOR\tCHAIN\tTOKEN\tSYMBOL\tGROUP\tLANES\tPOOL\tPOOL TYPE\tPOOL VERSION\tLOCAL CONFIG\n'
+    else
+        printf 'CHAIN SELECTOR\tCHAIN\tTOKEN\tSYMBOL\tGROUP\tLANES\tLOCAL CONFIG\n'
+    fi
     awk -F'\t' -v OFS='\t' -v names="$map_file" -v cfgs="$cfg_file" '
         FILENAME == names { nm[$1] = $2; next }
         FILENAME == cfgs  { cfg[$1] = $2; next }
-        { print $1, ($1 in nm ? nm[$1] : "?"), $2, $3, $4, $5,
-                ($1 in cfg ? "configured(" cfg[$1] ")" : "no local config") }
+        {
+            local_cfg = ($1 in cfg ? "configured(" cfg[$1] ")" : "no local config")
+            if (NF >= 8) print $1, ($1 in nm ? nm[$1] : "?"), $2, $3, $4, $5, $6, $7, $8, local_cfg
+            else print $1, ($1 in nm ? nm[$1] : "?"), $2, $3, $4, $5, local_cfg
+        }
     ' "$map_file" "$cfg_file" "$rows_file" | sort
 } | column -t -s "$(printf '\t')"
 

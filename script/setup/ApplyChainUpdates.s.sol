@@ -4,6 +4,9 @@ pragma solidity 0.8.24;
 import {console} from "forge-std/Script.sol";
 import {HelperConfig} from "../HelperConfig.s.sol"; // Network configuration helper
 import {TokenPool} from "@chainlink/contracts-ccip/contracts/pools/TokenPool.sol";
+import {SafeMode} from "../../src/base/SafeMode.sol";
+import {SiloedLockReleaseTokenPool} from "@chainlink/contracts-ccip/contracts/pools/SiloedLockReleaseTokenPool.sol";
+import {ILockBox} from "@chainlink/contracts-ccip/contracts/interfaces/ILockBox.sol";
 import {RateLimiter} from "@chainlink/contracts-ccip/contracts/libraries/RateLimiter.sol";
 import {ChainHandlers} from "../utils/ChainHandlers.s.sol";
 import {ChainConfig} from "../../src/config/ChainConfig.sol";
@@ -226,6 +229,7 @@ contract ApplyChainUpdates is EoaExecutor {
         );
         (PoolVersions.Version poolVersion, string memory poolTypeAndVersion) = PoolVersion._resolve(poolAddress);
         console.log(string.concat("Pool contract: ", poolTypeAndVersion));
+        _requireLockBoxes(poolAddress, poolVersion, poolTypeAndVersion, chainUpdates);
         _executeCalls(
             _buildLaneUpdateCalls(poolVersion, poolAddress, chainSelectorRemovals, chainUpdates, shouldRemove)
         );
@@ -781,12 +785,42 @@ contract ApplyChainUpdates is EoaExecutor {
         // Apply the chain updates through the shared action layer.
         (PoolVersions.Version poolVersion, string memory poolTypeAndVersion) = PoolVersion._resolve(poolAddress);
         console.log(string.concat("Pool contract: ", poolTypeAndVersion));
+        _requireLockBoxes(poolAddress, poolVersion, poolTypeAndVersion, chainUpdates);
         bool[] memory replaceExisting = new bool[](1);
         replaceExisting[0] = chainAlreadyConfigured;
         _executeCalls(
             _buildLaneUpdateCalls(poolVersion, poolAddress, chainSelectorRemovals, chainUpdates, replaceExisting)
         );
         _logOperationOutcome("apply the chain updates to the pool");
+    }
+
+    /// @dev A Siloed 2.0 pool reverts every transfer on a lane with no lock box, so the box comes first
+    ///      (upstream tooling enforces the same order). Safe mode only warns: the batch may map it.
+    function _requireLockBoxes(
+        address pool,
+        PoolVersions.Version version,
+        string memory typeAndVersion,
+        TokenPool.ChainUpdate[] memory updates
+    ) internal view {
+        if (version < PoolVersions.Version.V2_0_0 || !PoolVersion._isSiloed(PoolVersion._typePrefixOf(typeAndVersion)))
+        {
+            return;
+        }
+        for (uint256 i = 0; i < updates.length; i++) {
+            uint64 sel = updates[i].remoteChainSelector;
+            try SiloedLockReleaseTokenPool(pool).getLockBox(sel) returns (ILockBox) {}
+            catch {
+                string memory reason = string.concat(
+                    "LockBoxNotConfigured: siloed pool ",
+                    vm.toString(pool),
+                    " has no lock box for chain ",
+                    vm.toString(sel),
+                    "; run configure/siloed/ConfigureLockBoxes.s.sol first"
+                );
+                if (!SafeMode._isSafeMode(_executionMode())) revert(reason);
+                console.log(string.concat(unicode"⚠️  ", reason, " (or in the same batch)."));
+            }
+        }
     }
 
     /// @dev The exhaustive version switch of the lane-update dispatch: 1.5.0 takes the
@@ -806,8 +840,8 @@ contract ApplyChainUpdates is EoaExecutor {
             return CctActions._applyChainUpdatesV150(poolAddress, _toV150Updates(chainUpdates, replaceExisting));
         }
         if (
-            version == PoolVersions.Version.V1_5_1 || version == PoolVersions.Version.V1_6_1
-                || version == PoolVersions.Version.V2_0_0
+            version == PoolVersions.Version.V1_5_1 || version == PoolVersions.Version.V1_6_0
+                || version == PoolVersions.Version.V1_6_1 || version == PoolVersions.Version.V2_0_0
         ) {
             return CctActions._applyChainUpdates(poolAddress, chainSelectorRemovals, chainUpdates);
         }

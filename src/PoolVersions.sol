@@ -40,6 +40,9 @@ library PoolVersions {
         UNKNOWN,
         V1_5_0,
         V1_5_1,
+        // Only SiloedLockReleaseTokenPool ships a 1.6.0 stamp (npm 1.6.0 stamps its BurnMint 1.5.1).
+        // Same callable surface as 1.6.1, but 1.5.x rate-limit validation; see pool-behavior-matrix.
+        V1_6_0,
         V1_6_1,
         V2_0_0
     }
@@ -65,10 +68,12 @@ library PoolVersions {
         GET_REBALANCER, // v1.x LockRelease read: getRebalancer; removed in 2.0.0 (lockbox model)
         SET_REBALANCER, // v1.x LockRelease: setRebalancer (onlyOwner); removed in 2.0.0
         PROVIDE_LIQUIDITY, // v1.x LockRelease: provideLiquidity (only rebalancer); removed in 2.0.0
-        WITHDRAW_LIQUIDITY // v1.x LockRelease: withdrawLiquidity (only rebalancer); removed in 2.0.0
+        WITHDRAW_LIQUIDITY, // v1.x LockRelease: withdrawLiquidity (only rebalancer); removed in 2.0.0
+        SILOED_LIQUIDITY, // Siloed 1.6.x: updateSiloDesignations/setSiloRebalancer/(provide|withdraw)SiloedLiquidity
+        CONFIGURE_LOCK_BOXES // Siloed 2.0: configureLockBoxes/getLockBox(uint64)/getAllLockBoxConfigs
     }
 
-    string internal constant SUPPORTED_VERSIONS = "1.5.0, 1.5.1, 1.6.1, 2.0.0";
+    string internal constant SUPPORTED_VERSIONS = "1.5.0, 1.5.1, 1.6.0 (SiloedLockReleaseTokenPool only), 1.6.1, 2.0.0";
     string internal constant DOCS = "docs/pool-versions.md";
     string internal constant CATALOG = "src/PoolVersions.sol";
 
@@ -98,6 +103,9 @@ library PoolVersions {
         if (op == Op.SET_REBALANCER) return (Version.V1_5_0, Version.V2_0_0);
         if (op == Op.PROVIDE_LIQUIDITY) return (Version.V1_5_0, Version.V2_0_0);
         if (op == Op.WITHDRAW_LIQUIDITY) return (Version.V1_5_0, Version.V2_0_0);
+        // Siloed-only surfaces. The range gates the version; the caller also checks the type prefix.
+        if (op == Op.SILOED_LIQUIDITY) return (Version.V1_6_0, Version.V2_0_0);
+        if (op == Op.CONFIGURE_LOCK_BOXES) return (Version.V2_0_0, Version.UNKNOWN);
         revert("PoolVersions: operation missing from the capability-range table");
     }
 
@@ -145,6 +153,7 @@ library PoolVersions {
         }
         if (h == keccak256(bytes("1.5.0"))) return Version.V1_5_0;
         if (h == keccak256(bytes("1.5.1"))) return Version.V1_5_1;
+        if (h == keccak256(bytes("1.6.0"))) return Version.V1_6_0;
         if (h == keccak256(bytes("1.6.1"))) return Version.V1_6_1;
         if (h == keccak256(bytes("2.0.0"))) return Version.V2_0_0;
         return Version.UNKNOWN;
@@ -154,6 +163,7 @@ library PoolVersions {
     function _toString(Version version) internal pure returns (string memory) {
         if (version == Version.V1_5_0) return "1.5.0";
         if (version == Version.V1_5_1) return "1.5.1";
+        if (version == Version.V1_6_0) return "1.6.0";
         if (version == Version.V1_6_1) return "1.6.1";
         if (version == Version.V2_0_0) return "2.0.0";
         return "unknown";
@@ -187,6 +197,10 @@ library PoolVersions {
         if (op == Op.SET_REBALANCER) return "setRebalancer";
         if (op == Op.PROVIDE_LIQUIDITY) return "provideLiquidity";
         if (op == Op.WITHDRAW_LIQUIDITY) return "withdrawLiquidity";
+        if (op == Op.SILOED_LIQUIDITY) {
+            return "siloed liquidity (updateSiloDesignations/setSiloRebalancer/provide|withdrawSiloedLiquidity)";
+        }
+        if (op == Op.CONFIGURE_LOCK_BOXES) return "configureLockBoxes";
         revert("PoolVersions: operation missing from the name table");
     }
 }

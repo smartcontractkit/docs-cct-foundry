@@ -16,6 +16,8 @@ import {RateLimiter} from "@chainlink/contracts-ccip/contracts/libraries/RateLim
 import {IPoolV2} from "@chainlink/contracts-ccip/contracts/interfaces/IPoolV2.sol";
 import {AdvancedPoolHooks} from "@chainlink/contracts-ccip/contracts/pools/AdvancedPoolHooks.sol";
 import {TokenAdminRegistry} from "@chainlink/contracts-ccip/contracts/tokenAdminRegistry/TokenAdminRegistry.sol";
+import {SiloedLockReleaseTokenPool} from "@chainlink/contracts-ccip/contracts/pools/SiloedLockReleaseTokenPool.sol";
+import {ERC20LockBox} from "@chainlink/contracts-ccip/contracts/pools/ERC20LockBox.sol";
 import {RolesAuditor} from "../../src/roles/RolesAuditor.sol";
 import {FinalityConfigUtils} from "../utils/FinalityConfigUtils.s.sol";
 
@@ -25,6 +27,10 @@ import {FinalityConfigUtils} from "../utils/FinalityConfigUtils.s.sol";
 interface ITokenPoolChainReader {
     function isSupportedChain(uint64 remoteChainSelector) external view returns (bool);
     function getSupportedChains() external view returns (uint64[] memory);
+}
+
+interface ITokenPoolTokenReader {
+    function getToken() external view returns (address);
 }
 
 /// @dev The 2.0.0 per-lane fee-config getter (`TokenPool.getTokenTransferFeeConfig`); the
@@ -129,6 +135,28 @@ contract ChainProbe {
     /// the reverse (on-chain -> declared) half of the lanes rung to a catchable SKIP.
     function poolSupportedChains(address pool) external view returns (uint64[] memory) {
         return ITokenPoolChainReader(pool).getSupportedChains();
+    }
+
+    /// @dev A Siloed 2.0 pool's chain -> lock box map. External: the struct array decodes here, so an
+    /// undecodable answer is catchable by the caller rather than reverting its frame.
+    function siloedLockBoxes(address pool) external view returns (SiloedLockReleaseTokenPool.LockBoxConfig[] memory) {
+        return SiloedLockReleaseTokenPool(pool).getAllLockBoxConfigs();
+    }
+
+    function lockBoxAuthorizes(address box, address caller) external view returns (bool) {
+        address[] memory callers = ERC20LockBox(box).getAllAuthorizedCallers();
+        for (uint256 i = 0; i < callers.length; i++) {
+            if (callers[i] == caller) return true;
+        }
+        return false;
+    }
+
+    function lockBoxSupports(address box, address token) external view returns (bool) {
+        return ERC20LockBox(box).isTokenSupported(token);
+    }
+
+    function poolToken(address pool) external view returns (address) {
+        return ITokenPoolTokenReader(pool).getToken();
     }
 
     /// @dev The live rate-limit bucket for one lane and one direction, dispatched on the resolved
@@ -1748,6 +1776,12 @@ contract VerifyChain is Script {
         if (vm.keyExistsJson(projectJson, ".poolPolicy.finality")) {
             _reconcileFinalityConfig(projectJson, pool, version);
         }
+        if (
+            versionKnown && version >= PoolVersions.Version.V2_0_0
+                && PoolVersion._isSiloed(PoolVersion._typePrefixOf(typeAndVersion))
+        ) {
+            _reconcileSiloedLockBoxes(pool);
+        }
         uint64[] memory declaredSelectors = new uint64[](declared.length);
         for (uint256 i = 0; i < declared.length; i++) {
             declaredSelectors[i] = _checkDeclaredLaneOnChain(projectJson, pool, version, declared[i]);
@@ -2121,6 +2155,116 @@ contract VerifyChain is Script {
     /// 2.0.0 pool with an AdvancedPoolHooks wired: a cataloged pre-2.0.0 pool or an unwired 2.0.0
     /// pool can never satisfy the declaration, so both are FAILs naming the fix; an uncataloged
     /// version and any unanswered read stay WARN. Drift is a FAIL naming the field.
+    /// @dev A Siloed 2.0 pool holds no liquidity; each remote chain releases from its mapped lock box. A
+    /// supported chain with no box reverts every transfer, and a box that does not authorize the pool
+    /// reverts the first one. Neither is visible until traffic fails, so both FAIL here.
+    function _reconcileSiloedLockBoxes(address pool) private {
+        SiloedLockReleaseTokenPool.LockBoxConfig[] memory boxes;
+        try s_probe.siloedLockBoxes(pool) returns (SiloedLockReleaseTokenPool.LockBoxConfig[] memory b) {
+            boxes = b;
+        } catch {
+            _skipUnverified(
+                string.concat("lockboxes: siloed pool ", vm.toString(pool), " did not answer getAllLockBoxConfigs()")
+            );
+            return;
+        }
+        uint64[] memory chains;
+        try s_probe.poolSupportedChains(pool) returns (uint64[] memory c) {
+            chains = c;
+        } catch {
+            _skipUnverified(
+                string.concat("lockboxes: pool ", vm.toString(pool), " did not answer getSupportedChains()")
+            );
+            return;
+        }
+        address token = address(0); // stays zero when the pool does not answer getToken()
+        try s_probe.poolToken(pool) returns (address t) {
+            token = t;
+        } catch {}
+
+        uint256 failsBefore = s_fails;
+        uint256 warnsBefore = s_warns;
+        for (uint256 i = 0; i < chains.length; i++) {
+            if (!_hasLockBox(boxes, chains[i])) {
+                _fail(
+                    string.concat(
+                        "lockboxes: remote chain ",
+                        _selectorLabel(chains[i]),
+                        " is supported but has no lock box - every transfer on it reverts (configure/siloed/ConfigureLockBoxes.s.sol)"
+                    )
+                );
+            }
+        }
+        for (uint256 i = 0; i < boxes.length; i++) {
+            address box = boxes[i].lockBox;
+            string memory label =
+                string.concat(vm.toString(box), " (", _selectorLabel(boxes[i].remoteChainSelector), ")");
+            try s_probe.lockBoxAuthorizes(box, pool) returns (bool ok) {
+                if (!ok) {
+                    _fail(
+                        string.concat(
+                            "lockboxes: ",
+                            label,
+                            " does not authorize the pool - releases revert (UpdateAuthorizedCallers)"
+                        )
+                    );
+                }
+            } catch {
+                _fail(string.concat("lockboxes: ", label, " does not answer getAllAuthorizedCallers()"));
+            }
+            if (token != address(0)) {
+                try s_probe.lockBoxSupports(box, token) returns (bool ok) {
+                    if (!ok) _fail(string.concat("lockboxes: ", label, " does not hold the pool token"));
+                } catch {
+                    _fail(string.concat("lockboxes: ", label, " does not answer isTokenSupported()"));
+                }
+            }
+            if (!_containsSelector(chains, boxes[i].remoteChainSelector)) {
+                _warn(
+                    string.concat(
+                        "lockboxes: ",
+                        label,
+                        " is mapped to a chain the pool no longer supports (entries cannot be removed)"
+                    )
+                );
+            }
+        }
+        if (s_fails == failsBefore && s_warns == warnsBefore) {
+            _pass(
+                string.concat(
+                    "lockboxes: every one of ",
+                    vm.toString(chains.length),
+                    " supported chain(s) has a lock box that authorizes the pool (",
+                    vm.toString(boxes.length),
+                    " mapping(s))"
+                )
+            );
+        }
+    }
+
+    function _hasLockBox(SiloedLockReleaseTokenPool.LockBoxConfig[] memory boxes, uint64 selector)
+        private
+        pure
+        returns (bool)
+    {
+        for (uint256 i = 0; i < boxes.length; i++) {
+            if (boxes[i].remoteChainSelector == selector) return true;
+        }
+        return false;
+    }
+
+    function _containsSelector(uint64[] memory chains, uint64 selector) private pure returns (bool) {
+        for (uint256 i = 0; i < chains.length; i++) {
+            if (chains[i] == selector) return true;
+        }
+        return false;
+    }
+
+    function _selectorLabel(uint64 selector) private view returns (string memory) {
+        string memory n = _chainNameBySelector(selector);
+        return bytes(n).length > 0 ? n : vm.toString(selector);
+    }
+
     function _reconcileCcvThreshold(string memory json, address pool, PoolVersions.Version version) private {
         if (version < PoolVersions.Version.V2_0_0) {
             (,, string memory typeAndVersion) = PoolVersion._tryResolve(pool);

@@ -9,14 +9,14 @@ behaves differently from the template's v2.0 default. Every row below is backed 
 exercises the real deployed bytecode of each version (a Sepolia fork), not a mock. Keyed off the pool's
 `typeAndVersion`.
 
-| Behavior | v1.5.0 | v1.5.1 | v1.6.x | v2.0 |
-| --- | --- | --- | --- | --- |
-| Mixed decimals | Not supported (mints the raw source amount 1:1) | Supported | Supported | Supported |
-| Inbound rate limit metered on | raw source amount | un-rescaled source amount | rescaled local amount | rescaled local amount |
-| Rate-limiter config validation (enabled) | `rate >= capacity` or `rate == 0` reverts | same as v1.5.0 | `rate > capacity` reverts (`rate == 0` allowed) | same as v1.6.x |
-| Pause via `capacity=1, rate=1` | reverts (`1 >= 1`) | reverts | valid | valid |
-| Fast-finality rate limiter | none | none | none | separate limiter; falls back to the standard bucket when disabled |
-| Dedicated pause function | none | none | none | none (pause is the rate-limit throttle) |
+| Behavior | v1.5.0 | v1.5.1 | v1.6.0 (Siloed only) | v1.6.1 | v2.0 |
+| --- | --- | --- | --- | --- | --- |
+| Mixed decimals | Not supported (mints the raw source amount 1:1) | Supported | Supported | Supported | Supported |
+| Inbound rate limit metered on | raw source amount | un-rescaled source amount | un-rescaled source amount | rescaled local amount | rescaled local amount |
+| Rate-limiter config validation (enabled) | `rate >= capacity` or `rate == 0` reverts | same as v1.5.0 | same as v1.5.0 | `rate > capacity` reverts (`rate == 0` allowed) | same as v1.6.1 |
+| Pause via `capacity=1, rate=1` | reverts (`1 >= 1`) | reverts | reverts | valid | valid |
+| Fast-finality rate limiter | none | none | none | none | separate limiter; falls back to the standard bucket when disabled |
+| Dedicated pause function | none | none | none | none | none (pause is the rate-limit throttle) |
 
 ## Pausing a pool, per version
 
@@ -24,10 +24,10 @@ A v2 pool has no dedicated pause or `Pausable` mechanism, so the reversible paus
 rate-limit throttle. The only hard stop is removing the chain, which tears the lane down rather than
 pausing it (and carries a stale-config re-add gotcha), so it is the wrong tool for a temporary pause.
 
-- On v1.6+ and v2.0, an enabled limiter with `capacity=0, rate=0` is a true zero-throughput block (every
+- On v1.6.1+ and v2.0, an enabled limiter with `capacity=0, rate=0` is a true zero-throughput block (every
   transfer reverts `TokenMaxCapacityExceeded`), cleaner than `capacity=1, rate=1`, which leaks one unit
   and refills.
-- On v1.5.x this is impossible: the validation rejects `rate == 0` when enabled, so v1.5.x can only
+- On v1.5.x and Siloed v1.6.0 this is impossible: the validation rejects `rate == 0` when enabled, so v1.5.x can only
   near-pause with `capacity > rate > 0` (for example `2/1`), which still leaks.
 
 **Footgun:** `isEnabled=true` with `capacity=0, rate=0` PAUSES (blocks everything), while `isEnabled=false`

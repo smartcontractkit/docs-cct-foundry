@@ -2,8 +2,8 @@
   "generatedBy": "script/docs/gen-primitives.mjs",
   "note": "Generated from the script/ tree and the Makefile. Do not edit by hand; run `npm run docs:catalog`.",
   "counts": {
-    "primitives": 61,
-    "makeTargets": 29
+    "primitives": 69,
+    "makeTargets": 31
   },
   "primitives": [
     {
@@ -11,6 +11,19 @@
       "script": "script/config/AdoptToken.s.sol",
       "group": "config-plane",
       "description": "Adopts an externally deployed token (and optionally its pool) into the address registry, so contracts this repo did NOT deploy resolve exactly like the ones it did (the zero-export `active.<role>` ladder).",
+      "modes": [
+        "eoa"
+      ],
+      "read_only": false,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": []
+    },
+    {
+      "name": "ForgetDeployment",
+      "script": "script/config/ForgetDeployment.s.sol",
+      "group": "config-plane",
+      "description": "Removes one retired entry from `addresses.deployments` in the project store, typically the old pool after a migration.",
       "modes": [
         "eoa"
       ],
@@ -563,6 +576,99 @@
       ]
     },
     {
+      "name": "ConfigureLockBoxes",
+      "script": "script/configure/siloed/ConfigureLockBoxes.s.sol",
+      "group": "siloed",
+      "description": "Maps remote chains to lock boxes on a SiloedLockReleaseTokenPool 2.0.0 (`configureLockBoxes`, onlyOwner).",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": [
+        "LOCK_BOXES"
+      ]
+    },
+    {
+      "name": "GetSiloedPoolState",
+      "script": "script/configure/siloed/GetSiloedPoolState.s.sol",
+      "group": "siloed",
+      "description": "Reads where a SiloedLockReleaseTokenPool keeps its liquidity, per remote chain.",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": []
+    },
+    {
+      "name": "ProvideSiloedLiquidity",
+      "script": "script/configure/siloed/ProvideSiloedLiquidity.s.sol",
+      "group": "siloed",
+      "description": "Adds liquidity to one silo of a SiloedLockReleaseTokenPool 1.6.x: `approve` then `provideSiloedLiquidity`, as the silo's rebalancer.",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": [
+        "AMOUNT",
+        "DEST_CHAIN"
+      ]
+    },
+    {
+      "name": "SetSiloRebalancer",
+      "script": "script/configure/siloed/SetSiloRebalancer.s.sol",
+      "group": "siloed",
+      "description": "Sets the rebalancer of one silo on a SiloedLockReleaseTokenPool 1.6.x (onlyOwner).",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": [
+        "DEST_CHAIN",
+        "REBALANCER"
+      ]
+    },
+    {
+      "name": "UpdateSiloDesignations",
+      "script": "script/configure/siloed/UpdateSiloDesignations.s.sol",
+      "group": "siloed",
+      "description": "Silos or unsilos remote chains on a SiloedLockReleaseTokenPool 1.6.x (`updateSiloDesignations`, onlyOwner).",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": false,
+      "inputs": [
+        "SILO_CHAINS",
+        "SILO_REBALANCER",
+        "UNSILO_CHAINS"
+      ]
+    },
+    {
+      "name": "WithdrawSiloedLiquidity",
+      "script": "script/configure/siloed/WithdrawSiloedLiquidity.s.sol",
+      "group": "siloed",
+      "description": "Withdraws liquidity from one silo of a SiloedLockReleaseTokenPool 1.6.x to the silo rebalancer.",
+      "modes": [
+        "read"
+      ],
+      "read_only": true,
+      "writes_onchain": false,
+      "destructive": true,
+      "inputs": [
+        "AMOUNT",
+        "DEST_CHAIN"
+      ]
+    },
+    {
       "name": "DeployBurnMintTokenPool",
       "script": "script/deploy/DeployBurnMintTokenPool.s.sol",
       "group": "deploy",
@@ -590,7 +696,8 @@
       "writes_onchain": true,
       "destructive": false,
       "inputs": [
-        "AUTHORIZED_CALLERS"
+        "AUTHORIZED_CALLERS",
+        "SILO"
       ]
     },
     {
@@ -607,6 +714,22 @@
       "inputs": [
         "DECIMALS",
         "LOCK_BOX",
+        "POOL_HOOKS"
+      ]
+    },
+    {
+      "name": "DeploySiloedLockReleaseTokenPool",
+      "script": "script/deploy/DeploySiloedLockReleaseTokenPool.s.sol",
+      "group": "deploy",
+      "description": "Deploys a SiloedLockRelease token pool and records it in the registry.",
+      "modes": [
+        "eoa"
+      ],
+      "read_only": false,
+      "writes_onchain": true,
+      "destructive": false,
+      "inputs": [
+        "DECIMALS",
         "POOL_HOOKS"
       ]
     },
@@ -1027,7 +1150,7 @@
     },
     {
       "target": "discover-tokens",
-      "help": "List the CCIP API token catalog for an operator (ADMIN=, SYMBOL=, CHAIN_SELECTOR=, ENVIRONMENT= all narrow; unreviewed tokens included)"
+      "help": "List the CCIP API token catalog for an operator (ADMIN=, SYMBOL=, CHAIN_SELECTOR=, ENVIRONMENT= all narrow; unreviewed tokens included; POOL=1 adds the pool, its API type and version, one request per row)"
     },
     {
       "target": "add-chain",
@@ -1048,6 +1171,10 @@
     {
       "target": "adopt-token",
       "help": "Adopt an externally deployed token into project/[<GROUP>/]<CHAIN>.json (EVM: CHAIN= TOKEN= [TOKEN_POOL=]; non-EVM: CHAIN= TOKEN_B58= [POOL_B58=]; GROUP= for a second token)"
+    },
+    {
+      "target": "forget-deployment",
+      "help": "Remove a retired entry from project/[<GROUP>/]<CHAIN>.json deployments{} (CHAIN= NAME=<deployments key> required; refuses an active, registered, still-laned or funded artifact; PREVIEW=1 changes nothing; local edit, nothing sent)"
     },
     {
       "target": "sync",
@@ -1112,6 +1239,10 @@
     {
       "target": "deploy-lockrelease-pool",
       "help": "Deploy a LockRelease token pool on <CHAIN> (CHAIN= + KEYSTORE_NAME= required; token + lock box from the registry, else TOKEN= LOCK_BOX=; opt POOL_HOOKS=; VERIFY=1; FORCE_REDEPLOY=1; GROUP= scopes to a token group)"
+    },
+    {
+      "target": "deploy-siloed-pool",
+      "help": "Deploy a SiloedLockRelease token pool on <CHAIN>, no lock box (CHAIN= + KEYSTORE_NAME= required; token from the registry, else TOKEN=; opt POOL_HOOKS=; VERIFY=1; FORCE_REDEPLOY=1; GROUP=). Then deploy-lockbox SILO=<label> per silo and configure/siloed/ConfigureLockBoxes"
     },
     {
       "target": "deploy-new-chain",

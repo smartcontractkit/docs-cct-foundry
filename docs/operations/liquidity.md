@@ -10,6 +10,7 @@ Manage the liquidity a LockRelease pool draws on to release tokens. The model di
   rebalancer.
 - Version 2.0.0 holds no liquidity on the pool; an external `ERC20LockBox` does, so deposit and withdraw
   through the lock box.
+- A `SiloedLockReleaseTokenPool` keeps liquidity per remote chain. See [Siloed pools](#siloed-pools).
 
 Burn and mint pools have no liquidity to manage; they mint and burn. Scripts under
 `script/configure/liquidity/` and `script/operations/`. Primitive pages:
@@ -127,3 +128,61 @@ LOCK_BOX=0x... \
 By default this withdraws the entire lock box balance. Set `AMOUNT` to withdraw a specific amount
 instead. Set `RECIPIENT=0x...` to send withdrawn tokens to a different address (defaults to the
 broadcaster).
+
+<a id="siloed-pools"></a>
+
+## Siloed pools
+
+A `SiloedLockReleaseTokenPool` isolates liquidity per remote chain, so one chain's releases cannot drain
+tokens locked for another. Scripts under `script/configure/siloed/`. Read the layout first:
+
+```bash
+forge script script/configure/siloed/GetSiloedPoolState.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL
+```
+
+### 1.6.0 and 1.6.1: silos on the pool
+
+The pool holds the tokens. A siloed chain has its own balance and rebalancer; every other chain draws on
+one shared balance managed by the pool rebalancer (`SetRebalancer`, `ProvideLiquidity`,
+`WithdrawLiquidity`).
+
+| Script | Caller | Env |
+| --- | --- | --- |
+| `UpdateSiloDesignations` | owner | `SILO_CHAINS`, `SILO_REBALANCER`, `UNSILO_CHAINS` |
+| `SetSiloRebalancer` | owner | `DEST_CHAIN`, `REBALANCER` |
+| `ProvideSiloedLiquidity` | silo rebalancer | `DEST_CHAIN`, `AMOUNT` |
+| `WithdrawSiloedLiquidity` | silo rebalancer | `DEST_CHAIN`, `AMOUNT` (default: all) |
+
+- A new silo starts empty: shared liquidity is not moved into it. Unsiloing moves the silo's balance into
+  the shared bucket.
+- Inbound messages from a siloed chain release from that silo only. Withdrawing it while messages are in
+  flight makes them fail until it is refunded.
+- 1.6.0 validates rate limits like 1.5.x (`rate < capacity`, `rate > 0` when enabled); 1.6.1 does not.
+  See the [behavior matrix](../reference/pool-behavior-matrix.md).
+
+### 2.0.0: one lock box per silo
+
+The pool holds nothing. `configureLockBoxes` maps each remote chain to an `ERC20LockBox`; chains that share
+a box share liquidity. Build it in this order, before wiring any lane:
+
+```bash
+make deploy-siloed-pool CHAIN=ethereum-testnet-sepolia KEYSTORE_NAME=<ks>
+make deploy-lockbox CHAIN=ethereum-testnet-sepolia KEYSTORE_NAME=<ks> SILO=fuji    # once per silo
+LOCK_BOX=<box> ADD_ADDRESSES=<pool> forge script script/configure/authorized-callers/UpdateAuthorizedCallers.s.sol ...
+LOCK_BOXES=AVALANCHE_TESTNET_FUJI=<box>,ETHEREUM_TESTNET_SEPOLIA_BASE_1=<box2> \
+  forge script script/configure/siloed/ConfigureLockBoxes.s.sol ...
+```
+
+- `SILO=<label>` records the box as `{symbol}_LockBox_{label}` and leaves `active.lockBox` alone, so
+  per-box scripts need `LOCK_BOX=` explicitly.
+- A supported chain without a box reverts every transfer. `ApplyChainUpdates` refuses to add such a lane
+  (Safe mode warns instead, since the batch may map it).
+- `configureLockBoxes` never removes an entry, and does not check that the pool may use the box;
+  `ConfigureLockBoxes` refuses when it may not.
+- `make doctor` fails a supported chain with no box, a box that does not authorize the pool, or a box for
+  another token, and warns about a box still mapped to a removed chain. `snapshot-chain` records the boxes
+  under `roles.lockboxes`, and `roles-check` audits each one.
+- Every authorized caller on a box can withdraw its whole balance. Authorize operators, not users.
+- The v2 transfer fee stays on the pool, not in the box (`WithdrawFeeTokens`).
+- A 1.6.x pool cannot be pointed at a 2.0 box, and 1.6.2+ lock boxes have a different interface.
+  Migrating from 1.6.x moves the tokens: see [migrate a Siloed pool](../guides/migrate-siloed-pool.md).

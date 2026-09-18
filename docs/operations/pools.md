@@ -13,6 +13,7 @@ Deploy the token pool that CCIP burns, mints, locks, or releases through. Script
 [`DeployBurnMintTokenPool`](../primitives/deploy/DeployBurnMintTokenPool.md),
 [`DeployLockReleaseTokenPool`](../primitives/deploy/DeployLockReleaseTokenPool.md),
 [`DeployERC20LockBox`](../primitives/deploy/DeployERC20LockBox.md),
+[`DeploySiloedLockReleaseTokenPool`](../primitives/deploy/DeploySiloedLockReleaseTokenPool.md),
 [`GetLockBox`](../primitives/configure/GetLockBox.md). For the per-version support matrix see
 [Pool versions](../pool-versions.md).
 
@@ -224,3 +225,24 @@ forge script script/configure/GetLockBox.s.sol --rpc-url $MANTLE_SEPOLIA_RPC_URL
 
 For managing LockRelease liquidity after deploy (the rebalancer model on v1.x pools versus the lockbox
 model on v2.0), see [LockRelease liquidity](liquidity.md).
+
+## Siloed lock and release pool
+
+A `SiloedLockReleaseTokenPool` keeps each remote chain's liquidity apart, so releases for one chain can
+never drain tokens locked for another. The 2.0.0 pool takes no lock box at deploy time; each remote chain
+maps to an `ERC20LockBox`, and chains that share liquidity share a box. The order is pool, one box per
+silo (each authorizing the pool), `ConfigureLockBoxes`, then the lanes:
+
+```bash
+make deploy-siloed-pool CHAIN=ethereum-testnet-sepolia
+make deploy-lockbox CHAIN=ethereum-testnet-sepolia SILO=fuji AUTHORIZED_CALLERS=<pool>
+make deploy-lockbox CHAIN=ethereum-testnet-sepolia SILO=base AUTHORIZED_CALLERS=<pool>
+LOCK_BOXES=AVALANCHE_TESTNET_FUJI=<fuji box>,ETHEREUM_TESTNET_SEPOLIA_BASE_1=<base box> \
+  forge script script/configure/siloed/ConfigureLockBoxes.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL \
+  --account <KEYSTORE_NAME> --broadcast
+```
+
+`ApplyChainUpdates` refuses a lane whose chain has no box yet, and `make doctor` fails a supported chain
+without one. Operating the silos, and the 1.6.x versions that keep liquidity on the pool itself, are
+covered in [liquidity](liquidity.md#siloed-pools); moving from 1.6.x to 2.0.0 is
+[migrate a Siloed pool](../guides/migrate-siloed-pool.md).

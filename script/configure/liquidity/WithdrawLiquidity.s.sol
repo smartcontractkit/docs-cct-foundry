@@ -5,7 +5,7 @@ import {console} from "forge-std/Script.sol";
 import {IERC20} from "@openzeppelin/contracts@5.3.0/token/ERC20/IERC20.sol";
 import {HelperConfig} from "../../HelperConfig.s.sol";
 import {LiquidityBase} from "./LiquidityBase.s.sol";
-import {CctActions, ILockReleaseV1Liquidity} from "../../../src/actions/CctActions.sol";
+import {CctActions, ILockReleaseV1Liquidity, ISiloedLockReleaseV16} from "../../../src/actions/CctActions.sol";
 import {PoolVersion} from "../../utils/PoolVersion.s.sol";
 import {PoolVersions} from "../../../src/PoolVersions.sol";
 
@@ -44,7 +44,10 @@ contract WithdrawLiquidity is LiquidityBase {
         _requireRebalancer(tokenPoolAddress, broadcasterAddr, "withdrawLiquidity");
 
         // Surface the InsufficientLiquidity precondition up front (the pool reverts it when balance < amount).
-        uint256 poolBalance = IERC20(tokenAddress).balanceOf(tokenPoolAddress);
+        // A Siloed pool only releases its shared bucket here; siloed balances sit on the same address.
+        uint256 poolBalance = PoolVersion._isSiloed(PoolVersion._typePrefixOf(typeAndVersion))
+            ? ISiloedLockReleaseV16(tokenPoolAddress).getUnsiloedLiquidity()
+            : IERC20(tokenAddress).balanceOf(tokenPoolAddress);
         _requireSufficientLiquidity(tokenPoolAddress, poolBalance, amount);
 
         console.log("");

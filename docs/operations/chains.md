@@ -73,6 +73,7 @@ reference: [Config architecture](../config-architecture.md).
 | I want to                                                                    | Run                                                                                            |
 | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | See which chains exist / find a selector                                     | `make discover FILTER=<term>`                                                                  |
+| See which tokens exist, and each one's pool type and version                 | `make discover-tokens SYMBOL=<sym> POOL=1` (also `ADMIN=`, `CHAIN_SELECTOR=`, `ENVIRONMENT=`)  |
 | Onboard a new chain                                                          | `make add-chain CHAIN=<name> SELECTOR=<sel>`, then `make doctor CHAIN=<name>`                  |
 | Check whether any config drifted from the API (routine; what CI runs weekly) | `make sync-check` (CI/automation: `bash script/config/sync-check.sh` for the 0/1/2 exit codes) |
 | Inspect what the API currently has for one chain before changing anything    | `make sync-preview CHAIN=<name>`                                                               |

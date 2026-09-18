@@ -314,36 +314,38 @@ contract PoolVersionDispatchTest is Test {
     ///      src/PoolVersions.sol fails here cell by cell. The two count assertions force this test
     ///      to be extended whenever a version or an operation is added.
     function test_CapabilityRangeTable_EveryCell() public pure {
-        assertEq(uint256(type(PoolVersions.Version).max), 4, "new version added; extend the expected rows");
-        assertEq(uint256(type(PoolVersions.Op).max), 19, "new operation added; extend the expected rows");
+        assertEq(uint256(type(PoolVersions.Version).max), 5, "new version added; extend the expected rows");
+        assertEq(uint256(type(PoolVersions.Op).max), 21, "new operation added; extend the expected rows");
 
-        // Rows are [V1_5_0, V1_5_1, V1_6_1, V2_0_0].
-        _assertRow(PoolVersions.Op.APPLY_CHAIN_UPDATES, [false, true, true, true]);
-        _assertRow(PoolVersions.Op.APPLY_CHAIN_UPDATES_V150, [true, false, false, false]);
-        _assertRow(PoolVersions.Op.ADD_REMOTE_POOL, [false, true, true, true]);
-        _assertRow(PoolVersions.Op.REMOVE_REMOTE_POOL, [false, true, true, true]);
-        _assertRow(PoolVersions.Op.GET_REMOTE_POOLS, [false, true, true, true]);
-        _assertRow(PoolVersions.Op.GET_REMOTE_POOL, [true, false, false, false]);
-        _assertRow(PoolVersions.Op.SET_CHAIN_RATE_LIMITER_CONFIG, [true, true, true, false]);
-        _assertRow(PoolVersions.Op.SET_RATE_LIMIT_CONFIG, [false, false, false, true]);
-        _assertRow(PoolVersions.Op.SET_ROUTER, [true, true, true, false]);
-        _assertRow(PoolVersions.Op.SET_RATE_LIMIT_ADMIN, [true, true, true, false]);
-        _assertRow(PoolVersions.Op.SET_DYNAMIC_CONFIG, [false, false, false, true]);
-        _assertRow(PoolVersions.Op.APPLY_ALLOW_LIST_UPDATES_POOL, [true, true, true, false]);
-        _assertRow(PoolVersions.Op.SET_TOKEN_TRANSFER_FEE_CONFIG, [false, false, false, true]);
-        _assertRow(PoolVersions.Op.SET_ALLOWED_FINALITY_CONFIG, [false, false, false, true]);
-        _assertRow(PoolVersions.Op.APPLY_CCV_CONFIG, [false, false, false, true]);
-        _assertRow(PoolVersions.Op.SET_CCV_THRESHOLD, [false, false, false, true]);
+        // Rows are [V1_5_0, V1_5_1, V1_6_0, V1_6_1, V2_0_0]. 1.6.0 shares 1.6.1's callable surface.
+        _assertRow(PoolVersions.Op.APPLY_CHAIN_UPDATES, [false, true, true, true, true]);
+        _assertRow(PoolVersions.Op.APPLY_CHAIN_UPDATES_V150, [true, false, false, false, false]);
+        _assertRow(PoolVersions.Op.ADD_REMOTE_POOL, [false, true, true, true, true]);
+        _assertRow(PoolVersions.Op.REMOVE_REMOTE_POOL, [false, true, true, true, true]);
+        _assertRow(PoolVersions.Op.GET_REMOTE_POOLS, [false, true, true, true, true]);
+        _assertRow(PoolVersions.Op.GET_REMOTE_POOL, [true, false, false, false, false]);
+        _assertRow(PoolVersions.Op.SET_CHAIN_RATE_LIMITER_CONFIG, [true, true, true, true, false]);
+        _assertRow(PoolVersions.Op.SET_RATE_LIMIT_CONFIG, [false, false, false, false, true]);
+        _assertRow(PoolVersions.Op.SET_ROUTER, [true, true, true, true, false]);
+        _assertRow(PoolVersions.Op.SET_RATE_LIMIT_ADMIN, [true, true, true, true, false]);
+        _assertRow(PoolVersions.Op.SET_DYNAMIC_CONFIG, [false, false, false, false, true]);
+        _assertRow(PoolVersions.Op.APPLY_ALLOW_LIST_UPDATES_POOL, [true, true, true, true, false]);
+        _assertRow(PoolVersions.Op.SET_TOKEN_TRANSFER_FEE_CONFIG, [false, false, false, false, true]);
+        _assertRow(PoolVersions.Op.SET_ALLOWED_FINALITY_CONFIG, [false, false, false, false, true]);
+        _assertRow(PoolVersions.Op.APPLY_CCV_CONFIG, [false, false, false, false, true]);
+        _assertRow(PoolVersions.Op.SET_CCV_THRESHOLD, [false, false, false, false, true]);
         // v1.x LockRelease rebalancer/liquidity surface: present 1.5.0/1.5.1/1.6.1, REMOVED in 2.0.0
         // (the external lock box replaced pool-held liquidity).
-        _assertRow(PoolVersions.Op.GET_REBALANCER, [true, true, true, false]);
-        _assertRow(PoolVersions.Op.SET_REBALANCER, [true, true, true, false]);
-        _assertRow(PoolVersions.Op.PROVIDE_LIQUIDITY, [true, true, true, false]);
-        _assertRow(PoolVersions.Op.WITHDRAW_LIQUIDITY, [true, true, true, false]);
+        _assertRow(PoolVersions.Op.GET_REBALANCER, [true, true, true, true, false]);
+        _assertRow(PoolVersions.Op.SET_REBALANCER, [true, true, true, true, false]);
+        _assertRow(PoolVersions.Op.PROVIDE_LIQUIDITY, [true, true, true, true, false]);
+        _assertRow(PoolVersions.Op.WITHDRAW_LIQUIDITY, [true, true, true, true, false]);
+        _assertRow(PoolVersions.Op.SILOED_LIQUIDITY, [false, false, true, true, false]);
+        _assertRow(PoolVersions.Op.CONFIGURE_LOCK_BOXES, [false, false, false, false, true]);
     }
 
-    function _assertRow(PoolVersions.Op op, bool[4] memory expected) internal pure {
-        for (uint256 i = 0; i < 4; i++) {
+    function _assertRow(PoolVersions.Op op, bool[5] memory expected) internal pure {
+        for (uint256 i = 0; i < 5; i++) {
             PoolVersions.Version v = PoolVersions.Version(i + 1);
             assertEq(
                 PoolVersions._isSupported(op, v),
@@ -358,7 +360,8 @@ contract PoolVersionDispatchTest is Test {
         assertEq(uint256(PoolVersions._fromVersionToken("1.5.1")), uint256(PoolVersions.Version.V1_5_1), "1.5.1");
         assertEq(uint256(PoolVersions._fromVersionToken("1.6.1")), uint256(PoolVersions.Version.V1_6_1), "1.6.1");
         assertEq(uint256(PoolVersions._fromVersionToken("2.0.0")), uint256(PoolVersions.Version.V2_0_0), "2.0.0");
-        assertEq(uint256(PoolVersions._fromVersionToken("1.6.0")), uint256(PoolVersions.Version.UNKNOWN), "1.6.0");
+        assertEq(uint256(PoolVersions._fromVersionToken("1.6.0")), uint256(PoolVersions.Version.V1_6_0), "1.6.0");
+        assertEq(uint256(PoolVersions._fromVersionToken("1.6.2")), uint256(PoolVersions.Version.UNKNOWN), "1.6.2");
         assertEq(uint256(PoolVersions._fromVersionToken("")), uint256(PoolVersions.Version.UNKNOWN), "empty");
         assertEq(PoolVersions._toString(PoolVersions.Version.V1_5_1), "1.5.1", "toString");
         assertEq(PoolVersions._toString(PoolVersions.Version.UNKNOWN), "unknown", "toString unknown");
@@ -481,7 +484,7 @@ contract PoolVersionDispatchTest is Test {
         _assertContains(reason, "UnsupportedPoolVersion");
         _assertContains(reason, vm.toString(unknown));
         _assertContains(reason, "BurnMintTokenPool 1.6.0");
-        _assertContains(reason, "1.5.0, 1.5.1, 1.6.1, 2.0.0");
+        _assertContains(reason, "1.6.0 (SiloedLockReleaseTokenPool only)");
         _assertContains(reason, "npm package versions are not pool versions");
         _assertContains(reason, "POOL_VERSION_OVERRIDE");
         _assertContains(reason, "docs/pool-versions.md#unknown-versions");
@@ -505,6 +508,21 @@ contract PoolVersionDispatchTest is Test {
         _assertContains(reason, "USDCTokenPool 1.5.1");
         _assertContains(reason, "TokenPool lineage");
         _assertContains(reason, "POOL_VERSION_OVERRIDE");
+    }
+
+    function test_Siloed_ResolvesAcrossReleases() public {
+        (PoolVersions.Version v,) = shim.resolve(address(new MockTypeAndVersion("SiloedLockReleaseTokenPool 1.6.0")));
+        assertEq(uint256(v), uint256(PoolVersions.Version.V1_6_0), "Siloed 1.6.0");
+        (v,) = shim.resolve(address(new MockTypeAndVersion("SiloedLockReleaseTokenPool 1.6.1")));
+        assertEq(uint256(v), uint256(PoolVersions.Version.V1_6_1), "Siloed 1.6.1");
+        (v,) = shim.resolve(address(new MockTypeAndVersion("SiloedLockReleaseTokenPool 2.0.0")));
+        assertEq(uint256(v), uint256(PoolVersions.Version.V2_0_0), "Siloed 2.0.0");
+    }
+
+    function test_Refusal_Siloed164Uncataloged() public {
+        // 1.6.4 carries the 1.6-style lockbox constructor and its own liquidity path; not cataloged.
+        string memory reason = _catchResolve(address(new MockTypeAndVersion("SiloedLockReleaseTokenPool 1.6.4")));
+        _assertContains(reason, "UnsupportedPoolVersion");
     }
 
     function test_Refusal_UnsupportedOperation() public {

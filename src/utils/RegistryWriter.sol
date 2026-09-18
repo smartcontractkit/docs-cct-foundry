@@ -383,6 +383,67 @@ library RegistryWriter {
         return string(trimmed);
     }
 
+    /// @notice The `active` role whose pointer holds `value` (case-insensitive), or "" when none does.
+    function _activeRoleFor(string memory selectorName, string memory value) internal view returns (string memory) {
+        (string[] memory aKeys, string[] memory aVals,,) = _loadMaps(selectorName);
+        bytes32 want = keccak256(bytes(_lower(value)));
+        for (uint256 i = 0; i < aVals.length; i++) {
+            if (keccak256(bytes(_lower(aVals[i]))) == want) return aKeys[i];
+        }
+        return "";
+    }
+
+    /// @notice Removes `deployments[deploymentName]` and nothing else; returns the removed value. Refuses
+    /// when the entry is absent or still named by an `active` pointer: forgetting the live artifact would
+    /// leave scripts resolving nothing. The value survives in `history/` if it was ever broadcast.
+    function _forgetDeployment(string memory selectorName, string memory deploymentName)
+        internal
+        returns (string memory removed)
+    {
+        (string[] memory aKeys, string[] memory aVals, string[] memory dKeys, string[] memory dVals) =
+            _loadMaps(selectorName);
+        for (uint256 i = 0; i < dKeys.length; i++) {
+            if (keccak256(bytes(dKeys[i])) == keccak256(bytes(deploymentName))) removed = dVals[i];
+        }
+        require(
+            bytes(removed).length != 0,
+            string.concat(
+                "RegistryWriter: no deployments entry '", deploymentName, "' in ", ProjectStore._display(selectorName)
+            )
+        );
+        string memory role = _activeRoleFor(selectorName, removed);
+        require(
+            bytes(role).length == 0,
+            string.concat(
+                "RegistryWriter: '",
+                deploymentName,
+                "' is active.",
+                role,
+                " - point that role elsewhere before forgetting it"
+            )
+        );
+        (dKeys, dVals) = _remove(dKeys, dVals, deploymentName);
+        _store(selectorName, aKeys, aVals, dKeys, dVals);
+        console.log(
+            string.concat(
+                "Store updated: ",
+                ProjectStore._display(selectorName),
+                " (removed addresses.deployments.",
+                deploymentName,
+                ")"
+            )
+        );
+    }
+
+    function _lower(string memory s) private pure returns (string memory) {
+        bytes memory b = bytes(s);
+        bytes memory out = new bytes(b.length);
+        for (uint256 i = 0; i < b.length; i++) {
+            out[i] = (b[i] >= "A" && b[i] <= "Z") ? bytes1(uint8(b[i]) + 32) : b[i];
+        }
+        return string(out);
+    }
+
     /// @notice Upserts a named `deployments[deploymentName]` entry, preserving every other entry. EVM
     /// convenience wrapper.
     function _setDeployment(string memory selectorName, string memory deploymentName, address addr) internal {

@@ -120,6 +120,14 @@ amount_human="$(cast to-unit "$AMOUNT_WEI" "$decimals" 2> /dev/null || true)"
     exit 2
 }
 
+ccip_cli_opens_passwordless() {
+    local v
+    # Without a TTY the CLI prints its version on stderr.
+    v="$(ccip-cli --version 2>&1 | tail -1)"
+    v="${v%%-*}"
+    [ -n "$v" ] && [ "$(printf '%s\n1.13.0\n' "$v" | sort -V | tail -1)" != "1.13.0" ]
+}
+
 sender_args=()
 if [ -n "${WALLET:-}" ]; then
     sender_args=(--wallet "$WALLET")
@@ -134,14 +142,32 @@ if [ -n "${WALLET:-}" ]; then
                 echo "no Foundry keystore '$ks_name' at $ks_path - list them: cast wallet list" >&2
                 exit 2
             }
-            ks_pw="$(bash script/config/dotenv-get.sh FOUNDRY_KEYSTORE_PASSWORD)"
-            [ -n "$ks_pw" ] || ks_pw="$(bash script/config/dotenv-get.sh USER_KEY_PASSWORD)"
-            [ -n "$ks_pw" ] || {
+            # Set-ness, not value: a passwordless keystore is FOUNDRY_KEYSTORE_PASSWORD= (empty).
+            if bash script/config/dotenv-get.sh --is-set FOUNDRY_KEYSTORE_PASSWORD; then
+                ks_pw="$(bash script/config/dotenv-get.sh FOUNDRY_KEYSTORE_PASSWORD)"
+            elif bash script/config/dotenv-get.sh --is-set USER_KEY_PASSWORD; then
+                ks_pw="$(bash script/config/dotenv-get.sh USER_KEY_PASSWORD)"
+            else
                 echo "keystore '$ks_name' needs its password to scope the estimate - set" >&2
-                echo "       FOUNDRY_KEYSTORE_PASSWORD (or USER_KEY_PASSWORD) in ./.env, or export it." >&2
+                echo "       FOUNDRY_KEYSTORE_PASSWORD (or USER_KEY_PASSWORD) in ./.env, or export it;" >&2
+                echo "       set it to the empty string for a passwordless keystore." >&2
                 echo "       Without WALLET the estimate still runs, just not scoped to a sender." >&2
                 exit 2
+            fi
+            # The CLI swallows an unlock failure into an unscoped estimate, so prove the unlock here.
+            cast wallet address --keystore "$ks_path" --password "$ks_pw" > /dev/null 2>&1 || {
+                echo "keystore '$ks_name' does not open with the configured password" \
+                    "(FOUNDRY_KEYSTORE_PASSWORD / USER_KEY_PASSWORD)." >&2
+                exit 2
             }
+            # ccip-cli <= 1.13.0 rejects an empty password whenever it is non-interactive, which it forces
+            # without a TTY, and then swallows the error into an unscoped estimate.
+            if [ -z "$ks_pw" ] && ! ccip_cli_opens_passwordless; then
+                echo "ccip-cli $(ccip-cli --version 2>&1 | tail -1) cannot open the passwordless keystore" \
+                    "'$ks_name' non-interactively (fixed after 1.13.0)." >&2
+                echo "       Upgrade ccip-cli, or leave WALLET unset to use PRIVATE_KEY from the environment." >&2
+                exit 2
+            fi
             # ccip-cli reads this from the environment only, so it has to be exported, not just set.
             export FOUNDRY_KEYSTORE_PASSWORD="$ks_pw"
             ;;

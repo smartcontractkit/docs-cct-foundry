@@ -54,6 +54,9 @@ proves it. Do not skip the read-backs: a setting you did not read back is a sett
       and the balance is read back at or above your expected first-day release volume. An empty lockbox
       passes doctor, roles, and rate limits and even the outbound smoke send's source leg, then every
       inbound transfer sticks. See [liquidity](operations/liquidity.md).
+- [ ] **Siloed only:** every supported remote chain maps to a lock box that authorizes the pool
+      (`make doctor` fails otherwise), and each silo's box is funded on its own: liquidity in one silo does
+      not cover another. `GetSiloedPoolState` shows the balance per chain.
 
 ## 6. Migration and rollback plan
 

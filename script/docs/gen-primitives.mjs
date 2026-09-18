@@ -36,6 +36,7 @@ const CATALOG_FILE = join(OUT_DIR, "catalog.json");
 const INTERNAL = new Set([
   "script/HelperConfig.s.sol",
   "script/configure/liquidity/LiquidityBase.s.sol",
+  "script/configure/siloed/SiloedBase.s.sol",
   "script/setup/token-roles/TokenRoleScript.s.sol",
   "script/setup/ClaimPathDetector.sol",
   "script/utils/ChainHandlers.s.sol",
@@ -65,6 +66,7 @@ const GROUPS = [
   ["script/configure/rate-limiter", "rate-limiter"],
   ["script/configure/remote-chains", "remote-chains"],
   ["script/configure/remote-pools", "remote-pools"],
+  ["script/configure/siloed", "siloed"],
   ["script/configure", "configure"],
   ["script/operations", "operations"],
   ["script/governance", "governance"],
