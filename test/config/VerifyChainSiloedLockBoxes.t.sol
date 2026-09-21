@@ -104,7 +104,9 @@ contract VerifyChainSiloedLockBoxesTest is LaneReconcileScratch {
         pool.mapBox(CHAIN_B, address(new MockSiloedLockBox(TOKEN, address(pool))));
         (uint256 fails, uint256 warns) = _run(pool);
         assertEq(fails, 0, "no FAIL");
-        assertEq(warns, 2, "only the two undeclared-lane WARNs");
+        // Two boxes, two undeclared lanes, and neither selector has a chain file here: the isolation rung
+        // says so per chain rather than skipping the pair in silence.
+        assertEq(warns, 4, "two undeclared-lane WARNs + two 'isolation not checked' WARNs");
     }
 
     function test_Fail_ChainWithoutLockBox() public {

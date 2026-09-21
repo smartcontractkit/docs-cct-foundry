@@ -179,6 +179,13 @@ LOCK_BOXES=AVALANCHE_TESTNET_FUJI=<box>,ETHEREUM_TESTNET_SEPOLIA_BASE_1=<box2> \
   (Safe mode warns instead, since the batch may map it).
 - `configureLockBoxes` never removes an entry, and does not check that the pool may use the box;
   `ConfigureLockBoxes` refuses when it may not.
+- **A silo isolates a chain only while that chain has no DIRECT lane to a differently-boxed sibling.** Two
+  remotes served by DIFFERENT boxes must not have a lane to each other: supply moves while liquidity does
+  not, so one box ends up holding tokens no supply can claim and the other cannot cover its own chain.
+  Routing between them THROUGH the hub is fine - that path releases from one box and locks into the other.
+  Chains that should trade directly belong on the SAME box. `make doctor` fails such a pair when it can
+  read both peers' project stores, and says so when it cannot; see
+  [the gotcha](../gotchas/index.md#silos-need-no-second-route) for the measured drift.
 - `make doctor` fails a supported chain with no box, a box that does not authorize the pool, or a box for
   another token, and warns about a box still mapped to a removed chain. `snapshot-chain` records the boxes
   under `roles.lockboxes`, and `roles-check` audits each one.

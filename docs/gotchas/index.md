@@ -127,6 +127,22 @@ link to.
   must return `0x` (otherwise the endpoint is not running `eth_call` at all). Check `eth_chainId`
   matches the chain you meant, because public RPC directories carry chainId collisions.
 
+<a id="silos-need-no-second-route"></a>
+- **A silo isolates a chain only while that chain has no DIRECT lane to a differently-boxed sibling.** A
+  Siloed 2.0 pool maps each remote chain to an `ERC20LockBox`, and a release is paid out of the box mapped
+  to the chain the message CAME from. A remote-to-remote lane between two DIFFERENT boxes moves supply
+  without moving liquidity: value that entered through box A leaves from the other chain, whose box never
+  received it. Measured on staging (1.0 in each box, 1.0 supply on each remote): a 0.4 hop between the two
+  remotes left both boxes untouched at 1.0 while the supplies moved to 0.6 and 1.4, so 0.4 of one chain's
+  tokens are backed by the other chain's box. Nothing reverts at the time - the first return larger than
+  the box does, with `InsufficientBalance(requested, available)`, and until then the drift is invisible.
+  **Routing through the hub is fine and is the intended topology**: the inbound leg releases from one box
+  and the outbound leg locks into the other, so liquidity and supply move together (measured: a hub-routed
+  hop left every box equal to its own chain's supply). Chains that should trade directly belong on the
+  SAME box. `make doctor` FAILs such a pair when it can see both sides - it reads DECLARED lanes from each
+  peer's project store, so a peer store you do not keep locally is reported as unchecked, not as clean,
+  and the on-chain lane itself is only removed by `RemoveChain`.
+
 <a id="a-successful-call-can-still-revert-your-frame"></a>
 - **A successful call can still revert your frame.** `try C(a).f() returns (string memory)` routes a
   REVERT to its catch, but the return data is decoded in the CALLER's frame after the call already

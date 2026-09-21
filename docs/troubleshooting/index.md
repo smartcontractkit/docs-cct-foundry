@@ -192,6 +192,40 @@ after a `forge script` run, with no `--broadcast`.
   re-adding a lane silently reactivates stale config.
 - **Verify.** `make doctor` reports the lane with a remote pool present.
 
+## `make doctor` FAILs that two chains "hold their liquidity in different lock boxes"
+
+- **Diagnosis.** The Siloed 2.0 pool maps those two remotes to different `ERC20LockBox`es, and the two
+  declare a lane to each other, so a token locked into one box is released from the other. Read the
+  mapping with `PROJECT_GROUP=<g> forge script script/configure/siloed/GetSiloedPoolState.s.sol
+  --rpc-url "$(bash script/config/rpc-url.sh <siloed chain>)"` (the chain comes from the RPC, not an env
+  var) and the lane with
+  `jq '.lanes' project/[<g>/]<remote>.json`. Either side declaring the lane is enough to break the
+  backing.
+- **Fix.** Decide which the two chains are. Meant to be isolated: **`RemoveChain` on both remote pools
+  first** - that is the write that stops the traffic - and only then `make remove-lane LOCAL=<a>
+  REMOTE=<b> BOTH=1`, which edits the declaration. Meant to trade freely: put them on one box - move the
+  liquidity (`WithdrawFromLockBox` then `DepositToLockBox`) and `ConfigureLockBoxes` the second chain onto
+  the first one's box. `configureLockBoxes` is set-only, so the remapping is the write; the emptied box
+  stays deployed.
+- **Verify.** Read the CHAIN, not the declaration: `cast call <remote pool> "isSupportedChain(uint64)(bool)"
+  <other selector> --rpc-url <remote rpc>` must answer `false` on both sides. Removing only the
+  declaration silences this finding while the lane keeps draining - doctor reads declared lanes, so a
+  green run after `remove-lane` alone proves nothing. Then `make doctor CHAIN=<siloed chain>` returns
+  VERIFIED. See [the gotcha](../gotchas/index.md#silos-need-no-second-route).
+
+## A release into a Siloed 2.0 pool reverts with `InsufficientBalance`
+
+- **Diagnosis.** The box mapped to the source chain holds less than the message asks for. Two causes:
+  the silo was never funded to that level, or two remotes on different boxes have a lane to each other
+  and have been trading over it, which moves supply without moving liquidity (the gotcha above). Compare
+  each box's balance against its chain's supply: `cast call <token> 'balanceOf(address)(uint256)' <box>`
+  on the pool's chain vs `cast call <token> 'totalSupply()(uint256)' --rpc-url <remote rpc>`. A box
+  holding MORE than its chain's supply, with another box holding less, is the cross-lane case.
+- **Fix.** Fund the box (`DepositToLockBox`) to cover the in-flight amount, then remove the cross lane or
+  consolidate the two chains onto one box so the drift cannot recur. `make preflight SOURCE_CHAIN=<src>
+  DEST_CHAIN=<dst> TOKEN=<token> AMOUNT=<wei> RECEIVER=<addr>` reproduces the revert before a real send.
+- **Verify.** The same `make preflight` returns `GO:`, and `make doctor CHAIN=<siloed chain>` is VERIFIED.
+
 ## Advanced forensics: a leg that failed then recovered
 
 The REST API and `ccip-cli show` report only the final `SUCCESS` and hide an earlier failed attempt. To
