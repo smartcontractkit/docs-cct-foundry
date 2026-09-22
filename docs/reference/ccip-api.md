@@ -46,10 +46,14 @@ finds a parameter you did not think to try. That is how `reviewedOnly` was misse
 | `GET /tokens` | [`discover-tokens.sh`](../../script/config/discover-tokens.sh) | `chainSelector`, `remoteChainSelector`, `groupId`, `symbol`, `address`, `admin`, `environment`, `reviewedOnly`, `expand`, `limit`, `cursor`. |
 | `GET /tokens/{chainSelector}/{tokenAddress}` | [`discover-tokens.sh`](../../script/config/discover-tokens.sh) with `POOL=1` | none accepted. |
 
-Only the token detail route describes the pool: `pool.type` is an API enum (`SILOED_LOCK_RELEASE`,
-`BURN_MINT`, ...) and `pool.version` a version number that is `null` for a dev build. No route returns the
-contract's own `typeAndVersion()`; read it on-chain when the exact string matters. The list route carries
-no pool fields even with `expand=true`, and the group route carries pool addresses only.
+Only the token detail route describes the pool. It carries the type three ways: `pool.typeAndVersion`
+is the contract's own string (`"SiloedLockReleaseTokenPool 1.6.0"`), `pool.type` an API enum
+(`SILOED_LOCK_RELEASE`, `BURN_MINT`, ...) and `pool.version` a version number that is `null` for a dev
+build. It also reports `pool.finality` (`{mode, blockDepth, safe}`), the pool-scoped allowed-finality
+config. Both are a read of the chain at indexing time, so they lag a config change and are evidence for
+a cross-check, never the authority a write path acts on - `PoolVersion._resolve` reads the pool itself.
+The list route carries no pool fields even with `expand=true`, and a group's `members` carry only
+`address`, `chainSelector` and `symbol`.
 
 `GET /tokens` pages by **keyset, not offset**: `page` and `offset` are rejected with a 400. Follow
 `pagination.cursor` while `pagination.hasNextPage` is true. Filters may travel with the cursor only if
