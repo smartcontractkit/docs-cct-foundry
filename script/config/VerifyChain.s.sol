@@ -1782,8 +1782,11 @@ contract VerifyChain is Script {
         ) {
             _reconcileSiloedLockBoxes(pool);
         }
+        bool localLockRelease =
+            versionKnown && PoolVersion._isLockReleaseFamily(PoolVersion._typePrefixOf(typeAndVersion));
         uint64[] memory declaredSelectors = new uint64[](declared.length);
         for (uint256 i = 0; i < declared.length; i++) {
+            if (localLockRelease) _warnLockAndLock(declared[i]);
             declaredSelectors[i] = _checkDeclaredLaneOnChain(projectJson, pool, version, declared[i]);
         }
         bool reverseChecked = _checkOnChainLanesDeclared(name, pool, declaredSelectors);
@@ -2210,7 +2213,19 @@ contract VerifyChain is Script {
                     );
                 }
             } catch {
-                _fail(string.concat("lockboxes: ", label, " does not answer getAllAuthorizedCallers()"));
+                // A custom box may implement only ILockBox (deposit/withdraw/isTokenSupported), where
+                // getAllAuthorizedCallers is absent by design: unverifiable, not broken.
+                if (token != address(0) && _answersIsTokenSupported(box, token)) {
+                    _warn(
+                        string.concat(
+                            "lockboxes: ",
+                            label,
+                            " does not expose getAllAuthorizedCallers() - authorization NOT verified; confirm the pool may call it"
+                        )
+                    );
+                } else {
+                    _fail(string.concat("lockboxes: ", label, " does not answer getAllAuthorizedCallers()"));
+                }
             }
             if (token != address(0)) {
                 try s_probe.lockBoxSupports(box, token) returns (bool ok) {
@@ -2229,6 +2244,7 @@ contract VerifyChain is Script {
                 );
             }
         }
+        _checkSiloIsolation(boxes, chains);
         if (s_fails == failsBefore && s_warns == warnsBefore) {
             _pass(
                 string.concat(
@@ -2240,6 +2256,221 @@ contract VerifyChain is Script {
                 )
             );
         }
+    }
+
+    /// @dev Lock-release on BOTH ends of a lane is a liquidity bridge, not a mint/burn mesh: a transfer
+    ///      locks on one side and pays out of the other side's own liquidity, which drains in the busy
+    ///      direction until someone rebalances. Legitimate (a canonical token that exists on both chains),
+    ///      so it WARNs once per lane rather than failing - unlike two silos of one pool talking to each
+    ///      other, which is never sound and FAILs above. Peer type comes from the peer's own project store.
+    function _warnLockAndLock(string memory remote) private {
+        string memory key = _peerPoolKey(remote);
+        if (bytes(key).length == 0 || !_contains(key, "LockReleaseTokenPool_")) return;
+        // A SILOED peer is a different shape: it pays from the lock box mapped to this chain, not from one
+        // pooled balance, so the rebalancing duty is per silo. Same hazard, different place to look.
+        bool siloedPeer = _contains(key, "SiloedLockReleaseTokenPool_");
+        _warn(
+            string.concat(
+                "lanes: ",
+                remote,
+                siloedPeer ? " runs a siloed lock-release pool too (" : " runs a lock-release pool too (",
+                key,
+                siloedPeer
+                    ? ") - this lane pays each release out of the lock box that peer maps to this chain, so it"
+                    " drains one way and needs rebalancing per silo (docs/operations/liquidity.md)."
+                    : ") - this lane pays each release out of the destination's own liquidity, so it drains one"
+                    " way and needs rebalancing; fund and monitor both sides (docs/operations/liquidity.md)."
+            )
+        );
+    }
+
+    /// @dev The peer's `deployments{}` key naming its ACTIVE pool (the key carries the pool type and
+    ///      version), or "" when the peer store is absent, unreadable, or names no pool.
+    function _peerPoolKey(string memory remote) private view returns (string memory) {
+        string memory path = ProjectStore._path(remote);
+        if (!vm.exists(path)) return "";
+        string memory json;
+        try s_probe.readFileFor(path) returns (string memory data) {
+            json = data;
+        } catch {
+            return "";
+        }
+        string memory active;
+        try s_probe.parseString(json, ".addresses.active.tokenPool") returns (string memory a) {
+            active = a;
+        } catch {
+            return "";
+        }
+        string[] memory keys;
+        try s_probe.keysOf(json, ".addresses.deployments") returns (string[] memory k) {
+            keys = k;
+        } catch {
+            return "";
+        }
+        for (uint256 i = 0; i < keys.length; i++) {
+            // Bracket notation: version keys (`..._2.0.0`) carry dots that dot-path notation mis-splits.
+            try s_probe.parseString(json, string.concat(".addresses.deployments[\"", keys[i], "\"]")) returns (
+                string memory v
+            ) {
+                if (_eqIgnoreCase(v, active)) return keys[i];
+            } catch {}
+        }
+        return "";
+    }
+
+    function _eqIgnoreCase(string memory a, string memory b) private pure returns (bool) {
+        bytes memory x = bytes(a);
+        bytes memory y = bytes(b);
+        if (x.length != y.length) return false;
+        for (uint256 i = 0; i < x.length; i++) {
+            bytes1 cx = (x[i] >= "A" && x[i] <= "Z") ? bytes1(uint8(x[i]) + 32) : x[i];
+            bytes1 cy = (y[i] >= "A" && y[i] <= "Z") ? bytes1(uint8(y[i]) + 32) : y[i];
+            if (cx != cy) return false;
+        }
+        return true;
+    }
+
+    /// @dev A silo isolates a chain only while that chain has no OTHER route into the mesh. Two remotes
+    ///      served by DIFFERENT boxes that also talk to each other break it: tokens locked into box A can
+    ///      leave via the other chain and come back demanding a release from box B, which never received
+    ///      them - the transfer reverts and box A holds liquidity no supply can claim any more. Chains
+    ///      mapped to the SAME box share liquidity by design and are unaffected.
+    /// @dev Reads each remote's DECLARED lanes from its own project store (the mesh rung's evidence), not
+    ///      the remote chain: this run is forked to the local chain only.
+    function _checkSiloIsolation(SiloedLockReleaseTokenPool.LockBoxConfig[] memory boxes, uint64[] memory supported)
+        private
+    {
+        // Resolve each box once: the catalog and every peer store are read one time, not once per pair.
+        string[] memory names = new string[](boxes.length);
+        string[][] memory lanes = new string[][](boxes.length);
+        bool[] memory usable = new bool[](boxes.length);
+        for (uint256 i = 0; i < boxes.length; i++) {
+            // A stale entry for a chain the pool no longer serves already WARNs above; it carries no route.
+            if (!_containsSelector(supported, boxes[i].remoteChainSelector)) continue;
+            // Only a chain that could be isolated FROM another box raises an isolation question at all.
+            if (!_sharesNoBoxWithSomeSibling(boxes, supported, i)) continue;
+            names[i] = _chainNameBySelector(boxes[i].remoteChainSelector);
+            if (bytes(names[i]).length == 0) {
+                _warn(
+                    string.concat(
+                        "lockboxes: silo isolation NOT checked for ",
+                        _selectorLabel(boxes[i].remoteChainSelector),
+                        " - no chain file names that selector (make add-chain), so its lanes cannot be read"
+                    )
+                );
+                continue;
+            }
+            (uint8 status, string[] memory declared) = _declaredLaneNamesStatus(names[i]);
+            if (status == LANES_UNREADABLE) {
+                _fail(
+                    string.concat(
+                        "lockboxes: silo isolation NOT checked for ",
+                        names[i],
+                        " - its project store exists but does not parse; repair it (make fmt-config) and re-run"
+                    )
+                );
+                continue;
+            }
+            if (status == LANES_ABSENT) {
+                _warn(
+                    string.concat(
+                        "lockboxes: silo isolation NOT checked for ",
+                        names[i],
+                        " - no project store here, so a lane it declares to another silo cannot be seen"
+                    )
+                );
+                continue;
+            }
+            lanes[i] = declared;
+            usable[i] = true;
+        }
+        // One finding per PAIR (i < j), and a lane declared from either side proves the route exists.
+        for (uint256 i = 0; i < boxes.length; i++) {
+            if (!usable[i]) continue;
+            string memory nameI = names[i];
+            string[] memory lanesI = lanes[i];
+            for (uint256 j = i + 1; j < boxes.length; j++) {
+                if (boxes[i].lockBox == boxes[j].lockBox) continue;
+                if (!usable[j]) continue;
+                string memory nameJ = names[j];
+                if (!_namesContain(lanesI, nameJ) && !_namesContain(lanes[j], nameI)) continue;
+                _fail(
+                    string.concat(
+                        "lockboxes: ",
+                        nameI,
+                        " and ",
+                        nameJ,
+                        " hold their liquidity in different lock boxes (",
+                        vm.toString(boxes[i].lockBox),
+                        " vs ",
+                        vm.toString(boxes[j].lockBox),
+                        ") yet declare a lane to each other - tokens locked for one are released from the",
+                        " other's box, so the silos stop backing their own chain. Remove that lane, or map",
+                        " both chains to one box (configure/siloed/ConfigureLockBoxes.s.sol)."
+                    )
+                );
+            }
+        }
+    }
+
+    /// @dev Whether some other live box in the set holds different liquidity from box `i` - the only case
+    ///      where a lane between the two would break the backing, and so the only case worth reporting on.
+    function _sharesNoBoxWithSomeSibling(
+        SiloedLockReleaseTokenPool.LockBoxConfig[] memory boxes,
+        uint64[] memory supported,
+        uint256 i
+    ) private pure returns (bool) {
+        for (uint256 j = 0; j < boxes.length; j++) {
+            if (j == i || boxes[j].lockBox == boxes[i].lockBox) continue;
+            if (_containsSelector(supported, boxes[j].remoteChainSelector)) return true;
+        }
+        return false;
+    }
+
+    uint8 internal constant LANES_OK = 0;
+    uint8 internal constant LANES_ABSENT = 1;
+    uint8 internal constant LANES_UNREADABLE = 2;
+
+    /// @dev The remote names a chain declares lanes to, from its own project store, WITH why the answer is
+    ///      empty: a store this operator does not keep (ABSENT) reads differently from one that does not
+    ///      parse (UNREADABLE). Collapsing both into "no lanes" turns "could not look" into "looks fine".
+    function _declaredLaneNamesStatus(string memory name) private view returns (uint8, string[] memory) {
+        string memory path = ProjectStore._path(name);
+        string[] memory none = new string[](0);
+        if (!vm.exists(path)) return (LANES_ABSENT, none);
+        string memory json;
+        try s_probe.readFileFor(path) returns (string memory data) {
+            json = data;
+        } catch {
+            return (LANES_UNREADABLE, none);
+        }
+        try s_probe.hasKey(json, ".lanes") returns (bool has) {
+            if (!has) return (LANES_OK, none);
+        } catch {
+            return (LANES_UNREADABLE, none);
+        }
+        try s_probe.keysOf(json, ".lanes") returns (string[] memory keys) {
+            return (LANES_OK, keys);
+        } catch {
+            return (LANES_UNREADABLE, none);
+        }
+    }
+
+    /// @dev Whether the address answers the ILockBox token query at all - the tell that it is a lock box
+    ///      with a narrower ABI rather than a wrong or dead address.
+    function _answersIsTokenSupported(address box, address token) private view returns (bool) {
+        try s_probe.lockBoxSupports(box, token) returns (bool) {
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    function _namesContain(string[] memory names, string memory name) private pure returns (bool) {
+        for (uint256 i = 0; i < names.length; i++) {
+            if (keccak256(bytes(names[i])) == keccak256(bytes(name))) return true;
+        }
+        return false;
     }
 
     function _hasLockBox(SiloedLockReleaseTokenPool.LockBoxConfig[] memory boxes, uint64 selector)
