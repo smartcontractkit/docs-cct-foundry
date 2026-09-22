@@ -19,6 +19,7 @@ Configures cross-chain lanes on the source TokenPool by calling applyChainUpdate
 
 | Env var | Description |
 | --- | --- |
+| `ACK_LOCK_AND_LOCK` | See the script header. |
 | `DEST_CHAIN` | See the script header. |
 | `DEST_CHAIN_FAMILY` | See the script header. |
 | `DEST_CHAIN_SELECTOR` | See the script header. |

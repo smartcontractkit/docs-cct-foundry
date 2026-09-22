@@ -143,9 +143,11 @@ The token already exists on both chains independently. Each chain needs its own 
 `LockReleaseTokenPool`.
 
 This is a liquidity bridge, not a mint/burn mesh: every release is paid out of the destination's own
-liquidity, so the busy direction drains and somebody has to rebalance. Fund and monitor both sides;
-`make doctor` warns once per such lane. It is a different thing from two silos of ONE pool talking to each
-other, which never balances and is refused - see [siloed pools](liquidity.md#siloed-pools).
+liquidity, so the busy direction drains and somebody has to rebalance. **`ApplyChainUpdates` refuses such a
+lane by default** (`LockAndLockLane`), because it starts draining the moment it is applied; pass
+`ACK_LOCK_AND_LOCK=true` once you have decided to fund and monitor both sides. `make doctor` warns once per
+lane that already exists. It is a different thing from two silos of ONE pool talking to each other, which
+never balances - see [siloed pools](liquidity.md#siloed-pools).
 
 ```bash
 # 1. Deploy ERC20LockBox on Ethereum Sepolia

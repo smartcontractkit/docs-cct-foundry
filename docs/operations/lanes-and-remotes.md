@@ -21,6 +21,12 @@ Configure the route from the local pool to a destination chain. Run once per dir
 Dry run first: omit `--broadcast` to simulate the apply against the fork and print exactly what it would
 do without sending a transaction. Add `--broadcast` once the output looks right.
 
+Two lanes are refused before anything is sent. A siloed 2.0 pool with no lock box for that destination
+(`LockBoxNotConfigured`) - map one first. And a destination whose own project store names a lock-release
+pool (`LockAndLockLane`): both ends would pay releases out of their own liquidity, so the lane drains one
+way from the moment it applies. `ACK_LOCK_AND_LOCK=true` applies it anyway, for a bridge you intend to fund
+and monitor; `MODE=safe` warns instead of refusing, since the batch may never be signed.
+
 ```bash
 # Configure Ethereum Sepolia -> Mantle Sepolia
 DEST_CHAIN=MANTLE_SEPOLIA \

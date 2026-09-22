@@ -245,6 +245,13 @@ library PoolVersion {
         return keccak256(bytes(typePrefix)) == keccak256(bytes(SILOED_LOCK_RELEASE_TYPE));
     }
 
+    /// @notice Whether a `deployments{}` key names a lock-release-family pool. The key shape is
+    /// `{symbol}_{PoolType}_{version}`, so the type substring is the evidence; `SiloedLockRelease...`
+    /// matches too, and is the worse case of the same hazard.
+    function _isLockReleaseKey(string memory deploymentKey) internal pure returns (bool) {
+        return _contains(deploymentKey, "LockReleaseTokenPool_");
+    }
+
     function _isLockReleaseFamily(string memory typePrefix) internal pure returns (bool) {
         return keccak256(bytes(typePrefix)) == keccak256(bytes(LOCK_RELEASE_TYPE)) || _isSiloed(typePrefix);
     }
