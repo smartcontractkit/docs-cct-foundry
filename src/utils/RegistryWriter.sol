@@ -384,6 +384,28 @@ library RegistryWriter {
     }
 
     /// @notice The `active` role whose pointer holds `value` (case-insensitive), or "" when none does.
+    /// @notice The `deployments{}` key naming the artifact `active.<role>` points at, or "" when the
+    /// store is absent, the role unset, or no deployment matches. The key carries the pool TYPE and
+    /// version, which is the only record of what a peer chain runs that a script on THIS chain can read.
+    function _activeDeploymentKey(string memory selectorName, string memory role)
+        internal
+        view
+        returns (string memory)
+    {
+        (string[] memory aKeys, string[] memory aVals, string[] memory dKeys, string[] memory dVals) =
+            _loadMaps(selectorName);
+        string memory active;
+        for (uint256 i = 0; i < aKeys.length; i++) {
+            if (keccak256(bytes(aKeys[i])) == keccak256(bytes(role))) active = aVals[i];
+        }
+        if (bytes(active).length == 0) return "";
+        bytes32 want = keccak256(bytes(_lower(active)));
+        for (uint256 i = 0; i < dVals.length; i++) {
+            if (keccak256(bytes(_lower(dVals[i]))) == want) return dKeys[i];
+        }
+        return "";
+    }
+
     function _activeRoleFor(string memory selectorName, string memory value) internal view returns (string memory) {
         (string[] memory aKeys, string[] memory aVals,,) = _loadMaps(selectorName);
         bytes32 want = keccak256(bytes(_lower(value)));

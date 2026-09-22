@@ -226,6 +226,22 @@ after a `forge script` run, with no `--broadcast`.
   DEST_CHAIN=<dst> TOKEN=<token> AMOUNT=<wei> RECEIVER=<addr>` reproduces the revert before a real send.
 - **Verify.** The same `make preflight` returns `GO:`, and `make doctor CHAIN=<siloed chain>` is VERIFIED.
 
+## `LockAndLockLane:` ... `runs a lock-release pool too` when applying a lane
+
+- **Diagnosis.** Both ends of this lane hold their own liquidity: the send locks tokens on the source and
+  the delivery pays out of the destination's own balance, so the busy direction drains until someone moves
+  tokens by hand. `ApplyChainUpdates` reads the peer's pool TYPE from its project store
+  (`jq -r '.addresses.deployments | keys[]' project/[<group>/]<peer>.json`) - the key carries the type, and
+  a peer running `...LockReleaseTokenPool_...` is the trigger. Between two silos of ONE pool it is worse:
+  the lock boxes stop backing their own chains.
+- **Fix.** Decide which lane you meant. A mint/burn mesh: deploy a BurnMint pool on the peer (or route the
+  traffic through a chain that has one) and re-run. A deliberate, funded liquidity bridge: re-run with
+  `ACK_LOCK_AND_LOCK=true`, then fund both sides and watch them. Two silos of one pool: map both chains to
+  the SAME lock box instead (`ConfigureLockBoxes`), see
+  [the gotcha](../gotchas/index.md#silos-need-no-second-route).
+- **Verify.** The lane applies (`SENDING (unconfirmed)`), and `make doctor CHAIN=<chain>` reports the
+  lock-and-lock WARN once per such lane - it stays a warning, because a funded bridge is legitimate.
+
 ## Advanced forensics: a leg that failed then recovered
 
 The REST API and `ccip-cli show` report only the final `SUCCESS` and hide an earlier failed attempt. To

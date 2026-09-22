@@ -917,6 +917,7 @@
       "writes_onchain": true,
       "destructive": true,
       "inputs": [
+        "ACK_LOCK_AND_LOCK",
         "DEST_CHAIN",
         "DEST_CHAIN_FAMILY",
         "DEST_CHAIN_SELECTOR",

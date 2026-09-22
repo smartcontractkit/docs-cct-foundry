@@ -16,6 +16,7 @@ import {PoolVersions} from "../../src/PoolVersions.sol";
 import {CctActions, ITokenPoolV150} from "../../src/actions/CctActions.sol";
 import {EoaExecutor} from "../../src/base/EoaExecutor.s.sol";
 import {ProjectStore} from "../../src/utils/ProjectStore.sol";
+import {RegistryWriter} from "../../src/utils/RegistryWriter.sol";
 
 /// @notice Configures cross-chain lanes on the source TokenPool by calling applyChainUpdates.
 /// Sets the remote pool(s), remote token, and optional rate limiter configs per destination chain.
@@ -75,6 +76,8 @@ import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 ///   <DEST_CHAIN>_TOKEN            - EVM address of the token on the destination chain
 ///
 /// Environment Variables (non-EVM destinations):
+///   ACK_LOCK_AND_LOCK             - true to apply a lane whose peer also runs a lock-release pool
+///                                   (refused by default: both ends pay from their own liquidity)
 ///   DEST_CHAIN_FAMILY             - "svm"/"solana" or "aptos" (default: "evm")
 ///                                   (auto-detected from the destination's config chainFamily)
 ///   DEST_CHAIN_SELECTOR           - uint64 chain selector for the destination chain
@@ -230,6 +233,7 @@ contract ApplyChainUpdates is EoaExecutor {
         (PoolVersions.Version poolVersion, string memory poolTypeAndVersion) = PoolVersion._resolve(poolAddress);
         console.log(string.concat("Pool contract: ", poolTypeAndVersion));
         _requireLockBoxes(poolAddress, poolVersion, poolTypeAndVersion, chainUpdates);
+        _refuseLockAndLock(poolTypeAndVersion, chainUpdates);
         _executeCalls(
             _buildLaneUpdateCalls(poolVersion, poolAddress, chainSelectorRemovals, chainUpdates, shouldRemove)
         );
@@ -786,6 +790,7 @@ contract ApplyChainUpdates is EoaExecutor {
         (PoolVersions.Version poolVersion, string memory poolTypeAndVersion) = PoolVersion._resolve(poolAddress);
         console.log(string.concat("Pool contract: ", poolTypeAndVersion));
         _requireLockBoxes(poolAddress, poolVersion, poolTypeAndVersion, chainUpdates);
+        _refuseLockAndLock(poolTypeAndVersion, chainUpdates);
         bool[] memory replaceExisting = new bool[](1);
         replaceExisting[0] = chainAlreadyConfigured;
         _executeCalls(
@@ -796,6 +801,61 @@ contract ApplyChainUpdates is EoaExecutor {
 
     /// @dev A Siloed 2.0 pool reverts every transfer on a lane with no lock box, so the box comes first
     ///      (upstream tooling enforces the same order). Safe mode only warns: the batch may map it.
+    /// @dev Lock-release on BOTH ends of a lane never reconciles: the send locks into this chain's
+    ///      liquidity and the delivery pays out of the peer's, so the two balances drift apart in the
+    ///      busy direction until somebody moves tokens by hand. Between two silos of ONE pool it is
+    ///      worse - the boxes stop backing their own chains (see the doctor's lockboxes rung). Refused
+    ///      here rather than reported later, because the lane starts draining the moment it is applied.
+    ///      `ACK_LOCK_AND_LOCK=true` is the deliberate override for a funded, monitored liquidity
+    ///      bridge (docs/operations/pools.md). Safe mode warns instead: the batch may not be signed.
+    function _refuseLockAndLock(string memory typeAndVersion, TokenPool.ChainUpdate[] memory updates) internal view {
+        bool acknowledged = vm.envOr("ACK_LOCK_AND_LOCK", false);
+        for (uint256 i = 0; i < updates.length; i++) {
+            string memory reason = lockAndLockReasonForTest(typeAndVersion, updates[i].remoteChainSelector);
+            if (bytes(reason).length == 0) continue;
+            if (acknowledged) {
+                console.log(string.concat(unicode"⚠️  ", reason, " - applying anyway (ACK_LOCK_AND_LOCK=true)."));
+                continue;
+            }
+            if (SafeMode._isSafeMode(_executionMode())) {
+                console.log(string.concat(unicode"⚠️  ", reason, " - review before signing the batch."));
+                continue;
+            }
+            revert(reason);
+        }
+    }
+
+    /// @dev Test seam: `run()` builds the HelperConfig, so a unit test that calls the guard directly
+    ///      has to build it too.
+    function initHelperConfigForTest() public {
+        helperConfig = new HelperConfig();
+    }
+
+    /// @notice Why wiring a lane to `remoteChainSelector` would put lock-release liquidity on BOTH ends,
+    /// or "" when it would not. Empty unless this pool is lock-release family AND the peer's store names a
+    /// lock-release pool: a mint/burn end absorbs the imbalance, and a peer this operator does not manage
+    /// is not evidence of a bridge.
+    function lockAndLockReasonForTest(string memory localTypeAndVersion, uint64 remoteChainSelector)
+        public
+        view
+        returns (string memory)
+    {
+        if (!PoolVersion._isLockReleaseFamily(PoolVersion._typePrefixOf(localTypeAndVersion))) return "";
+        string memory peer = helperConfig.getSelectorNameBySelector(remoteChainSelector);
+        if (bytes(peer).length == 0) return "";
+        string memory key = RegistryWriter._activeDeploymentKey(peer, "tokenPool");
+        if (bytes(key).length == 0 || !PoolVersion._isLockReleaseKey(key)) return "";
+        return string.concat(
+            "LockAndLockLane: ",
+            peer,
+            " runs a lock-release pool too (",
+            key,
+            "), so this lane pays every release out of the destination's own liquidity and drains one way;",
+            " fund and monitor both sides, or wire the lane through a mint/burn chain.",
+            " Set ACK_LOCK_AND_LOCK=true to apply it anyway (docs/operations/pools.md)."
+        );
+    }
+
     function _requireLockBoxes(
         address pool,
         PoolVersions.Version version,
