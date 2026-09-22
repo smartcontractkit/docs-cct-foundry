@@ -124,6 +124,8 @@ API serves nothing for it, so a reviewed PR owns it and the sync preserves it ve
 | -------------------------------- | ------------------------------------- | -------------------- | ------------------------------------------------- | --------------------------------------------- |
 | `name`                           | string (canonical selectorName)       | **API sync (guard)** | `chain.name`                                      | file key + basename; validated by the sync    |
 | `chainId`                        | quoted decimal string (`"0"` non-EVM) | **API sync (guard)** | `chain.chainId` (EVM; `"0"` placeholder non-EVM)  | `ChainConfig.chainId`; sync identity guard    |
+| `nativeChainId`                  | string, **non-EVM only**              | **API sync**         | `chain.chainId` (base58 / hash)                   | the chain's real id, kept OUT of `chainId`    |
+| `ccipNative{}`                   | strings, **non-EVM only**             | **API sync**         | `chainConfig` in the chain's own encoding         | the native address plane (see below)          |
 | `chainSelector`                  | quoted `uint64` string                | **API sync (guard)** | `chain.chainSelector`                             | `ChainConfig.load`; the primary join key      |
 | `displayName`                    | string                                | **API sync**         | `chain.displayName`                               | `ChainConfig.load` → `chainName`; log output  |
 | `chainFamily`                    | `"evm"` \| `"svm"` \| `"aptos"`       | **API sync**         | `chain.chainFamily` (lowercased)                  | `ChainConfig.load`; EVM/non-EVM dispatch      |
@@ -725,7 +727,22 @@ source). `config/chains/solana-devnet.json` keeps the same shape but:
   identity; the sync/doctor selectorName guard is what protects a non-EVM file from a wrong selector.
 - The `ccip{}` block is **all-zero** and `feeTokens` is empty: non-EVM chains have no EVM-shaped
   `chainConfig`, so they are excluded from the API **address** sync (the sync SKIPs the `ccip{}`
-  transform cleanly).
+  transform cleanly). It stays as the EVM-typed skeleton every `.ccip.*` reader needs - a base58 value
+  there makes `HelperConfig`'s constructor scan abort on UNRELATED chains, because it parses every
+  configured file's `.ccip.*` as an EVM address.
+- The real addresses live in the sibling **`ccipNative{}`** block, with **`nativeChainId`** next to it,
+  both API-synced and both non-EVM only. Values are family-native STRINGS (base58 on SVM, 32-byte hex on
+  Aptos). Key names mirror `ccip{}` where the concept is shared (`rmn` -> `rmnProxy`, `registryModule` ->
+  `registryModuleOwnerCustom`), plus `tokenPoolPrograms{burnMint,lockRelease}` - SVM ships both pool
+  programs and lock-release is a first-class use case, not a burn-mint fallback. **A key the API does not
+  serve for that family is ABSENT, not zero**: which contracts exist differs by family (SVM has no
+  `tokenAdminRegistry`; Aptos has one but no `registryModule` and no pool programs), and an absent key
+  says "not a thing here" where a zero would say "missing". `feeTokens` is not carried - `link` is the one
+  fee token the repo keys on.
+- **`nativeChainId` is where the chain's real id goes; `chainId` keeps its `"0"` sentinel.** Putting the
+  base58 genesis hash in `chainId` makes the chain VANISH from `HelperConfig`'s configured-chain scan, and
+  Aptos's real `"2"` silently empties its remote-pool resolution. Several `HelperConfig` paths key off the
+  sentinel (the constructor scan, the broadcast guard, `getSelectorName`, the chainId lookups).
 - The non-EVM chain's own **project store** carries **no `lanes{}`**: lanes are outbound policy, and
   non-EVM chains are destination-only here - an EVM chain may declare a lane **to** `solana-devnet` (exempt
   from the doctor's reciprocity rung), but `make add-lane LOCAL=solana-devnet ...` is refused (no lanes to
@@ -779,10 +796,26 @@ source). `config/chains/solana-devnet.json` keeps the same shape but:
     "link": "0x00...00",
     "feeTokens": []
   },
+  "ccipNative": {
+    // the same plane in Solana's own encoding - non-EVM only, API-synced, absent keys are unserved
+    "router": "Ccip842gzYHhvdDkSyi2YVCoAWPbYJoApMFzSxQroE9C",
+    "rmnProxy": "RmnXLft1mSEwDgMKu2okYuHkiazxntFFcZFrrcXxYg7",
+    "feeQuoter": "FeeQPGkKDeRV1MgoYfMH6L8o3KeuYjwUZrgn4LRKfjHi",
+    "link": "LinkhB3afbBKb2EQQu7s7umdZceV3wcvAUJhQAfQ23L",
+    "tokenPoolPrograms": {
+      "burnMint": "41FGToCmdaWa1dgZLKFAjvmx6e6AjVTX7SVRibvsMGVB",
+      "lockRelease": "8eqh8wppT9c5rw4ERqNCffvU6cNFJWff9WmkcYtmGiqC"
+    }
+  },
+  "nativeChainId": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG", // <- chain.chainId (API-synced)
   "explorerUrl": "https://explorer.solana.com?cluster=devnet", // <- chainMetadata.explorer.url (API-synced)
   "nativeCurrencySymbol": "SOL" // <- chainMetadata.nativeCurrency.symbol (API-synced)
 }
 ```
+
+Aptos is a THIRD shape and carries the same block: `tokenAdminRegistry` present, `tokenPoolPrograms` and
+`registryModuleOwnerCustom` absent, one Move package address serving router/feeQuoter/tokenAdminRegistry/rmn.
+It is read-only here.
 
 The Solana deployed addresses live in `project/solana-devnet.json` `addresses{}` as base58 strings, not in
 this file.

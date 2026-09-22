@@ -93,6 +93,69 @@ contract SyncToolingRulesTest is Test {
         _assertCcipBlockExact("config/chains/solana-devnet.json");
     }
 
+    /// @dev The native plane is NON-EVM ONLY and additive: the EVM configs must not grow it (their
+    /// addresses are EVM-typed in `ccip{}`), and the non-EVM ones must carry a real value for every
+    /// key the API serves for that family - the committed zeros in `ccip{}` are the EVM-typed
+    /// skeleton three `.ccip.*` readers require, not chain facts.
+    function test_CcipNativeIsNonEvmOnly() public view {
+        string memory evm = vm.readFile("config/chains/ethereum-testnet-sepolia.json");
+        assertFalse(vm.keyExistsJson(evm, ".ccipNative"), "EVM config grew a ccipNative block");
+        assertFalse(vm.keyExistsJson(evm, ".nativeChainId"), "EVM config grew a nativeChainId");
+
+        string memory svm = vm.readFile("config/chains/solana-devnet.json");
+        assertEq(vm.parseJsonString(svm, ".chainId"), "0", "the chainId sentinel must stay 0");
+        assertTrue(bytes(vm.parseJsonString(svm, ".nativeChainId")).length > 0, "solana nativeChainId empty");
+        string[3] memory svmKeys = ["router", "rmnProxy", "feeQuoter"];
+        for (uint256 i = 0; i < svmKeys.length; i++) {
+            assertTrue(
+                bytes(vm.parseJsonString(svm, string.concat(".ccipNative.", svmKeys[i]))).length > 0,
+                string.concat("solana ccipNative.", svmKeys[i], " empty")
+            );
+        }
+        // Both pool-program variants, and distinct: one program id copied into both keys is the
+        // mutation a bare non-empty check misses, and lock-release is a first-class Solana use case.
+        string[2] memory programs = sync.tokenPoolProgramKeys();
+        string memory burnMint = vm.parseJsonString(svm, ".ccipNative.tokenPoolPrograms.burnMint");
+        string memory lockRelease = vm.parseJsonString(svm, ".ccipNative.tokenPoolPrograms.lockRelease");
+        assertEq(programs[0], "burnMint", "program key order changed");
+        assertEq(programs[1], "lockRelease", "program key order changed");
+        assertTrue(bytes(burnMint).length > 0 && bytes(lockRelease).length > 0, "a pool program is empty");
+        assertTrue(keccak256(bytes(burnMint)) != keccak256(bytes(lockRelease)), "one program id in both keys");
+    }
+
+    /// @dev Aptos is the THIRD shape and is out of scope for writes, but the schema is family-generic:
+    /// a key the API does not serve for a family must be ABSENT, never a zero or an empty string.
+    function test_CcipNativeOmitsUnservedKeys() public view {
+        string memory aptos = vm.readFile("config/chains/aptos-testnet.json");
+        assertEq(vm.parseJsonString(aptos, ".chainId"), "0", "the chainId sentinel must stay 0");
+        assertTrue(bytes(vm.parseJsonString(aptos, ".ccipNative.tokenAdminRegistry")).length > 0, "aptos TAR missing");
+        assertFalse(vm.keyExistsJson(aptos, ".ccipNative.tokenPoolPrograms"), "aptos has no pool programs");
+        assertFalse(vm.keyExistsJson(aptos, ".ccipNative.registryModuleOwnerCustom"), "aptos has no registryModule");
+
+        string memory svm = vm.readFile("config/chains/solana-devnet.json");
+        assertFalse(vm.keyExistsJson(svm, ".ccipNative.tokenAdminRegistry"), "solana has no tokenAdminRegistry");
+    }
+
+    /// @dev Every `ccipNative{}` key present in a committed config must come from the shared key list
+    /// (plus `tokenPoolPrograms`), so the writer, the drift-check and the files cannot diverge.
+    function test_CcipNativeKeysAreFromTheKeyList() public view {
+        _assertNativeKeysKnown("config/chains/solana-devnet.json");
+        _assertNativeKeysKnown("config/chains/aptos-testnet.json");
+    }
+
+    function _assertNativeKeysKnown(string memory path) internal view {
+        string memory json = vm.readFile(path);
+        string[6] memory known = sync.ccipNativeKeys();
+        string[] memory actual = vm.parseJsonKeys(json, ".ccipNative");
+        for (uint256 i = 0; i < actual.length; i++) {
+            bool found = keccak256(bytes(actual[i])) == keccak256(bytes("tokenPoolPrograms"));
+            for (uint256 k = 0; k < known.length && !found; k++) {
+                found = keccak256(bytes(actual[i])) == keccak256(bytes(known[k]));
+            }
+            assertTrue(found, string.concat(path, ": unknown ccipNative key ", actual[i]));
+        }
+    }
+
     function _assertCcipBlockExact(string memory path) internal view {
         string memory json = vm.readFile(path);
         string[7] memory keys = sync.ccipAddressKeys();

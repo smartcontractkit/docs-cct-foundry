@@ -13,6 +13,10 @@
 # schema):
 #   { apiName, displayName, chainFamily, environment, chainId, chainSelector,
 #     explorerUrl, nativeCurrencySymbol }
+# plus, for NON-EVM families only, the native address plane the EVM-typed `ccip{}` block cannot hold:
+#   { nativeChainId, native: { router, rmnProxy, tokenAdminRegistry, registryModuleOwnerCustom,
+#                              feeQuoter, link, tokenPoolPrograms: { burnMint, lockRelease } } }
+# Every native key is a family-native STRING and every one is optional - see the transform below.
 #
 # Consumed by SyncCcipConfig.init() (add-chain), SyncCcipConfig.run()/check() on the NON-EVM path
 # (EVM uses ccip-config-source.sh, which carries the same fields), and VerifyChain (the doctor's
@@ -57,13 +61,39 @@ case "$http_code" in
         ;;
 esac
 
-jq -c '{
+# `native{}` + `nativeChainId` are emitted for NON-EVM families only: they carry the chain's own
+# address encoding (base58 on SVM, 32-byte hex on Aptos, never parseable as an EVM address), so they
+# are a sibling plane to `ccip{}`, not a replacement for it. Key names mirror the `ccip{}` block where
+# the concept is shared (rmn -> rmnProxy, registryModule -> registryModuleOwnerCustom); a key the API
+# does not serve for this family is ABSENT, not zero - the families differ in which contracts exist
+# (SVM has tokenPoolPrograms and no tokenAdminRegistry; Aptos has tokenAdminRegistry and no
+# registryModule), and an absent key says "not a thing here" where a zero would say "missing".
+# pick() prefers an ACTIVE entry but falls back to the first one, exactly as the EVM act() does: an
+# inactive row is still the chain's address, and refusing it would diverge from the EVM path.
+jq -c '
+  def pick(a): ((a // []) | ((map(select(.isActive == true))[0]) // .[0]) | (.address? // null));
+  (((.chain.chainFamily // "EVM") | ascii_downcase)) as $fam
+  | .chainConfig as $c
+  | (($c.tokenPoolPrograms // {})
+     | {burnMint: pick(.burnMint), lockRelease: pick(.lockRelease)}
+     | with_entries(select(.value != null))) as $tpp
+  | {
   apiName: (.chain.name // error("no .chain.name in API body")),
   displayName: (.chain.displayName // .chain.name // ""),
-  chainFamily: ((.chain.chainFamily // "EVM") | ascii_downcase),
+  chainFamily: $fam,
   environment: (.chain.environment // "testnet"),
   chainId: ((.chain.chainId // 0) | tostring),
   chainSelector: (.chain.chainSelector | tostring),
   explorerUrl: (.chainMetadata.explorer.url // ""),
-  nativeCurrencySymbol: (.chainMetadata.nativeCurrency.symbol // "")
-}' "$body_file"
+  nativeCurrencySymbol: (.chainMetadata.nativeCurrency.symbol // ""),
+  nativeChainId: (if $fam == "evm" then null else ((.chain.chainId // "") | tostring) end),
+  native: (if $fam == "evm" then null else ({
+    router: pick($c.router),
+    rmnProxy: pick($c.rmn),
+    tokenAdminRegistry: pick($c.tokenAdminRegistry),
+    registryModuleOwnerCustom: pick($c.registryModule),
+    feeQuoter: pick($c.feeQuoter),
+    link: ((($c.feeTokens // []) | map(select(.tokenSymbol == "LINK")) | .[0].tokenAddress) // null),
+    tokenPoolPrograms: (if ($tpp | length) > 0 then $tpp else null end)
+  } | with_entries(select(.value != null))) end)
+} | with_entries(select(.value != null))' "$body_file"

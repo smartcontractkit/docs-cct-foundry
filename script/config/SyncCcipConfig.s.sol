@@ -35,6 +35,9 @@ import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 /// `registryModuleOwnerCustom`, `link`, `feeQuoter`, `tokenPoolFactory`, `feeTokens[]`) — AND the
 /// API-served identity + metadata fields (`displayName`, `chainFamily`, `environment`, `explorerUrl`,
 /// `nativeCurrencySymbol`), all of which `GET /v2/chains/{selector}` serves, so none is hand-typed.
+/// For NON-EVM families it also owns `ccipNative{}` + `nativeChainId` — the same addresses in the
+/// chain's own encoding (base58, 32-byte hex), which `ccip{}` cannot hold because every `.ccip.*`
+/// reader parses EVM addresses. `chainId` keeps its `"0"` sentinel either way.
 /// What it PRESERVES (never touches): the genuinely hand-authored keys the API serves nothing for
 /// (`chainNameIdentifier`, `rpcEnv`, the optional `verifier{}` block, and the optional `evmVersion`) and the immutable join keys
 /// (`name`/`chainSelector`/`chainId`) which are GUARD-validated, not rewritten. One writer per field.
@@ -46,8 +49,8 @@ import {ProjectStore} from "../../src/utils/ProjectStore.sol";
 ///     a wrong-but-valid selector can never silently write another chain's contracts.
 ///   - non-EVM SKIP: non-EVM chain families (e.g. solana-devnet) skip the EVM `ccip{}` transform — an
 ///     SVM file keeps its zeroed `ccip{}` block — but their chain-level identity + metadata (served
-///     for every family) ARE validated + refreshed. The guard is Solidity-side so every entrypoint
-///     is covered.
+///     for every family) ARE validated + refreshed, and their native-encoded addresses are written to
+///     the sibling `ccipNative{}` block. The guard is Solidity-side so every entrypoint is covered.
 ///   - chain-name validation: config names become file paths and shell arguments, so `init` only
 ///     accepts `[a-z0-9][a-z0-9_-]*` (dash + underscore, both used by canonical selectorNames like
 ///     `binance_smart_chain-mainnet`; no path traversal, no spaces, no shell metacharacters).
@@ -261,7 +264,10 @@ contract SyncCcipConfig is Script {
             string memory meta = _fetchChainMeta(selector);
             _requireSelectorName(name, vm.parseJsonString(json, ".name"), vm.parseJsonString(meta, ".apiName"));
             _refreshMetadata(path, meta);
-            console.log(string.concat("[sync] refreshed identity metadata for ", name, " -> ", path));
+            _requireNativeRouter(name, meta);
+            vm.writeJson(string.concat("\"", vm.parseJsonString(meta, ".nativeChainId"), "\""), path, ".nativeChainId");
+            vm.writeJson(_buildNativeJson(name, meta), path, ".ccipNative");
+            console.log(string.concat("[sync] refreshed identity metadata + ccipNative for ", name, " -> ", path));
             return;
         }
 
@@ -372,6 +378,59 @@ contract SyncCcipConfig is Script {
         ];
     }
 
+    /// @notice THE single list of `ccipNative{}` keys (shared by the non-EVM write and drift-check).
+    /// Same names as `ccipAddressKeys()` where the concept is shared, so one vocabulary spans both
+    /// planes. Every key is OPTIONAL: which contracts exist differs by family (SVM serves no
+    /// tokenAdminRegistry, Aptos no registryModule), and the writer omits what the API does not serve.
+    function ccipNativeKeys() public pure returns (string[6] memory) {
+        return ["router", "rmnProxy", "tokenAdminRegistry", "registryModuleOwnerCustom", "feeQuoter", "link"];
+    }
+
+    /// @notice The pool-program variants carried under `ccipNative.tokenPoolPrograms` (SVM serves
+    /// both; lock-release is a first-class use case, not a burn-mint fallback).
+    function tokenPoolProgramKeys() public pure returns (string[2] memory) {
+        return ["burnMint", "lockRelease"];
+    }
+
+    /// @dev Serialize the non-EVM `ccipNative{}` object from the meta row's `native{}` block. Values
+    /// are family-native STRINGS (base58 on SVM, 32-byte hex on Aptos) - they are deliberately NOT
+    /// written into `ccip{}`, whose readers parse every value as an EVM address: one base58 string
+    /// there makes `HelperConfig`'s constructor scan abort on UNRELATED chains.
+    function _buildNativeJson(string memory name, string memory meta) internal returns (string memory out) {
+        string memory obj = string.concat("ccip-native-", name);
+        string[6] memory keys = ccipNativeKeys();
+        for (uint256 i = 0; i < keys.length; i++) {
+            string memory path = string.concat(".native.", keys[i]);
+            if (vm.keyExistsJson(meta, path)) out = vm.serializeString(obj, keys[i], vm.parseJsonString(meta, path));
+        }
+        string memory programs = _buildTokenPoolProgramsJson(name, meta);
+        if (bytes(programs).length > 0) out = vm.serializeString(obj, "tokenPoolPrograms", programs);
+    }
+
+    function _buildTokenPoolProgramsJson(string memory name, string memory meta) internal returns (string memory out) {
+        string memory obj = string.concat("ccip-native-pools-", name);
+        string[2] memory keys = tokenPoolProgramKeys();
+        for (uint256 i = 0; i < keys.length; i++) {
+            string memory path = string.concat(".native.tokenPoolPrograms.", keys[i]);
+            if (vm.keyExistsJson(meta, path)) out = vm.serializeString(obj, keys[i], vm.parseJsonString(meta, path));
+        }
+    }
+
+    /// @dev CORE guard for the native plane: a non-EVM chain with no router cannot be onboarded, and
+    /// an empty `ccipNative{}` would otherwise be written silently on an API shape change. It fires on
+    /// an ABSENT router only - an inactive entry is still onboarded, since the transform's `pick()`
+    /// prefers `isActive` but falls back to the first entry, matching the EVM `act()`.
+    function _requireNativeRouter(string memory name, string memory meta) internal view {
+        require(
+            vm.keyExistsJson(meta, ".native.router"),
+            string.concat(
+                "[sync] ",
+                name,
+                ": the API serves no router entry for this non-EVM chain - it cannot be onboarded yet ('make discover' lists valid selectors)"
+            )
+        );
+    }
+
     // ================================================================
     // init — add-chain: generate config/chains/<name>.json FROM the API
     // ================================================================
@@ -430,12 +489,15 @@ contract SyncCcipConfig is Script {
         // EVM-shaped ccip block to fetch, so it gets the zeroed skeleton (all eight keys present, every
         // address zero), which the doctor's schema rung requires for every family.
         string memory ccipBlock;
+        string memory nativeBlock;
         if (isEvm) {
             string memory flat = _source().fetchActiveCcipConfig(uint64(selector));
             _warnZeroedOptionalContracts(localName, flat);
             ccipBlock = _buildCcipJson(localName, flat);
         } else {
             ccipBlock = _zeroedCcipJson(localName);
+            _requireNativeRouter(localName, meta);
+            nativeBlock = _buildNativeJson(localName, meta);
         }
 
         // Build the whole file in memory, then write it ONCE. lanes{}/roles{} + deployed addresses live
@@ -460,6 +522,12 @@ contract SyncCcipConfig is Script {
         // explorerUrl/nativeCurrencySymbol come from the API's chainMetadata (served for every family).
         vm.serializeString(root, "explorerUrl", vm.parseJsonString(meta, ".explorerUrl"));
         vm.serializeString(root, "nativeCurrencySymbol", vm.parseJsonString(meta, ".nativeCurrencySymbol"));
+        // The native plane, non-EVM only: the chain's own chainId (base58/hash - `chainId` keeps its
+        // "0" sentinel, which three EVM-typed readers depend on) and its native-encoded addresses.
+        if (!isEvm) {
+            vm.serializeString(root, "nativeChainId", vm.parseJsonString(meta, ".nativeChainId"));
+            vm.serializeString(root, "ccipNative", nativeBlock);
+        }
         // forge-lint: disable-end(unused-return)
         string memory complete = vm.serializeString(root, "ccip", ccipBlock);
         vm.writeFile(path, complete);
@@ -598,13 +666,13 @@ contract SyncCcipConfig is Script {
             // ARE served and drift-checkable. Validate the selectorName and diff the metadata fields.
             string memory meta = _fetchChainMeta(selector);
             _requireSelectorName(name, vm.parseJsonString(json, ".name"), vm.parseJsonString(meta, ".apiName"));
-            uint256 metaDrift = _checkMetadata(name, json, meta);
+            uint256 metaDrift = _checkMetadata(name, json, meta) + _checkNative(name, json, meta);
             if (metaDrift > 0) {
                 revert(
                     string.concat(
                         "CONFIG_DRIFT: ",
                         vm.toString(metaDrift),
-                        " metadata field(s) drifted for ",
+                        " metadata/ccipNative field(s) drifted for ",
                         name,
                         " - refresh with: make sync CHAIN=",
                         name,
@@ -615,7 +683,9 @@ contract SyncCcipConfig is Script {
                     )
                 );
             }
-            console.log(string.concat("[sync-check] CLEAN ", name, " - identity metadata matches the live API"));
+            console.log(
+                string.concat("[sync-check] CLEAN ", name, " - identity metadata + ccipNative match the live API")
+            );
             return;
         }
 
@@ -672,6 +742,47 @@ contract SyncCcipConfig is Script {
                 drift++;
             }
         }
+    }
+
+    /// @dev Diff the non-EVM `ccipNative{}` plane (+ `nativeChainId`) against the meta row, one
+    /// greppable `DRIFT <chain> .ccipNative.<field>` line per divergence. An absent key compares as
+    /// the empty string on BOTH sides, so "the API stopped serving it" and "we never wrote it" are
+    /// both drift - which is what makes a schema change without a config backfill fail loudly here
+    /// rather than in the nightly.
+    function _checkNative(string memory name, string memory json, string memory meta)
+        internal
+        view
+        returns (uint256 drift)
+    {
+        drift = _diffString(name, ".nativeChainId", json, ".nativeChainId", meta, ".nativeChainId");
+        string[6] memory keys = ccipNativeKeys();
+        for (uint256 i = 0; i < keys.length; i++) {
+            string memory field = string.concat(".ccipNative.", keys[i]);
+            drift += _diffString(name, field, json, field, meta, string.concat(".native.", keys[i]));
+        }
+        string[2] memory programs = tokenPoolProgramKeys();
+        for (uint256 i = 0; i < programs.length; i++) {
+            string memory field = string.concat(".ccipNative.tokenPoolPrograms.", programs[i]);
+            drift += _diffString(
+                name, field, json, field, meta, string.concat(".native.tokenPoolPrograms.", programs[i])
+            );
+        }
+    }
+
+    /// @dev Compare one optional string field across the two documents; absent reads as "".
+    function _diffString(
+        string memory name,
+        string memory label,
+        string memory json,
+        string memory jsonPath,
+        string memory src,
+        string memory srcPath
+    ) internal view returns (uint256) {
+        string memory cur = vm.keyExistsJson(json, jsonPath) ? vm.parseJsonString(json, jsonPath) : "";
+        string memory live = vm.keyExistsJson(src, srcPath) ? vm.parseJsonString(src, srcPath) : "";
+        if (keccak256(bytes(cur)) == keccak256(bytes(live))) return 0;
+        console.log(string.concat("DRIFT ", name, " ", label, " '", cur, "' -> '", live, "'"));
+        return 1;
     }
 
     function _checkFeeTokens(string memory name, string memory json, string memory flat)

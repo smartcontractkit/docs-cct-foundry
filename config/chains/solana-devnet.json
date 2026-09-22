@@ -9,6 +9,16 @@
     "tokenAdminRegistry": "0x0000000000000000000000000000000000000000",
     "tokenPoolFactory": "0x0000000000000000000000000000000000000000"
   },
+  "ccipNative": {
+    "feeQuoter": "FeeQPGkKDeRV1MgoYfMH6L8o3KeuYjwUZrgn4LRKfjHi",
+    "link": "LinkhB3afbBKb2EQQu7s7umdZceV3wcvAUJhQAfQ23L",
+    "rmnProxy": "RmnXLft1mSEwDgMKu2okYuHkiazxntFFcZFrrcXxYg7",
+    "router": "Ccip842gzYHhvdDkSyi2YVCoAWPbYJoApMFzSxQroE9C",
+    "tokenPoolPrograms": {
+      "burnMint": "41FGToCmdaWa1dgZLKFAjvmx6e6AjVTX7SVRibvsMGVB",
+      "lockRelease": "8eqh8wppT9c5rw4ERqNCffvU6cNFJWff9WmkcYtmGiqC"
+    }
+  },
   "chainFamily": "svm",
   "chainId": "0",
   "chainNameIdentifier": "SOLANA_DEVNET",
@@ -17,6 +27,7 @@
   "environment": "testnet",
   "explorerUrl": "https://explorer.solana.com?cluster=devnet",
   "name": "solana-devnet",
+  "nativeChainId": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG",
   "nativeCurrencySymbol": "SOL",
   "rpcEnv": "SOLANA_DEVNET_RPC_URL"
 }
