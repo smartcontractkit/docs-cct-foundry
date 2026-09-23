@@ -22,6 +22,7 @@ struct RateLimitConfigArgs {
 interface IVersionedPool {
     function typeAndVersion() external view returns (string memory);
     function owner() external view returns (address);
+    function getDynamicConfig() external view returns (address router, address rateLimitAdmin, address feeAdmin);
     // v1.5.0 / v1.5.1 / v1.6.1 rate-limit setter.
     function setChainRateLimiterConfig(
         uint64 remoteChainSelector,
@@ -41,6 +42,13 @@ interface IVersionedPool {
         bytes4 requestedFinalityConfig,
         bytes calldata tokenArgs
     ) external;
+}
+
+/// @dev Minimal router surface for resolving the live onRamp of a lane. The v2.0 pool's `_onlyOnRamp`
+///      checks `msg.sender == s_router.getOnRamp(remoteChainSelector)`, so the prank target must match
+///      whatever the pool's CURRENT router reports - not a constant, since Sepolia router configs drift.
+interface IRouter {
+    function getOnRamp(uint64 remoteChainSelector) external view returns (address);
 }
 
 /// @title RateLimiterVersionBehavior
@@ -71,9 +79,11 @@ contract RateLimiterVersionBehavior is BaseForkTest {
     uint64 internal constant BASE_SEPOLIA = 8236463271206331221; // supported by V150 / V151
     uint64 internal constant FUJI = 14767482510784806043; // supported by V161 / V200
 
-    // V200 runtime plumbing: token + the v1.x GA Router onRamp for the Fuji lane (Router.getOnRamp(FUJI)).
+    // V200 runtime plumbing: token + the onRamp for the Fuji lane. The onRamp is resolved live from
+    // the pool's current router (getDynamicConfig -> getOnRamp) in setUp, because Sepolia router configs
+    // drift and a hardcoded ramp address rots - the original constant caused CallerIsNotARampOnRouter.
     address internal constant V200_TOKEN = 0x65901d3177F69CFA5b341C95D3943e72FFb2716A;
-    address internal constant V200_ONRAMP = 0x12492154714fBD28F28219f6fc4315d19de1025B;
+    address internal V200_ONRAMP;
 
     // MG161A is an old-OZ BurnMintERC20: burning past balance reverts with this string. Seeing it (rather
     // than TokenMaxCapacityExceeded) is the oracle that the rate limiter ALLOWED the transfer amount.
@@ -82,6 +92,10 @@ contract RateLimiterVersionBehavior is BaseForkTest {
     function setUp() public override {
         // Only the Sepolia fork is needed; skip the token/pool deploy fixtures of BaseForkTest.setUp.
         _createSepoliaFork();
+        // Resolve the live onRamp for the Fuji lane from the pool's current router. Hardcoding this
+        // rots when the Sepolia router is reconfigured; reading it keeps the prank target correct.
+        (address router,,) = IVersionedPool(V200).getDynamicConfig();
+        V200_ONRAMP = IRouter(router).getOnRamp(FUJI);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
