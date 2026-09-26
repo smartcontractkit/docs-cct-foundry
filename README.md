@@ -119,6 +119,7 @@ operations page or guide with the exact commands.
   reconcile with `make roles-check`. See [roles](docs/roles.md).
 - **Configure v2 pool features.** [Rate limits](docs/operations/rate-limits.md),
   [CCV](docs/operations/ccv.md), [hooks and allowlist](docs/operations/hooks-allowlist.md),
+  [policy engine](docs/operations/policy-engine.md),
   [fees](docs/operations/fees.md), [finality](docs/operations/finality.md),
   [dynamic config](docs/operations/dynamic-config.md).
 - **LockRelease liquidity.** The rebalancer and ERC20 LockBox models, side by side, in

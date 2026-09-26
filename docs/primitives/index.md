@@ -91,6 +91,11 @@ at [`catalog.json`](catalog.json). These pages are generated from the scripts an
 - [AcceptOwnership](ownership/AcceptOwnership.md) - Completes a two-step ownership transfer initiated by TransferOwnership for any Ownable contract (a token pool, pool hooks, or a lockbox). _(write)_
 - [TransferOwnership](ownership/TransferOwnership.md) - Initiates a two-step ownership transfer for any Ownable contract (a token pool, pool hooks, or a lockbox). _(write)_
 
+## policy-engine
+
+- [GetPolicyEngine](policy-engine/GetPolicyEngine.md) - Script to read the ACE Policy Engine address currently set on an AdvancedPoolHooks contract Usage: POOL_HOOKS=0x... forge script script/configure/policy-engine/GetPolicyEngine.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL / _(read-only)_
+- [SetPolicyEngine](policy-engine/SetPolicyEngine.md) - Script to point an AdvancedPoolHooks contract at an ACE Policy Engine on the same chain, or disconnect the engine with the zero address. _(write)_
+
 ## rate-limiter
 
 - [GetCurrentRateLimits](rate-limiter/GetCurrentRateLimits.md) - Reads and displays the current rate limiter state for a TokenPool, compatible with v1 and v2 pools. _(read-only)_
