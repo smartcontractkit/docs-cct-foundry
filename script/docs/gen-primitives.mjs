@@ -59,6 +59,7 @@ const GROUPS = [
   ["script/configure/allowlist", "allowlist"],
   ["script/configure/authorized-callers", "authorized-callers"],
   ["script/configure/ccv", "ccv"],
+  ["script/configure/policy-engine", "policy-engine"],
   ["script/configure/dynamic-config", "dynamic-config"],
   ["script/configure/fee-config", "fee-config"],
   ["script/configure/finality-config", "finality-config"],

@@ -47,5 +47,21 @@
       "INBOUND_RATE_LIMIT_RATE": "uint128 token-bucket refill rate (inbound).",
       "INBOUND_RATE_LIMIT_ENABLED": "true/false; defaults to true when CAPACITY or RATE are set. false stands alone as a disable."
     }
+  },
+  "SetPolicyEngine": {
+    "when_to_use": "Connect an AdvancedPoolHooks contract to an ACE Policy Engine on the same chain, or disconnect the engine with the zero address. The hook calls attach() on the new engine, which starts ACE target detection.",
+    "preconditions": "The executing account is the hooks owner. The engine is deployed on the same chain and Active in the Chainlink Platform.",
+    "postconditions": "The hooks contract points at the new engine; getPolicyEngine returns it.",
+    "failure_modes": "Reverts PolicyEngineDetachReverted when the old engine's detach() reverts; the on-chain recovery path is setPolicyEngineAllowFailedDetach on the hook itself. A same-address update is refused by the script before broadcasting (it would be a no-op that reports success).",
+    "inputs": {
+      "POLICY_ENGINE": "Address of the ACE Policy Engine on the same chain, or the zero address to disconnect the engine and stop policy checks.",
+      "POOL_HOOKS": "Address of the AdvancedPoolHooks contract. Resolves via the standard ladder: inline alias > {CHAIN}_POOL_HOOKS env > registry active.poolHooks."
+    }
+  },
+  "GetPolicyEngine": {
+    "when_to_use": "Read which ACE Policy Engine an AdvancedPoolHooks contract points at, or confirm none is set (policy checks disabled).",
+    "inputs": {
+      "POOL_HOOKS": "Address of the AdvancedPoolHooks contract. Resolves via the standard ladder: inline alias > {CHAIN}_POOL_HOOKS env > registry active.poolHooks."
+    }
   }
 }

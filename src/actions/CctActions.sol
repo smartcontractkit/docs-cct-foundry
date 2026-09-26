@@ -473,6 +473,16 @@ library CctActions {
         return _one(hooks, abi.encodeCall(AdvancedPoolHooks.setThresholdAmount, (amount)));
     }
 
+    /// @notice Point an `AdvancedPoolHooks` (v2) at an ACE Policy Engine on the same chain, or
+    ///         `address(0)` to disconnect the engine and stop policy checks.
+    /// @dev `setPolicyEngine` detaches the old engine first and reverts `PolicyEngineDetachReverted`
+    ///      when the old engine's `detach()` reverts; `setPolicyEngineAllowFailedDetach` on the hook
+    ///      itself is the on-chain recovery path for that case. Targets the hooks contract; the
+    ///      executing account must be the hooks owner.
+    function _setPolicyEngine(address hooks, address newPolicyEngine) internal pure returns (Call[] memory) {
+        return _one(hooks, abi.encodeCall(AdvancedPoolHooks.setPolicyEngine, (newPolicyEngine)));
+    }
+
     /// @notice Apply allowlist updates (`removes`, `adds`) on an `AdvancedPoolHooks` (v2) or a v1 pool -
     ///         both expose the identical `applyAllowListUpdates(address[],address[])` selector.
     /// @dev IMMUTABILITY TRAP: on `AdvancedPoolHooks`, `allowlistEnabled` is fixed at deploy time from
