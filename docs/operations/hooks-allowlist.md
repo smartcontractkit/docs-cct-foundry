@@ -20,6 +20,9 @@ callers on hooks and lock boxes. Scripts under `script/configure/allowlist/` and
 [`UpdateAuthorizedCallers`](../primitives/authorized-callers/UpdateAuthorizedCallers.md),
 [`GetAuthorizedCallers`](../primitives/authorized-callers/GetAuthorizedCallers.md).
 
+For the policy engine surface of the same hooks contract, see
+[Policy engine](policy-engine.md).
+
 ## Deploy Advanced Pool Hooks
 
 Use this for enhanced security features like allowlists, CCV management, policy engine integration, and

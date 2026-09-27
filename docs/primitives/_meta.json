@@ -47,5 +47,23 @@
       "INBOUND_RATE_LIMIT_RATE": "uint128 token-bucket refill rate (inbound).",
       "INBOUND_RATE_LIMIT_ENABLED": "true/false; defaults to true when CAPACITY or RATE are set. false stands alone as a disable."
     }
+  },
+  "SetPolicyEngine": {
+    "destructive": true,
+    "when_to_use": "Connect an AdvancedPoolHooks contract to an ACE Policy Engine on the same chain, or disconnect the engine with the zero address. The hook calls attach() on the new engine, which starts ACE target detection.",
+    "preconditions": "The executing account is the hooks owner (MODE=safe when a Safe owns it). The engine is deployed on the same chain and already provisioned for this hooks address: extractor, policies, and setTargetDefaultPolicyAllow. Every lane into this chain quotes a destGasOverhead that covers postflightCheck (UpdateTokenTransferFeeConfig).",
+    "postconditions": "getPolicyEngine returns the new engine. Run make snapshot-chain: hooks.policyEngine is a governance-critical roles{} field and the old declaration fails roles-check until re-snapshotted.",
+    "failure_modes": "DESTRUCTIVE: the zero address turns compliance checks off, and an unprovisioned engine rejects every transfer (PolicyRunRejected). An engine address with no code and a same-address update are refused before broadcasting. Reverts PolicyEngineDetachReverted when the old engine's detach() reverts; rerun with ALLOW_FAILED_DETACH=true. Pointing back at an engine left behind that way reverts TargetAlreadyAttached. Too little destGasOverhead fails inbound messages with TokenHandlingError(token, 0x).",
+    "inputs": {
+      "POLICY_ENGINE": "Address of the ACE Policy Engine on the same chain, or the zero address to disconnect the engine and stop policy checks.",
+      "POOL_HOOKS": "Address of the AdvancedPoolHooks contract. Resolves via the standard ladder: inline alias > {CHAIN}_POOL_HOOKS env > registry active.poolHooks.",
+      "ALLOW_FAILED_DETACH": "true calls setPolicyEngineAllowFailedDetach, tolerating a reverting detach() on the old engine (default false)."
+    }
+  },
+  "GetPolicyEngine": {
+    "when_to_use": "Read which ACE Policy Engine an AdvancedPoolHooks contract points at, or confirm none is set (policy checks disabled).",
+    "inputs": {
+      "POOL_HOOKS": "Address of the AdvancedPoolHooks contract. Resolves via the standard ladder: inline alias > {CHAIN}_POOL_HOOKS env > registry active.poolHooks."
+    }
   }
 }
