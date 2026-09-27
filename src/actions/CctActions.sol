@@ -483,6 +483,17 @@ library CctActions {
         return _one(hooks, abi.encodeCall(AdvancedPoolHooks.setPolicyEngine, (newPolicyEngine)));
     }
 
+    /// @notice `_setPolicyEngine` that tolerates the old engine's `detach()` reverting.
+    /// @dev The old engine keeps the hook listed as attached, so pointing back at it later reverts
+    ///      `TargetAlreadyAttached` until that engine drops the hook.
+    function _setPolicyEngineAllowFailedDetach(address hooks, address newPolicyEngine)
+        internal
+        pure
+        returns (Call[] memory)
+    {
+        return _one(hooks, abi.encodeCall(AdvancedPoolHooks.setPolicyEngineAllowFailedDetach, (newPolicyEngine)));
+    }
+
     /// @notice Apply allowlist updates (`removes`, `adds`) on an `AdvancedPoolHooks` (v2) or a v1 pool -
     ///         both expose the identical `applyAllowListUpdates(address[],address[])` selector.
     /// @dev IMMUTABILITY TRAP: on `AdvancedPoolHooks`, `allowlistEnabled` is fixed at deploy time from

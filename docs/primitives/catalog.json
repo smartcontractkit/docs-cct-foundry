@@ -448,7 +448,7 @@
       "name": "GetPolicyEngine",
       "script": "script/configure/policy-engine/GetPolicyEngine.s.sol",
       "group": "policy-engine",
-      "description": "Script to read the ACE Policy Engine address currently set on an AdvancedPoolHooks contract Usage: POOL_HOOKS=0x... forge script script/configure/policy-engine/GetPolicyEngine.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL /",
+      "description": "Script to read the ACE Policy Engine address currently set on an AdvancedPoolHooks contract.",
       "modes": [
         "read"
       ],
@@ -470,8 +470,9 @@
       ],
       "read_only": false,
       "writes_onchain": true,
-      "destructive": false,
+      "destructive": true,
       "inputs": [
+        "ALLOW_FAILED_DETACH",
         "POLICY_ENGINE",
         "POOL_HOOKS"
       ]

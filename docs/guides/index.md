@@ -20,6 +20,7 @@ concept page, or a dedicated guide. Grouping is for navigation only.
 
 - [Required verifiers (CCV) per lane](../operations/ccv.md).
 - [Advanced Pool Hooks and the additional-CCV threshold](../operations/hooks-allowlist.md).
+- [ACE Policy Engine on the hooks](../operations/policy-engine.md).
 - [Per-lane token-transfer fees](../operations/fees.md).
 - [Fast finality and fast-finality rate limits](../operations/finality.md).
 - [Rate limits (set, pause, remove) and the version deltas](../operations/rate-limits.md).

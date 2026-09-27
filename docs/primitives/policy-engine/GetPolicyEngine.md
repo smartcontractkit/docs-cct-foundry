@@ -11,7 +11,7 @@ destructive: false
 
 # GetPolicyEngine
 
-Script to read the ACE Policy Engine address currently set on an AdvancedPoolHooks contract Usage: POOL_HOOKS=0x... forge script script/configure/policy-engine/GetPolicyEngine.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL /
+Script to read the ACE Policy Engine address currently set on an AdvancedPoolHooks contract.
 
 **When to use.** Read which ACE Policy Engine an AdvancedPoolHooks contract points at, or confirm none is set (policy checks disabled).
 

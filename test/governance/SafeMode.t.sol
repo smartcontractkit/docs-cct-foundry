@@ -15,6 +15,8 @@ import {AcceptAdminRole} from "../../script/setup/AcceptAdminRole.s.sol";
 import {CctActions, ITokenPoolV150, ILockReleaseV1Liquidity} from "../../src/actions/CctActions.sol";
 import {PoolVersions} from "../../src/PoolVersions.sol";
 import {AdvancedPoolHooks} from "@chainlink/contracts-ccip/contracts/pools/AdvancedPoolHooks.sol";
+import {MockPolicyEngine} from "@chainlink/contracts-ccip/contracts/test/mocks/MockPolicyEngine.sol";
+import {Ownable2Step} from "@chainlink/contracts/src/v0.8/shared/access/Ownable2Step.sol";
 import {IERC20} from "@openzeppelin/contracts@5.3.0/token/ERC20/IERC20.sol";
 import {EoaExecutor} from "../../src/base/EoaExecutor.s.sol";
 import {ISafe, SafeCanonical} from "../../src/base/ISafe.sol";
@@ -305,6 +307,10 @@ contract SafeModeForkTest is BaseForkTest {
         address[] memory feeTokens = new address[](1);
         feeTokens[0] = token;
         _assertBatchRoundTrip("withdraw-fee-tokens", CctActions._withdrawFeeTokens(pool, feeTokens, deployer));
+        _assertBatchRoundTrip("set-policy-engine", CctActions._setPolicyEngine(pool, deployer));
+        _assertBatchRoundTrip(
+            "set-policy-engine-allow-failed-detach", CctActions._setPolicyEngineAllowFailedDetach(pool, deployer)
+        );
     }
 
     /// @dev PR #9 (lanes-as-data / version-dispatched pool ops / CCV config / v1.x LockRelease liquidity /
@@ -490,6 +496,32 @@ contract SafeModeForkTest is BaseForkTest {
         for (uint256 i = 0; i < safeRemotePools.length; i++) {
             assertEq(safeRemotePools[i], eoaRemotePools[i], "remote pool must equal the EOA path");
         }
+    }
+
+    /// @dev PR (policy-engine scripts) added two action-layer builders (`_setPolicyEngine`,
+    ///      `_setPolicyEngineAllowFailedDetach`); the byte-equality contract is "for EVERY builder in
+    ///      the catalog", so both round-trip in the catalog test above. This is the end-to-end leg:
+    ///      hooks owned by a 2-of-3 Safe take `setPolicyEngine` through the full Mode B ceremony
+    ///      (`execTransaction`), the engine records the hook as attached, and the former EOA owner is
+    ///      refused. The hooks are deployed directly (not via the deploy script, whose env seam races
+    ///      parallel suites from inside this suite's setUp).
+    function test_ModeB_SetPolicyEngine_SafeOwnedHooks() public {
+        AdvancedPoolHooks hooks = new AdvancedPoolHooks(new address[](0), 0, address(0), new address[](0));
+        // The test contract owns the fresh hooks (it ran the constructor); hand them to the Safe.
+        hooks.transferOwnership(address(safe));
+        _runSafeDirect("modeb-accept-hooks-ownership", CctActions._acceptOwnership(address(hooks)));
+        assertEq(hooks.owner(), address(safe), "the Safe must own the hooks after the Mode B accept");
+
+        MockPolicyEngine engine = new MockPolicyEngine();
+        _runSafeDirect("modeb-set-policy-engine", CctActions._setPolicyEngine(address(hooks), address(engine)));
+
+        assertEq(hooks.getPolicyEngine(), address(engine), "the engine must be set by the Safe");
+        assertTrue(engine.isAttached(address(hooks)), "the engine must record the hook as attached");
+
+        // The former EOA owner is refused: only the hooks owner may call setPolicyEngine.
+        vm.prank(deployer);
+        vm.expectRevert(Ownable2Step.OnlyCallableByOwner.selector);
+        hooks.setPolicyEngine(address(0));
     }
 
     /// @dev The registration pair (claim + accept) executes atomically as ONE Safe MultiSend batch: the

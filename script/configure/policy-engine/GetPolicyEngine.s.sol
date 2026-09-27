@@ -7,7 +7,7 @@ import {AdvancedPoolHooks} from "@chainlink/contracts-ccip/contracts/pools/Advan
 
 /**
  * @title GetPolicyEngine
- * @notice Script to read the ACE Policy Engine address currently set on an AdvancedPoolHooks contract
+ * @notice Script to read the ACE Policy Engine address currently set on an AdvancedPoolHooks contract.
  *
  * Usage:
  *   POOL_HOOKS=0x... forge script script/configure/policy-engine/GetPolicyEngine.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL

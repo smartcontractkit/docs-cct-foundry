@@ -93,8 +93,8 @@ at [`catalog.json`](catalog.json). These pages are generated from the scripts an
 
 ## policy-engine
 
-- [GetPolicyEngine](policy-engine/GetPolicyEngine.md) - Script to read the ACE Policy Engine address currently set on an AdvancedPoolHooks contract Usage: POOL_HOOKS=0x... forge script script/configure/policy-engine/GetPolicyEngine.s.sol --rpc-url $ETHEREUM_SEPOLIA_RPC_URL / _(read-only)_
-- [SetPolicyEngine](policy-engine/SetPolicyEngine.md) - Script to point an AdvancedPoolHooks contract at an ACE Policy Engine on the same chain, or disconnect the engine with the zero address. _(write)_
+- [GetPolicyEngine](policy-engine/GetPolicyEngine.md) - Script to read the ACE Policy Engine address currently set on an AdvancedPoolHooks contract. _(read-only)_
+- [SetPolicyEngine](policy-engine/SetPolicyEngine.md) - Script to point an AdvancedPoolHooks contract at an ACE Policy Engine on the same chain, or disconnect the engine with the zero address. _(write, destructive)_
 
 ## rate-limiter
 
